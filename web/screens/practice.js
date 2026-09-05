@@ -179,7 +179,13 @@ function nextRung(speed, cfg) {
   const found = all.find((r) => r > speed + 1e-9);
   return found === undefined ? null : found;
 }
-function clampSpeed(v) { return Math.min(100, Math.max(40, v)); }
+// 110, not 100 — Paolo asked to be able to push a section faster than the
+// recording on purpose (found live 2026-09-06). Ladder auto-advance is
+// unaffected: nextRung()/rungs() below only ever return values up to
+// cfg.targetSpeed, so pressing speed_up past 100% never counts toward or
+// changes what "at target" means, and clean reps above 100% still just log
+// at whatever speedPct actually was.
+function clampSpeed(v) { return Math.min(110, Math.max(40, v)); }
 function clampShift(v) { return Math.min(6, Math.max(-6, Math.round(v))); }
 
 const RING_R = 136;

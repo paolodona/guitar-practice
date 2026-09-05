@@ -82,7 +82,13 @@ const MAX_SHIFT = 6;
 // (invariant: "practice speeds are discrete, so the renders are"), not a
 // restriction on the live real-time engine.
 const MIN_SPEED_PCT = 40;
-const MAX_SPEED_PCT = 100;
+// 110, not 100: Paolo asked to be able to push a section faster than the
+// recording on purpose (get comfortable ahead of 100%, then come back down)
+// -- found live 2026-09-06. `target_speed`/the ladder's auto-advance still
+// stop at 100% (ladder.py's own "nothing advances past target_speed"
+// contract, mirrored client-side in screens/practice.js's nextRung()); this
+// only widens how far a MANUAL speed_up press can go.
+const MAX_SPEED_PCT = 110;
 
 // See the module doc above: kept for a future scrub/seek feature: this
 // engine has no seek method yet, so every lap it plays already starts
@@ -279,7 +285,7 @@ export class RealtimeEngine extends EventTarget {
   }
 
   /**
-   * @param {number} pct - percent, 50.0 means 50%; range 40-100
+   * @param {number} pct - percent, 50.0 means 50%; range 40-110
    *   (CLAUDE.md: "Practice speeds are discrete" governs the CACHE, not
    *   this slider — the real-time engine may take any value in range).
    */

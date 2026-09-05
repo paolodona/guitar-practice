@@ -4,6 +4,15 @@ Out-of-scope items discovered while planning or implementing. Format:
 `- [ ] **[Plan <NNN>]** <description>`
 
 ## Requested live during Phase 0 manual testing, 2026-09-06
+- [ ] **[Plan 001]** Raised the real-time engine's manual speed ceiling to 110% (was
+      100) so Paolo can deliberately overlearn a section faster than the recording --
+      `web/player.js`'s `MAX_SPEED_PCT` and `screens/practice.js`'s `clampSpeed`.
+      `clock.py`'s `Render.speed` is still documented `0.40 .. 1.00` (a fraction) for
+      the Phase 2 render CACHE, which is a separate, not-yet-built domain -- whoever
+      builds I1 (the cache) should decide then whether cached renders also go to
+      1.10 or stay capped at 1.00 (live-preview-only, matching the real-time slider
+      but not the practice loop). Left unresolved rather than guessed, since it
+      changes the `rungs()`/ladder domain too if the cache follows.
 - [ ] **[Plan 001]** Paolo asked for the setlist name in the practice-screen header
       (`design/Main.dc.html` fixes it there) to link back to that setlist. Genuinely
       not buildable yet: `GET /api/song/<slug>` has no `?setlist=` context (server.py's
