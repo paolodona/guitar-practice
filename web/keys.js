@@ -60,18 +60,41 @@ export const KEY_MAP = {
  * from app.js's contract 1, so a screen that wants scoped key handling can
  * call this itself and undo it on unmount).
  *
- * Nothing beyond the lookup-and-dispatch lives here — no preventDefault, no
- * focus/input guard, no repeat-suppression. That is a named rule (see this
- * file's module docstring and CLAUDE.md's "one action table"), not an
- * oversight: any of those would be a second place a keypress's meaning gets
- * decided.
+ * No repeat-suppression, and no *third* place a keypress's meaning gets
+ * decided beyond KEY_MAP + ACTIONS -- that part of the original rule holds.
+ * Two things were found live 2026-09-06 to be necessary rather than
+ * "a second place meaning gets decided", and are narrowly scoped to exactly
+ * the keys this file already recognizes:
+ *
+ * - preventDefault() on a recognized key. Without it, Space also pages the
+ *   browser down (its native default action) every time it plays/pauses --
+ *   both fire, so the whole page visibly jumps. Several of KEY_MAP's other
+ *   keys (arrows) have the same native-scroll conflict. This doesn't add a
+ *   second decision about what a key means; it only stops the browser's own
+ *   competing default for a key this file has already claimed.
+ * - an editable-element guard. With no focus check, typing into ANY text
+ *   field (the song page inspector's Name/Notes, say) also dispatches
+ *   whatever KEY_MAP entry the typed character happens to match ('r', 'c',
+ *   'm', 'f', space, ...) -- indistinguishable from a real shortcut press.
+ *   Skipped entirely (not merely un-prevented) when the event's target is a
+ *   real text-entry surface, so typing stays just typing.
  * @param {Window | HTMLElement} [target=window]
  * @returns {() => void} detach
  */
 export function attach(target = window) {
+  function isTextEntry(el) {
+    if (!el) return false;
+    if (el.isContentEditable) return true;
+    const tag = el.tagName;
+    return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+  }
   function onKeydown(event) {
+    if (isTextEntry(event.target)) return;
     const name = KEY_MAP[event.key];
-    if (name) dispatch(name, 'keyboard');
+    if (name) {
+      event.preventDefault();
+      dispatch(name, 'keyboard');
+    }
   }
   target.addEventListener('keydown', onKeydown);
   return () => target.removeEventListener('keydown', onKeydown);
