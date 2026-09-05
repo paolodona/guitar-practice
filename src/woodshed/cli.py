@@ -285,7 +285,7 @@ def cmd_setlist_list(args: argparse.Namespace) -> int:  # noqa: ARG001 -- fixed 
     repo = _repo()
     slugs = repo.list_setlists()
     if not slugs:
-        _say("no setlists yet -- `woodshed setlist create <slug> --name ... --tuning ...`")
+        _say('no setlists yet -- `woodshed setlist create "The Gig" --tuning "Eb standard"`')
         return 0
     for slug, setlist in zip(slugs, list_setlists(repo), strict=True):
         _say(f"{slug}: {setlist.name!r} ({setlist.tuning}, {len(setlist.songs)} songs)")
@@ -296,10 +296,13 @@ def cmd_setlist_create(args: argparse.Namespace) -> int:
     from woodshed.manifest import Setlist
     from woodshed.setlist import create
 
-    create(_repo(), args.slug, Setlist(
+    slug = args.slug or slugify(args.name)
+    if not slug:
+        raise WoodshedError(f"{args.name!r} does not slugify to anything usable; pass --slug")
+    create(_repo(), slug, Setlist(
         name=args.name, tuning=args.tuning, date=args.date, venue=args.venue or "",
     ))
-    _say(f"created setlist {args.slug!r}: {args.name!r} ({args.tuning})")
+    _say(f"created setlist {slug!r}: {args.name!r} ({args.tuning})")
     return 0
 
 
@@ -713,9 +716,10 @@ def build_parser() -> argparse.ArgumentParser:
     sp.set_defaults(func=cmd_setlist_list)
 
     sp = setlist_sub.add_parser("create", help="create a new setlist")
-    sp.add_argument("slug", help="the setlist's file name (setlists/<slug>.yaml)")
-    sp.add_argument("--name", required=True)
+    sp.add_argument("name", help='the setlist\'s name, e.g. "Ramba S.S. -- the set"')
     sp.add_argument("--tuning", required=True, help="the BAND's tuning -- what makes the transpose")
+    sp.add_argument("--slug", default=None,
+                     help="override the derived slug (default: slugified name)")
     sp.add_argument("--date", default=None, help="YYYY-MM-DD, optional; drives the countdown")
     sp.add_argument("--venue", default=None)
     sp.set_defaults(func=cmd_setlist_create)

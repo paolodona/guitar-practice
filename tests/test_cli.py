@@ -87,7 +87,7 @@ def test_not_yet_implemented_commands_refuse_cleanly(
 
 
 def test_setlist_create_then_list(repo: Repo, capsys: pytest.CaptureFixture) -> None:
-    rc = cli.main(["setlist", "create", "gig", "--name", "The Gig", "--tuning", "Eb standard"])
+    rc = cli.main(["setlist", "create", "The Gig", "--tuning", "Eb standard", "--slug", "gig"])
     assert rc == 0
     capsys.readouterr()
     rc = cli.main(["setlist", "list"])
@@ -96,7 +96,7 @@ def test_setlist_create_then_list(repo: Repo, capsys: pytest.CaptureFixture) -> 
 
 
 def test_setlist_add_song_derives_shift_by_default(repo: Repo) -> None:
-    cli.main(["setlist", "create", "gig", "--name", "Gig", "--tuning", "Eb standard"])
+    cli.main(["setlist", "create", "Gig", "--tuning", "Eb standard", "--slug", "gig"])
     rc = cli.main(["setlist", "add-song", "gig", "cant-stop"])
     assert rc == 0
     from woodshed.setlist import load
@@ -104,7 +104,7 @@ def test_setlist_add_song_derives_shift_by_default(repo: Repo) -> None:
 
 
 def test_setlist_shift_sets_then_clears(repo: Repo) -> None:
-    cli.main(["setlist", "create", "gig", "--name", "Gig", "--tuning", "Eb standard"])
+    cli.main(["setlist", "create", "Gig", "--tuning", "Eb standard", "--slug", "gig"])
     cli.main(["setlist", "add-song", "gig", "cant-stop"])
     rc = cli.main(["setlist", "shift", "gig", "cant-stop", "-2"])
     assert rc == 0
@@ -115,7 +115,7 @@ def test_setlist_shift_sets_then_clears(repo: Repo) -> None:
 
 
 def test_setlist_rm_song(repo: Repo) -> None:
-    cli.main(["setlist", "create", "gig", "--name", "Gig", "--tuning", "E standard"])
+    cli.main(["setlist", "create", "Gig", "--tuning", "E standard", "--slug", "gig"])
     cli.main(["setlist", "add-song", "gig", "cant-stop"])
     rc = cli.main(["setlist", "rm-song", "gig", "cant-stop"])
     assert rc == 0

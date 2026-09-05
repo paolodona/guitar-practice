@@ -39,10 +39,24 @@
  *    setlist this phase has no reason to believe is unbounded.
  * 3. No setlist on disk yet: `setlists` is `[]` and there is no
  *    `currentSetlist` to have fetched a dashboard payload for. Renders a
- *    plain empty state ("create one with `woodshed setlist add`") rather
- *    than a blank screen or a fabricated row.
+ *    "create your first setlist" form (`POST /api/setlist`) rather than a
+ *    blank screen or a fabricated row.
+ *
+ * 4. (post-Phase-1) Creating a setlist and adding a song to one are both
+ *    real, small inline forms — `POST /api/setlist` and
+ *    `POST /api/setlist/<slug>/songs` — rather than requiring a terminal.
+ *    Adding a song accepts a title OR a slug (server.py's
+ *    `_post_setlist_songs` resolves it via `Repo.find_song`, falling back
+ *    to a fresh needs-audio placeholder slug when nothing matches) —
+ *    there is still no way to create a brand-new song's METADATA from
+ *    here (title/artist with no audio at all): `manifest.Song.recording`
+ *    is a required field, so a song only exists once it is bound (`add`/
+ *    `capture`) or scanned. Typing a not-yet-bound title into "Add song"
+ *    still works — it lands in the setlist as a `needs_audio` row keyed
+ *    by its slugified name — but the row's title IS that slug until the
+ *    song is actually bound, since nowhere on disk holds a nicer one yet.
  */
-import { get, setCurrentSetlist } from '../app.js';
+import { get, post, setCurrentSetlist } from '../app.js';
 
 const STYLE_ID = 'dashboard-screen-style';
 
@@ -72,6 +86,13 @@ function ensureStyle() {
       border:none;border-radius:4px;padding:15px 30px;font-size:19px;font-weight:600;
       white-space:nowrap;cursor:pointer;text-decoration:none;display:inline-block }
     .ws-dash .practise-btn:hover { background:var(--accent-hover,#EFA95C) }
+    .ws-dash .fld { background:var(--sunken,#0F1614);border:1px solid var(--line,#26302E);
+      border-radius:4px;padding:8px 11px;font-size:14px;color:var(--ink,#E8EEEB);font-family:inherit }
+    .ws-dash .fld::placeholder { color:var(--ink-4,#5B6A64) }
+    .ws-dash .go-btn { background:var(--accent,#E0913F);color:var(--ground,#0C1211);border:none;
+      border-radius:4px;padding:8px 16px;font-size:14px;font-weight:600;cursor:pointer;white-space:nowrap }
+    .ws-dash .go-btn:hover { background:var(--accent-hover,#EFA95C) }
+    .ws-dash .form-error { font-size:12px;color:var(--warn,#C9805E) }
   `;
   document.head.appendChild(style);
 }
@@ -174,6 +195,37 @@ function nextUpHtml(nextUp) {
     </div>`;
 }
 
+/** A name + tuning + submit form, shared by the empty state and the
+ * pills row's "+ New setlist" toggle. `onCreated(slug)` runs after a
+ * successful POST /api/setlist. */
+function createSetlistFormHtml() {
+  return `
+    <form data-form style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <input class="fld" data-name placeholder="Setlist name" required style="width:220px">
+      <input class="fld" data-tuning placeholder="Tuning, e.g. Eb standard" required style="width:200px">
+      <button type="submit" class="go-btn">Create</button>
+      <div data-error class="form-error"></div>
+    </form>`;
+}
+
+function wireCreateSetlistForm(container, onCreated) {
+  const form = container.querySelector('[data-form]');
+  const errorEl = form.querySelector('[data-error]');
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    errorEl.textContent = '';
+    const name = form.querySelector('[data-name]').value.trim();
+    const tuning = form.querySelector('[data-tuning]').value.trim();
+    if (!name || !tuning) return;
+    try {
+      const created = await post('/api/setlist', { name, tuning });
+      await onCreated(created.slug);
+    } catch (err) {
+      errorEl.textContent = err.message;
+    }
+  });
+}
+
 /**
  * @param {HTMLElement} el
  * @param {any} payload
@@ -185,11 +237,16 @@ export function mount(el, payload) {
   if (!payload.setlists || payload.setlists.length === 0) {
     el.innerHTML = `
       <div class="ws-dash" style="min-height:100vh;background:var(--ground,#0C1211);color:var(--ink,#E8EEEB);
-                  display:flex;align-items:center;justify-content:center;flex-direction:column;gap:10px">
+                  display:flex;align-items:center;justify-content:center;flex-direction:column;gap:16px">
         <div class="mono" style="font-size:14px;letter-spacing:.32em">WOODSHED</div>
-        <div style="font-size:17px;color:var(--ink-2,#9CAAA4)">No setlists yet.</div>
-        <div class="mono" style="font-size:13px;color:var(--ink-3,#6A7873)">woodshed setlist add &lt;name&gt;</div>
+        <div style="font-size:17px;color:var(--ink-2,#9CAAA4)">No setlists yet -- create your first one.</div>
+        <div data-create-setlist>${createSetlistFormHtml()}</div>
       </div>`;
+    wireCreateSetlistForm(el.querySelector('[data-create-setlist]'), async (slug) => {
+      setCurrentSetlist(slug);
+      const setlists = await get('/api/setlists');
+      await switchTo(el, setlists, slug);
+    });
     return;
   }
 
@@ -229,10 +286,14 @@ function render(el, payload) {
       <div style="display:flex;align-items:center;gap:36px;padding-bottom:22px;border-bottom:1px solid var(--line,#26302E)">
         <div class="mono" style="font-size:14px;letter-spacing:.32em;font-weight:600">WOODSHED</div>
         <div style="display:flex;gap:6px;align-items:center" data-pills>${pills}</div>
+        <button class="pill" data-new-setlist-toggle style="border:1px dashed var(--line,#26302E)">+ New setlist</button>
         <div style="margin-left:auto;display:flex;align-items:center;gap:14px">
           <div class="mono" style="font-size:13px;color:var(--ink-3,#6A7873);letter-spacing:.06em">${payload.song_count} SONGS</div>
           <div style="border:1px solid var(--line,#26302E);border-radius:4px;padding:6px 12px;font-size:14px">${escapeHtml(payload.tuning)}</div>
         </div>
+      </div>
+      <div data-new-setlist-form hidden style="padding:14px 0;border-bottom:1px solid var(--line,#26302E)">
+        ${createSetlistFormHtml()}
       </div>
 
       <div style="display:flex;gap:14px;padding:22px 0 26px">
@@ -262,6 +323,14 @@ function render(el, payload) {
       </div>
       <div data-rows>${payload.rows.map(rowHtml).join('')}</div>
 
+      <div style="display:flex;gap:8px;align-items:center;padding:14px 12px 0">
+        <form data-add-song style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <input class="fld" data-song placeholder="Song title or slug" style="width:260px">
+          <button type="submit" class="go-btn">Add song</button>
+          <div data-error class="form-error"></div>
+        </form>
+      </div>
+
       <div style="margin-top:auto;padding-top:18px;display:flex;justify-content:space-between">
         <div class="mono" style="font-size:12px;color:var(--ink-4,#5B6A64);letter-spacing:.08em">${payload.rows.length} SONGS IN THIS SETLIST</div>
         <div class="mono" style="font-size:12px;color:var(--ink-4,#5B6A64);letter-spacing:.08em">${setlists.length} SETLIST${setlists.length === 1 ? '' : 'S'}</div>
@@ -273,4 +342,28 @@ function render(el, payload) {
       switchTo(el, setlists, button.dataset.setlist);
     });
   }
+
+  const newSetlistForm = el.querySelector('[data-new-setlist-form]');
+  el.querySelector('[data-new-setlist-toggle]').addEventListener('click', () => {
+    newSetlistForm.hidden = !newSetlistForm.hidden;
+  });
+  wireCreateSetlistForm(newSetlistForm, async (slug) => {
+    const freshSetlists = await get('/api/setlists');
+    await switchTo(el, freshSetlists, slug);
+  });
+
+  const addSongForm = el.querySelector('[data-add-song]');
+  const addSongError = addSongForm.querySelector('[data-error]');
+  addSongForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    addSongError.textContent = '';
+    const song = addSongForm.querySelector('[data-song]').value.trim();
+    if (!song) return;
+    try {
+      await post(`/api/setlist/${encodeURIComponent(currentSetlist)}/songs`, { song });
+      await switchTo(el, setlists, currentSetlist);
+    } catch (err) {
+      addSongError.textContent = err.message;
+    }
+  });
 }

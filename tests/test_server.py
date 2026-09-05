@@ -529,6 +529,81 @@ def test_post_shift_missing_fields_is_400(served):
     assert caught.value.code == 400
 
 
+# ── POST /api/setlist, POST /api/setlist/<slug>/songs ───────────────────
+
+
+def test_post_setlist_creates_one_derived_slug(served):
+    base, repo, _ = served
+    status, data = _post(base, "/api/setlist", {"name": "The Gig", "tuning": "Eb standard"})
+    assert status == 200
+    assert data == {"slug": "the-gig", "name": "The Gig", "tuning": "Eb standard",
+                     "date": None, "song_count": 0}
+
+    from woodshed.setlist import load
+    assert load(repo, "the-gig").name == "The Gig"
+
+
+def test_post_setlist_explicit_slug_overrides_the_derived_one(served):
+    base, repo, _ = served
+    status, data = _post(
+        base, "/api/setlist",
+        {"name": "The Gig", "tuning": "E standard", "slug": "gig", "date": "2027-04-17"},
+    )
+    assert status == 200
+    assert data["slug"] == "gig"
+    assert data["date"] == "2027-04-17"
+    from woodshed.setlist import load
+    assert load(repo, "gig").date.isoformat() == "2027-04-17"
+
+
+def test_post_setlist_missing_fields_is_400(served):
+    base, _, _ = served
+    with pytest.raises(urllib.error.HTTPError) as caught:
+        _post(base, "/api/setlist", {"name": "The Gig"})
+    assert caught.value.code == 400
+
+
+def test_post_setlist_refuses_an_existing_slug(served):
+    base, _, _ = served
+    _post(base, "/api/setlist", {"name": "The Gig", "tuning": "E standard"})
+    with pytest.raises(urllib.error.HTTPError) as caught:
+        _post(base, "/api/setlist", {"name": "The Gig", "tuning": "Eb standard"})
+    assert caught.value.code == 400
+
+
+def test_post_setlist_songs_resolves_an_existing_song_by_fuzzy_title(served):
+    base, repo, slug = served
+    _post(base, "/api/setlist", {"name": "Gig", "tuning": "E standard", "slug": "gig"})
+    status, data = _post(base, "/api/setlist/gig/songs", {"song": "Test Song"})
+    assert status == 200
+    assert data == {"setlist": "gig", "song": slug}
+
+    from woodshed.setlist import load
+    assert [e.slug for e in load(repo, "gig").songs] == [slug]
+
+
+def test_post_setlist_songs_adds_a_needs_audio_placeholder(served):
+    base, repo, _ = served
+    _post(base, "/api/setlist", {"name": "Gig", "tuning": "E standard", "slug": "gig"})
+    status, data = _post(base, "/api/setlist/gig/songs", {"song": "Mother Sacher"})
+    assert status == 200
+    assert data["song"] == "mother-sacher"
+
+    # No song.yaml exists for it -- the dashboard's own needs-audio path.
+    status, dashboard = _get_json(base, "/api/setlist/gig")
+    assert status == 200
+    row = next(r for r in dashboard["rows"] if r["slug"] == "mother-sacher")
+    assert row["needs_audio"] is True
+
+
+def test_post_setlist_songs_missing_song_is_400(served):
+    base, _, _ = served
+    _post(base, "/api/setlist", {"name": "Gig", "tuning": "E standard", "slug": "gig"})
+    with pytest.raises(urllib.error.HTTPError) as caught:
+        _post(base, "/api/setlist/gig/songs", {})
+    assert caught.value.code == 400
+
+
 # ── POST /api/rep ────────────────────────────────────────────────────────
 
 
@@ -817,6 +892,8 @@ def test_server_writes_nothing_else(served):
     )
     _post(base, "/api/section", {"song": slug, "action": "delete", "id": "another-bit"})
     _post(base, "/api/shift", {"setlist": "gig", "song": slug, "shift": -2})
+    _post(base, "/api/setlist", {"name": "Duo", "tuning": "E standard", "slug": "duo"})
+    _post(base, "/api/setlist/duo/songs", {"song": slug})
 
     after = _hash_tree(repo.root)
     all_paths = set(before) | set(after)

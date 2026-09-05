@@ -33,6 +33,8 @@ now:
     POST /api/rep                       -> appends ONE ledger line        (C2)
     POST /api/section                   -> create/update/delete a span    (C2)
     POST /api/shift                     -> writes setlist.songs[].shift   (F1)
+    POST /api/setlist                   -> create a new setlist       (post-Phase-1)
+    POST /api/setlist/<slug>/songs      -> add a song to a setlist    (post-Phase-1)
     POST /api/shutdown                  -> stops the server               (C2)
 
 `/api/peaks/<slug>` still answers 404 with a small body when woodshed.peaks
@@ -71,10 +73,12 @@ from woodshed.clock import pre_roll_seconds
 from woodshed.config import load_config
 from woodshed.errors import WoodshedError
 from woodshed.ledger import Rep
-from woodshed.library import Repo
-from woodshed.manifest import Section, effective_pre_roll_beats, load_song, save_song
-from woodshed.setlist import effective_shift, set_shift
+from woodshed.library import Repo, slugify
+from woodshed.manifest import Section, Setlist, effective_pre_roll_beats, load_song, save_song
+from woodshed.setlist import add_song, effective_shift, set_shift
+from woodshed.setlist import create as create_setlist
 from woodshed.setlist import load as load_setlist
+from woodshed.setlist import save as save_setlist
 
 #: Arbitrary and unregistered; --port overrides it. Not load-bearing.
 DEFAULT_PORT = 8420
@@ -582,6 +586,11 @@ class WoodshedHandler(BaseHTTPRequestHandler):
                 self._post_section(body)
             elif path == "/api/shift":
                 self._post_shift(body)
+            elif path == "/api/setlist":
+                self._post_setlist(body)
+            elif path.startswith("/api/setlist/") and path.endswith("/songs"):
+                setlist_slug = path.removeprefix("/api/setlist/").removesuffix("/songs")
+                self._post_setlist_songs(setlist_slug, body)
             elif path == "/api/shutdown":
                 self._shutdown()
             else:
@@ -740,6 +749,61 @@ class WoodshedHandler(BaseHTTPRequestHandler):
             "shift": effective,
             "raw": entry.shift,
         })
+
+    def _post_setlist(self, body: dict) -> None:
+        """Create a new setlist. Body: `{name, tuning, slug?, date?, venue?}`
+        -- `slug` derived via `slugify(name)` when omitted, the same
+        pattern `woodshed add`/`woodshed capture` use so the dashboard's
+        "New setlist" form only ever has to ask for a name. Refuses (400)
+        rather than overwriting if that slug already names a setlist --
+        `setlist.create`'s own guard.
+        """
+        name = str(body.get("name", "")).strip()
+        tuning = str(body.get("tuning", "")).strip()
+        if not name or not tuning:
+            raise WoodshedError("a setlist needs both 'name' and 'tuning'")
+        slug = str(body.get("slug") or "").strip() or slugify(name)
+        if not slug:
+            raise WoodshedError(f"{name!r} does not slugify to anything usable -- pass 'slug'")
+
+        setlist = Setlist(
+            name=name, tuning=tuning,
+            date=body.get("date") or None, venue=str(body.get("venue") or ""),
+        )
+        create_setlist(self.repo, slug, setlist)
+        self._json({
+            "slug": slug, "name": setlist.name, "tuning": setlist.tuning,
+            "date": setlist.date.isoformat() if setlist.date else None,
+            "song_count": 0,
+        })
+
+    def _post_setlist_songs(self, setlist_slug: str, body: dict) -> None:
+        """Add a song to a setlist's running order. Body: `{song: <slug-or-
+        title>, shift?}`.
+
+        `song` is resolved the same way the CLI's `--slug`-less commands
+        resolve a title (`Repo.find_song`: exact slug, or an unambiguous
+        fuzzy match); a needle matching nothing is `slugify`'d and added
+        as-is rather than refused -- adding a song to a setlist before its
+        audio exists is exactly docs/00-spec.md's needs-audio state, not
+        an error. `setlist.add_song` itself still refuses a slug already
+        in this setlist's running order.
+        """
+        needle = str(body.get("song", "")).strip()
+        if not needle:
+            raise WoodshedError("a song needs a title or slug")
+        try:
+            song_slug = self.repo.find_song(needle)
+        except WoodshedError:
+            song_slug = slugify(needle)
+            if not song_slug:
+                raise WoodshedError(f"{needle!r} does not slugify to anything usable") from None
+
+        raw_shift = body.get("shift")
+        shift = None if raw_shift is None else int(raw_shift)
+        updated = add_song(load_setlist(self.repo, setlist_slug), song_slug, shift=shift)
+        save_setlist(self.repo, setlist_slug, updated)
+        self._json({"setlist": setlist_slug, "song": song_slug})
 
     def _shutdown(self) -> None:
         """Stand down. No build queue in this unit, so nothing to refuse for."""
