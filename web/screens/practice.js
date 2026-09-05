@@ -201,16 +201,37 @@ export function mount(el, payload) {
 
   const section = payload.sections.find((s) => s.id === payload.params.sectionId);
 
+  // Desktop-only (CLAUDE.md: "no mobile layout") but the artboard is a
+  // fixed 1920x1080 design and the real viewport rarely matches that
+  // exactly once browser chrome/taskbar are subtracted, so a naive
+  // min-height:1080px overflowed and scrolled on any shorter window --
+  // found live 2026-09-06. `stage` fills the actual viewport and clips;
+  // `root` stays a fixed 1920x1080 box, scaled and centered inside it, so
+  // every pixel value elsewhere in this file (the 236px hero numbers, the
+  // ring, the gaps) stays exactly proportional to the artboard rather than
+  // needing a rewrite into viewport units.
+  const stage = document.createElement('div');
+  stage.className = 'ws-practice-stage';
+  stage.style.cssText = 'position:relative;width:100vw;height:100vh;overflow:hidden;background:var(--ground,#0C1211)';
+  el.appendChild(stage);
+
   const root = document.createElement('div');
   root.className = 'ws-practice';
-  root.style.cssText = 'width:100%;min-height:1080px;background:var(--ground,#0C1211);position:relative;' +
+  root.style.cssText = 'width:1920px;height:1080px;background:var(--ground,#0C1211);position:absolute;top:50%;left:50%;' +
     "overflow:hidden;color:var(--ink,#E8EEEB);font-family:Archivo,'Helvetica Neue',Arial,sans-serif;box-sizing:border-box";
+  stage.appendChild(root);
+
+  function applyScale() {
+    const s = Math.min(window.innerWidth / 1920, window.innerHeight / 1080);
+    root.style.transform = `translate(-50%,-50%) scale(${s})`;
+  }
+  applyScale();
+  window.addEventListener('resize', applyScale);
 
   if (!section) {
     root.innerHTML = `<div style="padding:80px;font-size:24px;color:var(--warn,#C9805E)">
       No section ${escapeHtml(payload.params.sectionId ?? '')} on ${escapeHtml(payload.slug)}.</div>`;
-    el.appendChild(root);
-    return function unmount() {};
+    return function unmount() { window.removeEventListener('resize', applyScale); };
   }
 
   const cfg = {
@@ -329,7 +350,6 @@ export function mount(el, payload) {
       </div>
     </div>
   `;
-  el.appendChild(root);
 
   const mainEl = root.querySelector('[data-main]');
   const eyebrowEl = root.querySelector('[data-eyebrow]');
@@ -763,6 +783,7 @@ export function mount(el, payload) {
     cancelAnimationFrame(rafId);
     clearTimeout(advanceTimer);
     resizeObserver.disconnect();
+    window.removeEventListener('resize', applyScale);
     for (const unsub of unsubs) unsub();
     if (engine) {
       try { engine.destroy(); } catch (err) { /* already torn down or never finished loading */ }
