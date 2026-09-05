@@ -133,6 +133,15 @@ its tests while breaking one of these has failed.
    find a directive the code breaks. The alternative — plain dataclasses in
    `manifest.py` — is a real option and cheaper to defend; it is not chosen, and this
    paragraph exists so that choice is visible rather than accidental.
+
+   **Confirmed 2026-09-05, and scoped.** Pydantic is a dependency of the *parsing
+   boundary* only: `manifest.py` and `setlist.py` import it, and `sections`, `ladder`,
+   `ledger`, `clock` and `tuning` import stdlib and numpy and nothing else. The hard
+   maths therefore stays provably pure whatever happens to the dependency. **The doc
+   edit is already done** (2026-09-05): `CLAUDE.md`'s Layering section and
+   `docs/01-architecture.md` both name three core dependencies and state the scoping
+   rule, so B6 implements against docs that already agree with it rather than editing
+   them afterwards.
 6. **stdlib `ThreadingHTTPServer`**, no FastAPI. The server does three things and
    `rambass-live/src/rambass/console.py` already implements two of them correctly.
 7. **Vanilla ES modules, no bundler.** Served straight from `web/`.
@@ -362,8 +371,15 @@ Two validators carry real weight:
   Be honest about the limit: `safe_dump` cannot preserve **comments, quoting style or
   scalar style** in a hand-edited file, so the guarantee is "stable for app-written
   files", not "byte-identical for any input". `docs/02-data-model.md` prints
-  `song.yaml` with explanatory comments, and a first UI save will drop them. Either
-  accept that and say so in the docstring, or edit surgically — do not claim a
+  `song.yaml` with explanatory comments, and a first UI save will drop them.
+  **Decided 2026-09-05: accept it — `song.yaml` is tracked in git, so a rewrite that
+  drops comments shows up in `git diff` and is one `git checkout` from being back.**
+  `ruamel.yaml` was declined: it is not just a fourth core dependency, it is a second
+  document representation to keep in sync with the models on every write. Two
+  conditions ship with the acceptance: `save_song`'s docstring states plainly what it
+  drops, and `docs/02-data-model.md` says its comments are documentation — durable
+  prose about a section belongs in `notes:`, which is a real field. **That doc edit is
+  already done** (2026-09-05); what B6 still owes is the docstring. Do not claim a
   guarantee the serialiser cannot make.
 - `SetlistEntry.shift` is validated to ±`MAX_SHIFT` **at the model**, not only in the
   UI stepper. `POST /api/shift` and a hand-edited `setlist.yaml` reach the same
@@ -619,13 +635,19 @@ under `repo.web_dir` and asserts `is_relative_to` before opening. The lifted
 us — the burden is on Woodshed's routes. `..%2f` in a slug should be a 404 from the
 allow-list, not a file read.
 
-**One `Host` check on the mutating verbs.** Binding to `127.0.0.1`
+**A `Host` and an `Origin` check on the mutating verbs.** Binding to `127.0.0.1`
 (`console.py:766`) keeps the network out but not the browser: any page open in the
 same browser can `POST` to `127.0.0.1:<port>` and append junk to the ledger or
-`/api/shutdown` the server. Reject a `POST` whose `Host` is not `127.0.0.1|localhost:<port>`.
-That is five lines and it protects the one irreplaceable file. Deliberately **not**
+`/api/shutdown` the server. Reject a `POST` whose `Host` is not `127.0.0.1|localhost:<port>`
+— that is what defeats DNS rebinding, the only real threat to a loopback socket. In the
+same preamble, reject a `POST` that carries an `Origin` header which is not the server's
+own origin: a cross-site form `POST` carries the attacker's `Origin`, the app's own
+`fetch` carries `http://127.0.0.1:<port>`, so one line closes classic CSRF without a
+nonce. That is six lines and it protects the one irreplaceable file. Deliberately **not**
 doing: authentication, tokens, CSRF nonces, or body-size limits — this is a
 single-user tool on a loopback socket and that would be theatre.
+*Test contract*: a `POST` with a foreign `Host` is refused; a `POST` with a foreign
+`Origin` is refused; a `POST` with no `Origin` header at all (curl, the CLI) is allowed.
 
 **Endpoint ownership.** C2 owns `/`, `/web/*`, `/api/song`, `/api/peaks`, `/api/audio`,
 `POST /api/rep`, `POST /api/section` and `POST /api/shutdown`. `/api/config` ships with
@@ -773,9 +795,11 @@ which screens were built that way so they can be checked against the drawing lat
   into `web/vendor/rubberband/` and put `build.sh` and the C shim beside it, because
   those are the corresponding source GPLv2 §3 asks for and a bare blob does not have.
   `tools/rb-probe/fetch-wasm.ps1` already downloads and hash-checks all four.
-  **A2 is gated on the licence confirmation** in the open questions, not on anything
-  technical: until that is confirmed, nothing GPL is committed and the probe fetches
-  the binary at run time.
+  **The licence question is settled (2026-09-05): the repo becomes GPL-2.0-or-later
+  and A2 is unblocked.** `LICENSE` is `GPL-2.0-or-later` at the top level, and
+  `build.sh` plus the C shim are committed beside the `.wasm` as the corresponding
+  source GPLv2 §3 requires. This also makes vendoring the Windows `rubberband` exe
+  under `tools/` a convenience call rather than a licence one.
 
 **Group B — the pure core (∥, one agent each, all test-first)**
 - **B1** `errors.py` + `library.py` + `tests/test_library.py`

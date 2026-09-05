@@ -81,6 +81,16 @@ sections:
     target_speed: 95
 ```
 
+**The comments in that example are documentation, not data.** The app writes
+`song.yaml` with `yaml.safe_dump`, which preserves field order but not comments,
+quoting or scalar style — so the first save from the UI on a hand-annotated file
+strips them. That is accepted rather than worked around: `song.yaml` is tracked in
+git, so a rewrite is a visible diff and one `git checkout` from being back, and the
+alternative (`ruamel.yaml`) means carrying a second document representation and
+keeping it in sync with the models on every write. **Durable prose about a section
+belongs in `notes:`, which is a real field the app round-trips**, not in a YAML
+comment.
+
 ### Sections may overlap, and nest, and that is the point
 
 *"Master of Puppets — full solo"* and *"Master of Puppets — solo, first part,

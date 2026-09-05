@@ -37,7 +37,7 @@ still run its core commands on a laptop with nothing installed:
 | module | job | dependencies |
 |---|---|---|
 | `library.py` | repo layout, slugs, song lookup | — |
-| `manifest.py` | `song.yaml` / `setlist.yaml` load, save, validate | pyyaml |
+| `manifest.py` | `song.yaml` / `setlist.yaml` load, save, validate | pyyaml, pydantic |
 | `sections.py` | spans, snapping, containment, lane assignment, coverage — **pure functions** | — |
 | `ladder.py` | speed steps, rep counting, advance rules — **pure functions** | — |
 | `ledger.py` | append-only rep log, read and aggregate | — |
@@ -50,11 +50,20 @@ still run its core commands on a laptop with nothing installed:
 | `render.py` | offline time-stretch / pitch-shift into the cache | **rubberband** (optional) |
 
 **Never import librosa, open an audio device, or call the rubberband binary above
-the `capture.py` / `analyze.py` / `render.py` line.** Everything else must run from a fresh clone with `pyyaml` and
-`numpy` and nothing more — which also means the whole test suite runs that way.
+the `capture.py` / `analyze.py` / `render.py` line.** Everything else must run from a
+fresh clone with `pyyaml`, `numpy` and `pydantic` and nothing more — which also means
+the whole test suite runs that way. Those three are the core, and none of them is
+heavy: pydantic is a wheel with no system dependency, so it costs nothing that the
+rule exists to prevent.
+
 Use a `require_module()`-style helper so a missing extra prints an install hint
 naming the installer that actually exists, not an `ImportError` traceback. Both
 other repos already have that helper; lift it.
+
+**Pydantic is scoped to the parsing boundary.** Only the modules that read YAML —
+`manifest.py` and `setlist.py` — import it. `sections`, `ladder`, `ledger`, `clock`
+and `tuning` import stdlib and numpy and nothing else, which keeps the pure maths
+testable with the minimum installed and independent of the schema library.
 
 ## Stack
 

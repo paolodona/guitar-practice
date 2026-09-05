@@ -112,19 +112,40 @@ raised by a reviewer, survived the tiebreak as *partially* accepted, and is park
 here rather than decided unilaterally — the plan has been edited for the parts that
 are unambiguous, and these are the parts a human owns.
 
-- [ ] **Local-server hardening: how far?** Accepted and folded in: path containment
+- [x] **Local-server hardening: how far?** **Decided 2026-09-05: the plan's posture
+      stands, plus one line.** Accepted and folded in: path containment
       on the three path-taking routes (resolve `<slug>` through `Repo.list_songs()`,
       never concatenate) and one `Host` check on the mutating verbs. Declined as
       theatre for a loopback single-user tool: authentication, CSRF nonces, body-size
-      limits. If that posture is wrong, the place to change it is `server.py`'s
-      request preamble and it is a five-line difference either way.
-- [ ] **GPL: does the repo licence change?** Decision 1 vendors a Rubber Band WASM
+      limits. The `Host` check is the one that earns its keep: it is exactly what
+      defeats DNS rebinding, the only real threat to a loopback socket. **Added by this
+      decision:** the same preamble also rejects a mutating request carrying an `Origin`
+      header that is not the server's own origin — a cross-site form `POST` carries the
+      attacker's `Origin`, the app's own `fetch` carries `http://127.0.0.1:<port>`, so
+      that closes classic CSRF without a nonce. One line, same place as the `Host` check.
+      If the posture is ever wrong, `server.py`'s request preamble is where it changes
+      and it is a five-line difference either way.
+- [x] **GPL: does the repo licence change?** **Decided 2026-09-05: yes — the repo
+      becomes GPL-2.0-or-later, and A2 is unblocked.** Decision 1 vendors a Rubber Band WASM
       build into published `web/`, which makes the distributed work GPLv2+. A1 now
-      adds a top-level `LICENSE`. Confirm that is intended — the alternative is
+      adds a top-level `LICENSE`, and that is confirmed as intended — the alternative was
       `@soundtouchjs/audio-worklet` (LGPL, named in `docs/01-architecture.md:77`) for
       the *real-time* engine only, keeping the GPL binary in the subprocess where the
       boundary is clean. That would cost preview/render consistency, which the review
-      showed was a weaker argument than the plan claimed.
+      showed was a weaker argument than the plan claimed — but it would also put a
+      WSOLA-family stretcher on the live preview at ratios `CLAUDE.md` says WSOLA
+      flutters on, at the one moment the speed is being judged by ear. Declined for that
+      reason, not for the consistency one.
+      The cost of accepting is close to zero here: a personal tool with no commercial
+      reuse intent, all three sibling repos are Paolo's, and Rubber Band is dual-licensed
+      (a commercial licence exists) if that ever changes. Note the subprocess path is
+      unaffected — `render.py` shelling out to a rubberband exe the user installed
+      themselves propagates nothing; only the vendored WASM forces this.
+      **Consequences:** A2 adds a top-level `LICENSE` (GPL-2.0-or-later) and commits
+      `build.sh` and the C shim beside `rubberband.wasm` as the corresponding source
+      GPLv2 §3 requires. This also settles the parked question above about vendoring the
+      Windows `rubberband` binary under `tools/` — GPL code in a GPL repo is clean, so
+      that becomes a convenience call rather than a licence one.
 - [x] **Which Rubber Band WASM build, and has it been tested in an `AudioWorklet` at
       ratio 2.0?** ~~Not verified during planning.~~ **Resolved 2026-09-05 by
       measurement, not by reading.** The build is `rubberband-wasm@3.3.0` (Daninet,
@@ -141,24 +162,54 @@ are unambiguous, and these are the parts a human owns.
       the source and pull (a quantum-in/quantum-out processor cannot hold a ratio
       other than 1.0, which is why `rubberband-web` is not usable); `startDelay` is
       2048 frames and belongs in `clock.py`; and `performance` does not exist in
-      `AudioWorkletGlobalScope`. Still open and human-owned: the *listening* check,
-      and confirming the GPL question above before A2 vendors the binary into `web/`.
-- [ ] **`pydantic` in the core: bless it or drop it?** The plan now states the
+      `AudioWorkletGlobalScope`. The GPL question below is now answered, so A2 may
+      vendor the binary into `web/`. Still open and human-owned: the *listening* check.
+- [x] **`pydantic` in the core: bless it or drop it?** **Decided 2026-09-05: bless it,
+      scoped to the parsing boundary.** The plan now states the
       deviation explicitly and picks "pydantic is a third core dependency", with a
       note to update `CLAUDE.md` and `docs/01-architecture.md` to say three. The
-      unchosen alternative — plain dataclasses in `manifest.py` — is cheaper to
-      defend against the invariant as literally written. Decide before B6.
-- [ ] **`save_song` round-trip: accept comment loss, or edit surgically?** The plan
+      unchosen alternative — plain dataclasses in `manifest.py` — is cheaper to defend
+      against the invariant as literally written, but costs ~100 lines of hand-written
+      validation doing what pydantic does well, and breaks the *other* sentence
+      (Conventions: "Schemas are Pydantic models in the module that owns them") instead.
+      The invariant's stated purpose is that the pure modules test with "no audio, no
+      librosa, no ffmpeg, no browser"; pydantic is a wheel with no system dependency and
+      threatens none of that.
+      **Scoping, which is the part that makes this safe:** pydantic is a dependency of
+      the *boundary* — `manifest.py` and `setlist.py`, the modules that parse YAML.
+      `sections`, `ladder`, `ledger`, `clock` and `tuning` import stdlib and numpy and
+      nothing else, so the hard maths stays provably pure. **The deliverable of this
+      decision is the doc edit**: `CLAUDE.md`'s Layering section and
+      `docs/01-architecture.md` say three core dependencies and carry the scoping rule,
+      so the next reader does not find a directive the code breaks. **Done 2026-09-05**,
+      ahead of B6 rather than alongside it.
+- [x] **`save_song` round-trip: accept comment loss, or edit surgically?** **Decided
+      2026-09-05: accept `safe_dump`.** The plan
       now scopes the guarantee to app-written files and says `safe_dump` drops
       comments, quoting and scalar style. `docs/02-data-model.md` prints `song.yaml`
       *with* explanatory comments, so the first UI save on a hand-written file will
-      strip them. Accept, or add `ruamel.yaml` (a fourth core dependency) — the
-      question the layering rule makes non-trivial.
-- [ ] **Does `pre_roll_every_pass: true` actually ship in Phase 1?** G2 now owns it,
+      strip them. **The argument that settles it: `song.yaml` is tracked in git.** A
+      rewrite that drops comments appears in `git diff` and is one `git checkout` from
+      being back, which makes this a visible formatting change rather than silent data
+      loss. `ruamel.yaml` is not merely a fourth core dependency — it is a second
+      document representation to keep in sync with the pydantic models on every write.
+      **Two conditions on accepting:** `save_song`'s docstring states plainly what it
+      drops, and `docs/02-data-model.md` says its comments are documentation — durable
+      prose about a section belongs in `notes:`, which is a real field, not in a YAML
+      comment. **The doc half is done 2026-09-05**; the docstring ships with B6.
+- [x] **Does `pre_roll_every_pass: true` actually ship in Phase 1?** **Decided
+      2026-09-05: yes, it ships.** G2 now owns it,
       but `docs/00-spec.md` says the setting defaults to first-pass-only "because
       hearing the same bar 30 times is not the point". If it is never going to be
       turned on, it is a declaration with no consumer and G2 should say so instead of
-      implementing it.
+      implementing it. **But G2 already converts beats to seconds for the `false` case,
+      and the render already puts the pre-roll in the buffer, so the entire marginal cost
+      of `true` is `loopStart = 0` instead of `loopStart = pre_roll_s` — one branch and
+      one test, cheaper than the argument about whether to have it.** It is also not
+      useless: a section whose *entry* is the hard part (a pick-up phrase, coming in
+      after a rest) is a real case for the lead-in on every pass. The spec's "hearing the
+      same bar 30 times is not the point" justifies the **default**, not the absence of
+      the setting. G2's test contract stands unchanged.
 
 ---
 
@@ -256,7 +307,7 @@ auth on the loopback server.
 | 4 | Ledger lock/fsync + retract by id | [X+C] | ✅ Accepted | `ThreadingHTTPServer` can serve a UI and a MIDI rep concurrently; the one irreplaceable file |
 | 5 | Pydantic-in-core contradiction | [X+C] | ✅ Accepted | Resolved explicitly in Decisions §5 with a note to fix the two docs; the conflict is in the source docs, not the plan |
 | 6 | Wrong `analyze.py` signatures | [X+C] | ✅ Accepted | Verified: `find_grid_anchor` returns `tuple[float, dict]` and takes onsets; `grid_confidence` returns a dict |
-| 7 | Server traversal / Origin | [X+C] | ⚠️ Partial | Containment + one `Host` check accepted; auth and body limits declined as theatre on a loopback socket |
+| 7 | Server traversal / Origin | [X+C] | ⚠️ Partial | Containment + a `Host` check accepted, and **an `Origin` check added on 2026-09-05** when the question was settled; auth and body limits declined as theatre on a loopback socket |
 | 8 | Crossfade vs `loopEnd` | [X] | ✅ Accepted | Real arithmetic hole; without the term every pass replays the faded head — the tick the Phase 2 gate listens for |
 | 9 | `Span` undefined, two vocabularies | [C] | ✅ Accepted | Strongest single finding; it is what lets B3 and B6 run in parallel at all |
 | 10 | Percent vs fraction unfixed | [C] | ✅ Accepted | Four units implement against it concurrently; exactly the silent unit mix-up the plan front-loads to prevent |
@@ -268,7 +319,7 @@ auth on the loopback server.
 | 16 | Capture overflow refusal unowned | [X] | ✅ Accepted | `docs/04-sources.md:92` is explicit; a silent dropout that binds is a corrupt source found months later |
 | 17 | `pre_roll_every_pass` + lead-in beats | [C] | ✅ Accepted | `docs/00-spec.md:98` lists lead-in beats per section; nobody owned beats→seconds |
 | 18 | `-k` should be `-m` | [C] | ✅ Accepted | `-k` matches names, not markers — the gate would have deselected nothing |
-| 19 | `safe_dump` ≠ byte-identical | [X] | ✅ Accepted | Guarantee rescoped to app-written files; open question parked on whether to accept comment loss |
+| 19 | `safe_dump` ≠ byte-identical | [X] | ✅ Accepted | Guarantee rescoped to app-written files; **comment loss accepted 2026-09-05** — `song.yaml` is tracked, so a rewrite is a visible diff, and `ruamel.yaml` would mean a second document representation |
 | 20 | Three-writes test → hashes | [X] | ✅ Accepted | A file-list diff passes an in-place ledger rewrite, the one thing it most needs to catch |
 | 21 | NTFS atime breaks LRU | [C] | ✅ Accepted | Last-access updates are off by default on Windows; mtime instead |
 | 22 | No config loader | [C] | ✅ Accepted | `GET /api/config` was served with nothing loading the file; added `config.py` |
@@ -286,3 +337,11 @@ auth on the loopback server.
   question above and `tools/rb-probe/`). It came back a pass, so no Phase 0 redesign.
   What is left in that list is preference and one listening test, which puts the
   residual risk at Low.
+- **Update 2026-09-05: all five review questions are now decided** (hardening posture
+  plus an `Origin` check; GPL-2.0-or-later accepted and A2 unblocked; pydantic blessed
+  but scoped to `manifest`/`setlist`; `safe_dump` comment loss accepted; and
+  `pre_roll_every_pass` ships). The decisions are folded back into the plan. What
+  remains unresolved is the **listening check** on the real-time stretcher and the two
+  pre-existing questions at the top of this file — the GX-100 eyes-on-the-unit
+  answers, and whether to vendor the Windows `rubberband` exe under `tools/`, which
+  the GPL decision has demoted from a licence question to a convenience one.

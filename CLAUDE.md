@@ -90,7 +90,15 @@ spends a page on and it applies here unchanged.
 ## Layering
 
 `library` / `manifest` / `sections` / `ladder` / `ledger` / `practice` / `server`
-need **pyyaml and numpy and nothing else**. `analyze.py` (librosa) and
+need **pyyaml, numpy and pydantic and nothing else** — three core dependencies, and
+the word doing the work is *heavy*: no librosa, no audio device, no external binary
+above the line below. **Pydantic is scoped to the parsing boundary.** `manifest.py`
+and `setlist.py` import it, because schemas are Pydantic models in the module that
+owns them (see Conventions) and the validators that matter — a bare-string or mapping
+setlist entry, the shift range, `end_s > start_s` — are exactly what it does well.
+`sections`, `ladder`, `ledger`, `clock` and `tuning` import stdlib and numpy and
+nothing else, so the hard maths stays provably pure whatever happens to the
+dependency. `analyze.py` (librosa) and
 `render.py` (the rubberband binary) are the only modules allowed a heavy or
 external dependency, and nothing above that line may import them at module top
 level. Use a `require_module()` helper so a missing extra prints an install hint
