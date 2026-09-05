@@ -90,6 +90,12 @@ function pct(sourceS, view) {
  * @property {number} lane - 0-based, server-assigned; do not recompute
  * @property {string[]} ancestors - section ids, outermost first
  * @property {boolean} counts_toward_readiness
+ * @property {boolean} [full_song] - the whole-song entry: reps count, but
+ *   it is excluded from next/prev cycling (practice.js) and from the
+ *   readiness bar (practice.py's song_readiness) -- see manifest.
+ *   Section.full_song's docstring. Purely a caption cue in this file;
+ *   the exclusions themselves live in the two places that actually do
+ *   the excluding.
  */
 
 /**
@@ -195,7 +201,8 @@ export function renderSections(laneRoot, sectionsData, view, grid = { bars: [], 
     // an empty one) — the honest caption is source seconds, not a bar
     // number this file has no way to compute correctly.
     let caption = `${section.start_s.toFixed(1)}s · ${duration.toFixed(1)}s`;
-    if (variant === 'container') caption += ` · CONTAINS ${childCount(section.id)}`;
+    if (section.full_song) caption += ' · FULL SONG';
+    else if (variant === 'container') caption += ` · CONTAINS ${childCount(section.id)}`;
     bt.textContent = caption;
     bt.style.cssText =
       "font-family:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace;" +

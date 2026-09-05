@@ -120,6 +120,20 @@ def test_song_readiness_excludes_non_counting_sections() -> None:
     assert {i.span_id for i in result.intervals} == {"a"}
 
 
+def test_song_readiness_excludes_full_song_even_if_it_counts() -> None:
+    # A whole-song entry is the longest possible span, so it would
+    # otherwise always win coverage_readiness's "longest covering span"
+    # tie-break and silently override every other section's contribution.
+    solo = Section(id="solo", name="Solo", start_s=10, end_s=20, snapped="free", target_speed=100.0)
+    whole = Section(
+        id="whole", name="Whole song", start_s=0, end_s=200, snapped="free",
+        target_speed=100.0, full_song=True,  # counts_toward_readiness left at its True default
+    )
+    song = _song().model_copy(update={"sections": [solo, whole]})
+    result = song_readiness(song, [], song.practice)
+    assert {i.span_id for i in result.intervals} == {"solo"}
+
+
 # ---------------------------------------------------------------------------
 # is_cold()
 
@@ -188,6 +202,21 @@ def test_next_up_ranks_never_played_above_at_target(tmp_path) -> None:
     ranked = next_up(repo, setlist, reps, Cfg())
     by_id = {r.section_id: r for r in ranked}
     assert by_id["fresh"].score > by_id["played"].score
+
+
+def test_next_up_never_suggests_a_full_song_section(tmp_path) -> None:
+    whole = Section(
+        id="whole", name="Whole song", start_s=0, end_s=200, snapped="free",
+        target_speed=100.0, full_song=True,
+    )
+    song = _song().model_copy(update={"sections": [whole]})
+    repo = _repo_with_song(tmp_path, song)
+    setlist = Setlist(name="Gig", tuning="E standard", songs=[SetlistEntry(slug="cant-stop")])
+
+    class Cfg:
+        weight_gap = weight_cold = weight_gig = 1.0
+
+    assert next_up(repo, setlist, [], Cfg()) == []
 
 
 def test_next_up_skips_songs_with_no_song_yaml(tmp_path) -> None:

@@ -223,6 +223,8 @@ def cmd_section_add(args: argparse.Namespace) -> int:
         reps_to_advance=args.reps_to_advance,
         notes=args.notes,
         patch=args.patch,
+        lead_in_beats=args.lead_in_beats,
+        full_song=args.full_song,
     )
     _validate_and_save(song, path, [*song.sections, new_section])
     _say(f"{slug}: added section {section_id!r} ({args.start_s:g}s-{args.end_s:g}s)")
@@ -246,6 +248,8 @@ def cmd_section_update(args: argparse.Namespace) -> int:
         "reps_to_advance": args.reps_to_advance,
         "notes": args.notes,
         "patch": args.patch,
+        "lead_in_beats": args.lead_in_beats,
+        "full_song": args.full_song,
     }
     merged = song.sections[index].model_dump()
     merged.update({k: v for k, v in overrides.items() if v is not None})
@@ -581,6 +585,14 @@ def _add_section_common_args(parser: argparse.ArgumentParser, *, required: bool)
     parser.add_argument("--notes", default=None)
     parser.add_argument("--patch", default=None,
                          help="a gx100 patch id, if this section names one")
+    parser.add_argument("--lead-in-beats", dest="lead_in_beats", type=int, default=None,
+                         help="per-section override of the song's pre_roll_beats")
+    parser.add_argument("--full-song", dest="full_song",
+                         action=argparse.BooleanOptionalAction,
+                         default=False if required else None,
+                         help="a whole-song entry: reps count, but it is excluded "
+                              "from next/prev cycling and from the readiness bar "
+                              "(default: false)")
 
 
 def build_parser() -> argparse.ArgumentParser:

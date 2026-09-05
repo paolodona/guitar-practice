@@ -57,10 +57,14 @@ def song_readiness(song: manifest.Song, reps: Iterable[ledger.Rep], cfg) -> sect
     Drops every section with `counts_toward_readiness is False` before
     handing the rest to `sections.coverage_readiness` -- that function
     takes filtering as the caller's job (see its own docstring) precisely
-    so a Tier-0 module never needs to know the field exists.
+    so a Tier-0 module never needs to know the field exists. A `full_song`
+    section is dropped unconditionally alongside them (see Section.
+    full_song's docstring): being the longest possible span, it would
+    otherwise always win coverage_readiness's "longest covering span"
+    tie-break and silently override every other section's contribution.
     """
     reps = list(reps)
-    counting = [s for s in song.sections if s.counts_toward_readiness]
+    counting = [s for s in song.sections if s.counts_toward_readiness and not s.full_song]
     reached_map = {s.id: reached(reps, song, s, cfg) for s in counting}
     return sections.coverage_readiness(counting, reached_map)
 
@@ -152,6 +156,10 @@ def next_up(
             continue
         song = manifest.load_song(song_path)
         for section in song.sections:
+            if section.full_song:
+                # A rep counter, not a practice target -- never the tool's
+                # "next up" suggestion (see manifest.Section.full_song).
+                continue
             r = reached(reps, song, section, song.practice)
             gap = (1.0 - r) * cfg.weight_gap
 

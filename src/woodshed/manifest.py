@@ -133,6 +133,20 @@ class Section(BaseModel):
     # own practice.pre_roll_beats" -- see effective_pre_roll_beats below,
     # the one place that precedence is resolved.
     lead_in_beats: int | None = None
+    # The whole-song entry: a section spanning the full recording, kept
+    # ONLY so its reps are counted like any other section's -- never a
+    # real practice target to cycle through with next_section/prev_section
+    # (excluded in web/screens/practice.js's gotoSibling), and never a
+    # contributor to song_readiness (practice.py's song_readiness excludes
+    # it explicitly): being the longest possible span, it would otherwise
+    # always win sections.coverage_readiness's "longest covering span"
+    # tie-break and silently override every other section's contribution
+    # to the readiness bar. A single field carries both consequences so
+    # creating one is a single, self-documenting decision rather than two
+    # flags a caller has to remember to set together
+    # (counts_toward_readiness would also need to be false, and nothing
+    # enforces that pairing if it were two separate fields).
+    full_song: bool = False
 
     @property
     def duration(self) -> float:

@@ -212,6 +212,28 @@ def test_section_add_writes_a_span(repo: Repo, tmp_path: Path) -> None:
     assert section.target_speed == 100.0
 
 
+def test_section_add_full_song_and_lead_in_beats(repo: Repo, tmp_path: Path) -> None:
+    slug = _add(repo, tmp_path, seconds=30.0)
+    rc = cli.main([
+        "section", slug, "add", "Whole song", "0", "30",
+        "--full-song", "--lead-in-beats", "8",
+    ])
+    assert rc == 0
+    section = load_song(repo.song_dir(slug) / "song.yaml").sections[0]
+    assert section.full_song is True
+    assert section.lead_in_beats == 8
+
+
+def test_section_update_can_clear_full_song(repo: Repo, tmp_path: Path) -> None:
+    slug = _add(repo, tmp_path, seconds=30.0)
+    cli.main(["section", slug, "add", "Whole song", "0", "30", "--full-song"])
+    section_id = load_song(repo.song_dir(slug) / "song.yaml").sections[0].id
+    rc = cli.main(["section", slug, "update", section_id, "--no-full-song"])
+    assert rc == 0
+    section = load_song(repo.song_dir(slug) / "song.yaml").sections[0]
+    assert section.full_song is False
+
+
 def test_section_add_refuses_an_exact_duplicate_span(repo: Repo, tmp_path: Path) -> None:
     slug = _add(repo, tmp_path, seconds=30.0)
     assert cli.main(["section", slug, "add", "Full solo", "10", "20"]) == 0

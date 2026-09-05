@@ -383,7 +383,12 @@ class WoodshedHandler(BaseHTTPRequestHandler):
                 needs_audio_count += 1
 
             readiness = practice.song_readiness(song, reps, song.practice)
-            counting = [s for s in song.sections if s.counts_toward_readiness]
+            # Same filter practice.song_readiness applies internally (a
+            # full_song section is never "under target" material either --
+            # it's a rep counter, not a practice target) -- kept in sync
+            # by hand since this is a display-only count, not itself a
+            # coverage_readiness input.
+            counting = [s for s in song.sections if s.counts_toward_readiness and not s.full_song]
             under_target = sum(
                 1 for s in counting if practice.reached(reps, song, s, song.practice) < 1.0
             )
@@ -403,7 +408,10 @@ class WoodshedHandler(BaseHTTPRequestHandler):
                 "artist": song.artist,
                 "needs_audio": needs_audio,
                 "readiness": readiness.ratio,
-                "section_count": len(song.sections),
+                # Excludes full_song sections from the count shown here --
+                # it's not a practice target the way the rest of this row
+                # is about (see manifest.Section.full_song).
+                "section_count": sum(1 for s in song.sections if not s.full_song),
                 "sections_under_target": under_target,
                 "last_practised": last.isoformat() if last else None,
                 "is_cold": is_cold,
@@ -672,6 +680,12 @@ class WoodshedHandler(BaseHTTPRequestHandler):
                 "notes": body.get("notes"),
                 "patch": body.get("patch"),
                 "counts_toward_readiness": bool(body.get("counts_toward_readiness", True)),
+                # FOUND while wiring full_song through: lead_in_beats (G2)
+                # was added to the model but never reached this explicit
+                # field list, so a section's own lead-in override could
+                # never actually be set via the UI/API -- fixed alongside.
+                "lead_in_beats": body.get("lead_in_beats"),
+                "full_song": bool(body.get("full_song", False)),
             })
             song.sections = [s for s in song.sections if s.id != section_id] + [new_section]
 

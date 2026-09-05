@@ -81,8 +81,12 @@ def test_docs_song_yaml_parses(song_yaml_text: str, tmp_path: Path) -> None:
     assert song.recording.tuning == "E standard"
     assert song.tempo.source == "refined"
     assert song.practice.click == "lead-in"
-    assert len(song.sections) == 4
-    assert [s.id for s in song.sections] == ["intro", "solo-full", "solo-tapping", "solo-run"]
+    assert len(song.sections) == 5
+    assert [s.id for s in song.sections] == [
+        "intro", "solo-full", "solo-tapping", "solo-run", "whole-song",
+    ]
+    whole_song = next(s for s in song.sections if s.id == "whole-song")
+    assert whole_song.full_song is True
     # per-section overrides and optional fields survive
     tapping = next(s for s in song.sections if s.id == "solo-tapping")
     assert tapping.ladder_step == 2.5
@@ -244,6 +248,24 @@ def test_section_lead_in_beats_round_trips() -> None:
         lead_in_beats=8,
     )
     assert section.lead_in_beats == 8
+
+
+# --- full_song: the whole-song rep counter -----------------------------
+
+
+def test_section_full_song_defaults_false() -> None:
+    section = Section(
+        id="ok", name="Ok", start_s=0.0, end_s=10.0, snapped="free", target_speed=100,
+    )
+    assert section.full_song is False
+
+
+def test_section_full_song_round_trips_true() -> None:
+    section = Section(
+        id="ok", name="Ok", start_s=0.0, end_s=10.0, snapped="free", target_speed=100,
+        full_song=True,
+    )
+    assert section.full_song is True
 
 
 def _song_with_section(section: Section, pre_roll_beats: float = 4.0) -> Song:

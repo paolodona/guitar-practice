@@ -442,6 +442,23 @@ def test_api_setlist_payload_has_a_row_per_song_and_a_next_up(served):
     assert data["next_up"]["song_slug"] == slug
 
 
+def test_api_setlist_row_section_count_excludes_full_song(served):
+    base, repo, slug = served
+    save_setlist(
+        Setlist(name="Gig", tuning="E standard", songs=[SetlistEntry(slug=slug)]),
+        repo.setlists_dir / "gig.yaml",
+    )
+    _post(
+        base, "/api/section",
+        {"song": slug, "id": "whole", "name": "Whole song", "start_s": 0.0,
+         "end_s": 200.0, "snapped": "free", "target_speed": 100.0, "full_song": True},
+    )
+    _, data = _get_json(base, "/api/setlist/gig")
+    row = data["rows"][0]
+    # _make_song's two ordinary sections, NOT the full_song one just added.
+    assert row["section_count"] == 2
+
+
 def test_api_setlist_row_flags_needs_audio_for_an_unbound_song(served):
     base, repo, slug = served
     save_setlist(
@@ -567,6 +584,23 @@ def test_post_section_creates_a_new_span(served):
     assert status == 200
     ids = [s["id"] for s in data["sections"]]
     assert "new-bit" in ids
+
+
+def test_post_section_round_trips_full_song_and_lead_in_beats(served):
+    base, _, slug = served
+    status, data = _post(
+        base,
+        "/api/section",
+        {
+            "song": slug, "id": "whole", "name": "Whole song",
+            "start_s": 0.0, "end_s": 200.0, "snapped": "free",
+            "target_speed": 100.0, "full_song": True, "lead_in_beats": 8,
+        },
+    )
+    assert status == 200
+    whole = next(s for s in data["sections"] if s["id"] == "whole")
+    assert whole["full_song"] is True
+    assert whole["lead_in_beats"] == 8
 
 
 def test_post_section_updates_an_existing_span(served):

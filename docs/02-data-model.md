@@ -79,6 +79,13 @@ sections:
     end_s: 248.300
     snapped: beat
     target_speed: 95
+  - id: whole-song
+    name: Whole song
+    start_s: 0
+    end_s: 269.410
+    snapped: free
+    target_speed: 100
+    full_song: true                 # reps count; excluded from next/prev and readiness
 ```
 
 **The comments in that example are documentation, not data.** The app writes
@@ -143,6 +150,16 @@ deliberately only half-mapped look unfinished forever.
 `counts_toward_readiness: false` is the escape hatch for a section that is pure
 exercise — a chromatic warm-up carved out of a verse — and it is the only stored
 thing about a section's role. Everything else is derived.
+
+**`full_song: true` is the whole-song entry** — a section spanning the entire
+recording, kept so its reps count like any other section's, but excluded from
+two things `counts_toward_readiness: false` alone would not exclude it from:
+`next section`/`previous section` (it is a rep counter, not a practice target
+to step through), and the readiness bar itself — being the longest possible
+span, it would otherwise always win the "longest covering span" tie-break
+above and silently replace every other section's contribution with its own.
+One field, so creating one is a single decision rather than two flags that
+have to be remembered together.
 
 **The invariants that remain.** `start < end`; both inside the file; `id` unique
 within the song. Two sections with the *identical* span are refused — that is a

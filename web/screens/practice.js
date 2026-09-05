@@ -922,8 +922,15 @@ export function mount(el, payload) {
   };
   for (const name of Object.keys(handlers)) bind(name, handlers[name]);
 
+  // full_song is excluded from next/prev cycling (manifest.Section.
+  // full_song's docstring): it's a rep counter for the whole recording,
+  // not a practice target to step through alongside the real sections. If
+  // the CURRENTLY practised section is itself full_song (reached directly,
+  // not via cycling), it has no place in this list either -- idx stays -1
+  // and next/prev is a no-op, which is the honest answer for "what's next
+  // after the entry that isn't part of the rotation at all".
   function gotoSibling(dir) {
-    const ordered = orderSections(payload.sections);
+    const ordered = orderSections(payload.sections.filter((s) => !s.full_song));
     const idx = ordered.findIndex((s) => s.id === section.id);
     if (idx === -1) return;
     const next = ordered[(idx + dir + ordered.length) % ordered.length];
