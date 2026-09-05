@@ -262,7 +262,34 @@ export function mount(el, payload) {
     return (section.end_s - section.start_s) / (speedPct / 100);
   }
 
-  let elapsed = -preRollPlaybackSeconds();
+  // Cosmetic-only durations for the ring/waveform/playhead estimate (module
+  // doc, decision 3), FROZEN at the start of each lap rather than
+  // recomputed live from speedPct on every frame.
+  //
+  // FOUND LIVE 2026-09-05: engine.setSpeedPct() takes effect immediately
+  // (correct -- this is the real-time "exploring" engine, ratio changes are
+  // meant to be instant), but currentP()'s dur used to call
+  // loopDurationPlayback() straight off the live speedPct while `elapsed`
+  // keeps counting real wall-clock time since the last genuine 'pass'. A
+  // mid-lap speed_up shrinks that recomputed dur immediately, so
+  // `elapsed % dur` wraps -- the ring/waveform/playhead visually snap back
+  // to 0 -- well before the real engine actually reaches the section end.
+  // That reads as "it looped and didn't record a rep, then looped again a
+  // few seconds later", but no pass was missed: onPass()/POST /api/rep are
+  // driven only by the engine's genuine 'pass' event (worklet.js's
+  // input-position-driven boundary, unaffected by ratio), which is why the
+  // ledger stayed correct throughout. Freezing dur per-lap means a speed
+  // change only reshapes the NEXT lap's cosmetic estimate, matching what
+  // the engine itself does (the current lap keeps whatever timing its
+  // already-fed audio implies).
+  let cosmeticPreRoll = preRollPlaybackSeconds();
+  let cosmeticLoopDur = loopDurationPlayback();
+  function beginLap() {
+    cosmeticPreRoll = preRollPlaybackSeconds();
+    cosmeticLoopDur = loopDurationPlayback();
+  }
+
+  let elapsed = -cosmeticPreRoll;
 
   root.innerHTML = `
     <div data-main style="width:100%;height:100%;display:flex;flex-direction:column;padding:68px 80px 60px;box-sizing:border-box">
@@ -433,7 +460,7 @@ export function mount(el, payload) {
   // read from the engine. ----
   function currentP() {
     if (elapsed < 0) return 0;
-    const dur = loopDurationPlayback();
+    const dur = cosmeticLoopDur;
     if (dur <= 0) return 0;
     return Math.min(1, (elapsed % dur) / dur);
   }
@@ -469,7 +496,7 @@ export function mount(el, payload) {
     leadInOverlay.style.display = inLeadIn ? 'flex' : 'none';
     if (inLeadIn) {
       const totalSteps = Math.max(1, Math.round(payload.practice.pre_roll_beats));
-      const perStep = preRollPlaybackSeconds() / totalSteps;
+      const perStep = cosmeticPreRoll / totalSteps;
       const remaining = Math.max(1, Math.min(totalSteps, Math.ceil(-elapsed / Math.max(perStep, 1e-6))));
       leadInCountEl.textContent = String(remaining);
       const doneSteps = totalSteps - remaining;
@@ -642,6 +669,10 @@ export function mount(el, payload) {
         }
       }
     }
+    // A fresh lap starts now (whatever speedPct is in effect this instant --
+    // possibly just bumped by the ladder advance above) -- freeze the
+    // cosmetic estimate for it. See beginLap()'s doc.
+    beginLap();
     renderDiscrete();
   }
 
@@ -745,7 +776,8 @@ export function mount(el, payload) {
     },
     restart_section() {
       if (engineReady) engine.restartSection();
-      elapsed = -preRollPlaybackSeconds();
+      beginLap();
+      elapsed = -cosmeticPreRoll;
       advancing = false;
       clearTimeout(advanceTimer);
       renderDiscrete();
