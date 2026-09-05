@@ -182,3 +182,71 @@ function drawVerticalLine(ctx, x, height, widthPx) {
   ctx.lineTo(px, height);
   ctx.stroke();
 }
+
+/**
+ * Build a {@link Grid} from a song's tempo -- bar/beat positions in SOURCE
+ * seconds, over [0, durationS]. Phase 1, G1: the function nothing built
+ * yet (Phase 0's `drawGrid` above was written ahead of it, expecting one).
+ *
+ * Degrades to an empty grid — never throws, never fabricates a fake evenly-
+ * spaced ruler — exactly when CLAUDE.md's invariant says to: `bpm <= 0` or
+ * absent, or a non-positive duration (a needs-audio song). Every caller
+ * (drawGrid, the bar ruler, sections.js's snapping) already treats an empty
+ * grid as "nothing to draw / nothing to snap to", so this is the one place
+ * that decision needs to live.
+ *
+ * `tempo.grid_offset_s` is where bar 1 beat 1 lands in the file — it can be
+ * negative-relative in the sense that the FIRST on-grid beat at or after
+ * 0 is not necessarily beat index 0; `firstIndex` below is the smallest
+ * (possibly negative) beat index landing at or after source second 0, so a
+ * grid_offset_s of, say, 1.3s with a 0.5s beat still starts counting from
+ * the right index instead of silently skipping into the second bar.
+ * @param {{bpm: number, grid_offset_s: number, time_signature: string}} tempo
+ * @param {number} durationS
+ * @returns {Grid}
+ */
+export function computeGrid(tempo, durationS) {
+  if (!tempo || !(tempo.bpm > 0) || !(durationS > 0)) return { bars: [], beats: [] };
+
+  const secPerBeat = 60 / tempo.bpm;
+  const offset = tempo.grid_offset_s ?? 0;
+  const beatsPerBarRaw = parseInt(String(tempo.time_signature ?? '4/4').split('/')[0], 10);
+  const beatsPerBar = Number.isFinite(beatsPerBarRaw) && beatsPerBarRaw > 0 ? beatsPerBarRaw : 4;
+
+  const bars = [];
+  const beats = [];
+  const firstIndex = Math.ceil((0 - offset) / secPerBeat);
+  for (let i = firstIndex, t = offset + i * secPerBeat; t <= durationS; i++, t += secPerBeat) {
+    if (t < 0) continue; // floating-point slop at the boundary -- skip, don't clamp
+    beats.push(t);
+    if (((i % beatsPerBar) + beatsPerBar) % beatsPerBar === 0) bars.push(t);
+  }
+  return { bars, beats };
+}
+
+/**
+ * Mirrors `woodshed.sections.snap` (the same algorithm, re-derived client-
+ * side for a live drag — a network round trip per pointermove is not an
+ * option). Snaps *t* to the nearest value in *marks* within *toleranceS*;
+ * returns *t* unchanged when *mode* is `'free'` or *marks* is empty
+ * (identical degrade to the Python original, including the "don't even
+ * validate mode" shortcut it documents for a free caller).
+ * @param {number} t
+ * @param {number[]} marks
+ * @param {string} mode
+ * @param {number} [toleranceS=0.12]
+ * @returns {number}
+ */
+export function snapToGrid(t, marks, mode, toleranceS = 0.12) {
+  if (mode === 'free' || !marks.length) return t;
+  let nearest = marks[0];
+  let nearestDist = Math.abs(nearest - t);
+  for (const mark of marks) {
+    const dist = Math.abs(mark - t);
+    if (dist < nearestDist) {
+      nearest = mark;
+      nearestDist = dist;
+    }
+  }
+  return nearestDist <= toleranceS ? nearest : t;
+}

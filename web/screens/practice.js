@@ -81,10 +81,19 @@
  *    invoked, so it doesn't compete with the hero for attention while
  *    playing. loop_toggle/metronome/fullscreen/nudge_start/nudge_end still
  *    have no represented control on this artboard and are left unsubscribed
- *    rather than given invented behaviour.
+ *    rather than given invented behaviour (nudge_start/nudge_end DO have a
+ *    control now, but it lives on song.js's inspector — this screen has no
+ *    section-boundary editing at all, see the design's own division of
+ *    labour between the two screens).
+ *
+ * 5. Phase 1, G1: the wave-host's grid lines are real
+ *    (`timeline.computeGrid`), replacing the fixed-pixel CSS gradient
+ *    Phase 0 copied from the artboard's own static mockup — same as
+ *    song.js's decision 4, which has the fuller explanation.
  */
 import { currentSetlist, get, post } from '../app.js';
 import { drawWave, PRACTICE_WAVE_OPTS } from '../wave.js';
+import { computeGrid, drawGrid, sizeCanvas } from '../timeline.js';
 import { createEngine } from '../player.js';
 import { ACTIONS, on, dispatch } from '../actions.js';
 import { KEY_MAP } from '../keys.js';
@@ -363,9 +372,8 @@ export function mount(el, payload) {
           <div class="mono" data-cap-mid style="font-size:14px;color:var(--ink-3,#6A7873);letter-spacing:.06em"></div>
           <div class="mono" data-cap-end style="font-size:14px;color:var(--ink-3,#6A7873);letter-spacing:.06em"></div>
         </div>
-        <div data-wave-host style="position:relative;height:104px;background:var(--surface,#131B19);border-radius:3px;overflow:hidden;
-                    background-image:repeating-linear-gradient(to right,var(--line,#26302E) 0 1px,transparent 1px 220px),
-                                     repeating-linear-gradient(to right,var(--hairline,#1C2523) 0 1px,transparent 1px 55px)">
+        <div data-wave-host style="position:relative;height:104px;background:var(--surface,#131B19);border-radius:3px;overflow:hidden">
+          <canvas data-grid-canvas style="position:absolute;inset:0;width:100%;height:104px"></canvas>
           <svg data-wave-svg preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:104px"></svg>
           <div data-playhead style="position:absolute;top:0;bottom:0;width:2px;background:var(--accent-hi,#F6C98A)"></div>
           <div data-playhead-cap style="position:absolute;top:0;width:0;height:0;margin-left:-6px;
@@ -413,6 +421,7 @@ export function mount(el, payload) {
   const capEndEl = root.querySelector('[data-cap-end]');
   const waveHost = root.querySelector('[data-wave-host]');
   const waveSvg = root.querySelector('[data-wave-svg]');
+  const gridCanvas = root.querySelector('[data-grid-canvas]');
   const playheadEl = root.querySelector('[data-playhead]');
   const playheadCapEl = root.querySelector('[data-playhead-cap]');
   const footEl = root.querySelector('[data-foot]');
@@ -484,13 +493,25 @@ export function mount(el, payload) {
   }
 
   const durationS = payload.recording.duration_s;
+  // See song.js's decision 4 -- same computeGrid, same degrade to {bars:[],
+  // beats:[]} with no tempo. Positions are whole-song source seconds; the
+  // windowed `view()` below (and drawGrid's own skip-outside-view rule)
+  // clips to whatever the section's own span shows, same as song.js's
+  // whole-song view clips to the canvas width.
+  const grid = computeGrid(payload.tempo, durationS);
   function view() {
     return { startS: section.start_s, endS: section.end_s, widthPx: waveHost.clientWidth || 1 };
   }
 
   function renderWave() {
+    const v = view();
+    if (gridCanvas.clientWidth) {
+      const { ctx } = sizeCanvas(gridCanvas);
+      ctx.clearRect(0, 0, gridCanvas.clientWidth, gridCanvas.clientHeight);
+      drawGrid(ctx, v, grid);
+    }
     const windowed = slicePeaksToWindow(peaks, section.start_s, section.end_s, durationS);
-    drawWave(waveSvg, windowed, view(), currentP(), PRACTICE_WAVE_OPTS);
+    drawWave(waveSvg, windowed, v, currentP(), PRACTICE_WAVE_OPTS);
   }
 
   /** Cheap, every-frame updates: ring, playhead, lead-in overlay. No DOM

@@ -41,6 +41,20 @@
  *    docstring) — so there is nothing on disk this screen could honestly
  *    show there. Do not fabricate a placeholder count.
  *
+ * 4. Phase 1's G1: the bar ruler and the wave-host's grid lines are real
+ *    now, from `timeline.computeGrid(payload.tempo, durationS)` — replacing
+ *    Phase 0's two placeholders (an evenly-spaced-in-TIME approximation
+ *    for the ruler; a fixed-pixel `repeating-linear-gradient` for the
+ *    grid, copied verbatim from the artboard's own static mockup, which
+ *    has no tempo to be accurate to). Both degrade to nothing when
+ *    `grid.bars`/`beats` are empty (`tempo.bpm` 0 or absent), per
+ *    CLAUDE.md — no fabricated ruler numbers. The inspector's new Snap
+ *    row (free/beat/bar) is this screen's only way to ever produce a
+ *    section with `snapped !== 'free'` — nothing else in this file wrote
+ *    one before this unit — and `[`/`]` (keys.js) nudge the selected
+ *    section's boundary by a fixed 10ms (`NUDGE_S`), debounced the same
+ *    way the transpose stepper's persistence is.
+ *
  * Waveform semantics on THIS screen differ from practice.js's: there is no
  * "played so far" concept (nothing loops here), so the design's
  * played-in-grey overlay instead highlights the CURRENTLY SELECTED
@@ -67,7 +81,7 @@
 import { currentSetlist, get, post } from '../app.js';
 import { drawWave, SONG_WAVE_OPTS } from '../wave.js';
 import { renderSections, attachCreateHandler } from '../sections.js';
-import { viewX } from '../timeline.js';
+import { computeGrid, drawGrid, sizeCanvas, viewX } from '../timeline.js';
 import { on } from '../actions.js';
 
 const STYLE_ID = 'song-screen-style';
@@ -127,6 +141,9 @@ function orderSections(sections) {
 
 function clampShift(v) { return Math.min(6, Math.max(-6, Math.round(v))); }
 
+/** "A millisecond nudge" (docs/00-spec.md) — 10ms per '['/']' press. */
+const NUDGE_S = 0.01;
+
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
@@ -153,6 +170,11 @@ export function mount(el, payload) {
 
   let shift = clampShift(payload.shift ?? 0); // interactive — see module doc, decision 1.
   const durationS = payload.recording.duration_s;
+  // Computed once -- payload.tempo doesn't change during this mount (a
+  // re-detect is a full page reload). {bars:[], beats:[]} when bpm is 0 or
+  // absent, per CLAUDE.md's degrade rule -- every consumer below already
+  // treats that as "nothing to draw / nothing to snap to".
+  const grid = computeGrid(payload.tempo, durationS);
   let shiftPersistTimer = null;
   const unsubs = [];
 
@@ -190,10 +212,9 @@ export function mount(el, payload) {
 
     <div style="display:flex;gap:22px;flex-grow:1;padding-top:22px;min-height:0">
       <div style="flex-grow:1;display:flex;flex-direction:column;gap:10px;min-width:0">
-        <div data-bar-ruler style="display:flex;justify-content:space-between"></div>
-        <div data-wave-host style="position:relative;height:132px;background:var(--surface,#131B19);border-radius:3px;overflow:hidden;
-                    background-image:repeating-linear-gradient(to right,var(--line,#26302E) 0 1px,transparent 1px 150px),
-                                     repeating-linear-gradient(to right,var(--hairline,#1C2523) 0 1px,transparent 1px 37.5px)">
+        <div data-bar-ruler style="position:relative;height:16px"></div>
+        <div data-wave-host style="position:relative;height:132px;background:var(--surface,#131B19);border-radius:3px;overflow:hidden">
+          <canvas data-grid-canvas style="position:absolute;inset:0;width:100%;height:132px"></canvas>
           <svg data-wave-svg preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:132px"></svg>
           <div data-selection-box style="position:absolute;top:0;bottom:0;display:none;
                       background:rgba(224,145,63,.10);border-left:1px solid var(--accent,#E0913F);border-right:1px solid var(--accent,#E0913F)"></div>
@@ -222,6 +243,7 @@ export function mount(el, payload) {
 
   const waveHost = root.querySelector('[data-wave-host]');
   const waveSvg = root.querySelector('[data-wave-svg]');
+  const gridCanvas = root.querySelector('[data-grid-canvas]');
   const selectionBox = root.querySelector('[data-selection-box]');
   const laneRoot = root.querySelector('[data-lane-root]');
   const inspector = root.querySelector('[data-inspector]');
@@ -247,6 +269,24 @@ export function mount(el, payload) {
   unsubs.push(on('transpose_down', () => bumpShift(-1)));
   unsubs.push(on('transpose_up', () => bumpShift(1)));
 
+  // Millisecond nudge ('['/']', see keys.js) -- widens the SELECTED
+  // section's boundary by NUDGE_S. Mutates the local `sections` entry and
+  // redraws immediately (so repeated presses feel instant), then debounces
+  // the commit (300ms) so holding the key doesn't send one POST per
+  // keystroke -- the same pattern persistShift uses for the same reason.
+  let nudgeTimer = null;
+  function nudgeBoundary(which, deltaS) {
+    const sec = sections.find((s) => s.id === selectedId);
+    if (!sec) return;
+    if (which === 'start') sec.start_s = Math.min(sec.start_s + deltaS, sec.end_s - 0.01);
+    else sec.end_s = Math.max(sec.end_s + deltaS, sec.start_s + 0.01);
+    redrawAll();
+    clearTimeout(nudgeTimer);
+    nudgeTimer = setTimeout(() => patchSection(sec.id, {}), 300);
+  }
+  unsubs.push(on('nudge_start', () => nudgeBoundary('start', -NUDGE_S)));
+  unsubs.push(on('nudge_end', () => nudgeBoundary('end', NUDGE_S)));
+
   transportPlayBtn.addEventListener('click', () => {
     // Visual-only toggle — see module doc, decision 2: no engine lives here.
     transportPlaying = !transportPlaying;
@@ -267,21 +307,39 @@ export function mount(el, payload) {
     return { startS: 0, endS: durationS, widthPx: waveHost.clientWidth || 1 };
   }
 
+  // Roughly this many bar-number labels across the ruler, matching
+  // design/SongPage.dc.html's own 7 (1 · 18 · 35 · 52 · 69 · 86 · 103 —
+  // evenly spaced in BAR NUMBER, which is the same as evenly spaced in
+  // time at a constant bpm). Real marks from `grid.bars`, positioned with
+  // the real `viewX` -- not the flex-evenly-distributed approximation this
+  // replaced, which had no way to account for `grid_offset_s`.
+  const RULER_MARK_COUNT = 7;
+
   function renderBarRuler() {
-    const marks = 7;
     barRuler.innerHTML = '';
-    for (let i = 0; i < marks; i++) {
-      const t = (durationS * i) / (marks - 1);
+    if (!grid.bars.length) return; // no tempo yet -- no ruler, per CLAUDE.md's degrade rule
+    const v = view();
+    const step = Math.max(1, Math.round(grid.bars.length / RULER_MARK_COUNT));
+    for (let i = 0; i < grid.bars.length; i += step) {
+      const t = grid.bars[i];
+      const x = viewX(t, v);
+      if (x < 0 || x > v.widthPx) continue;
       const d = document.createElement('div');
       d.className = 'mono';
-      d.style.cssText = 'font-size:11px;color:var(--ink-4,#5B6A64)';
-      d.textContent = String(Math.max(1, barOf(t, payload.tempo)));
+      d.style.cssText = `position:absolute;left:${x}px;top:0;font-size:11px;color:var(--ink-4,#5B6A64)`;
+      d.textContent = String(barOf(t, payload.tempo));
       barRuler.appendChild(d);
     }
   }
 
   function renderWave() {
-    drawWave(waveSvg, peaks, view(), 0, SONG_WAVE_OPTS);
+    const v = view();
+    if (gridCanvas.clientWidth) {
+      const { ctx } = sizeCanvas(gridCanvas);
+      ctx.clearRect(0, 0, gridCanvas.clientWidth, gridCanvas.clientHeight);
+      drawGrid(ctx, v, grid);
+    }
+    drawWave(waveSvg, peaks, v, 0, SONG_WAVE_OPTS);
   }
 
   function renderSelectionHighlight() {
@@ -296,7 +354,7 @@ export function mount(el, payload) {
   }
 
   function renderLanes() {
-    renderSections(laneRoot, sections, view(), {
+    renderSections(laneRoot, sections, view(), grid, {
       onSelect: (id) => { selectedId = id; renderSelectionHighlight(); renderInspector(); },
       onDragCommit: (patch) => { patchSection(patch.id, patch); },
     });
@@ -350,10 +408,21 @@ export function mount(el, payload) {
       <div style="display:flex;gap:10px">
         <div style="flex:1"><div class="flbl">Start</div>
           <input class="fld mono" data-f="start_s" value="${sec.start_s.toFixed(3)} s" style="font-size:13px">
-          <div class="mono" style="font-size:11px;color:var(--ink-4,#5B6A64);margin-top:5px">BAR ${barBeatLabel(sec.start_s, payload.tempo)} &middot; ${sec.snapped.toUpperCase()}</div></div>
+          <div class="mono" style="font-size:11px;color:var(--ink-4,#5B6A64);margin-top:5px">BAR ${barBeatLabel(sec.start_s, payload.tempo)}</div></div>
         <div style="flex:1"><div class="flbl">End</div>
           <input class="fld mono" data-f="end_s" value="${sec.end_s.toFixed(3)} s" style="font-size:13px">
           <div class="mono" style="font-size:11px;color:var(--ink-4,#5B6A64);margin-top:5px">BAR ${barBeatLabel(sec.end_s, payload.tempo)}</div></div>
+      </div>
+      <div>
+        <div class="flbl">Snap</div>
+        <div style="display:flex;gap:6px" data-snap-group>
+          ${['free', 'beat', 'bar'].map((mode) => `
+            <button data-snap="${mode}" class="mono" style="flex:1;padding:6px 0;border-radius:3px;border:1px solid var(--line,#26302E);
+                        cursor:pointer;font-size:11px;letter-spacing:.08em;text-transform:uppercase;
+                        background:${sec.snapped === mode ? 'var(--accent,#E0913F)' : 'var(--sunken,#0F1614)'};
+                        color:${sec.snapped === mode ? 'var(--ground,#0C1211)' : 'var(--ink-2,#9CAAA4)'}">${mode}</button>
+          `).join('')}
+        </div>
       </div>
       <div style="display:flex;gap:10px">
         <div style="flex:1"><div class="flbl">Target</div><input class="fld mono" data-f="target_speed" value="${sec.target_speed}%" style="font-size:13px"></div>
@@ -391,6 +460,9 @@ export function mount(el, payload) {
       location.hash = `#/practice/${encodeURIComponent(slug)}/${encodeURIComponent(sec.id)}`;
     });
     inspector.querySelector('[data-delete]').addEventListener('click', () => deleteSection(sec.id));
+    inspector.querySelectorAll('[data-snap]').forEach((btn) => {
+      btn.addEventListener('click', () => patchSection(sec.id, { snapped: btn.dataset.snap }));
+    });
   }
 
   // Found live 2026-09-06: the inspector had no way to remove a section at
@@ -431,6 +503,7 @@ export function mount(el, payload) {
   return function unmount() {
     resizeObserver.disconnect();
     clearTimeout(shiftPersistTimer);
+    clearTimeout(nudgeTimer);
     for (const unsub of unsubs) unsub();
   };
 }

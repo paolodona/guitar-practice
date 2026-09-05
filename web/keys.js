@@ -30,10 +30,13 @@ import { ACTIONS, dispatch } from './actions.js';
  *   m           metronome       — m = "metronome"
  *   f           fullscreen      — f = "fullscreen", browser-convention key
  *   ?           help            — '?' opens a help overlay, browser convention
- *
- * nudge_start/nudge_end are deliberately NOT bound here — the plan reserves
- * '['/']' for Phase 1's G1, out of scope for this unit. Their ACTIONS
- * entries exist (actions.js) but no key reaches them yet.
+ *   [           nudge_start     \ Phase 1, G1. Both widen the selected
+ *   ]           nudge_end       /  section outward by a fixed millisecond
+ *               step (song.js's NUDGE_S) — '[' pulls the start earlier,
+ *               ']' pushes the end later, the same "bracket the range you
+ *               want" reading as a video editor's in/out points. No
+ *               opposite-direction key: the plan names only these two, and
+ *               a boundary that overshoots is one more nudge-then-drag away.
  * @type {Record<string, keyof typeof ACTIONS>}
  */
 export const KEY_MAP = {
@@ -43,6 +46,8 @@ export const KEY_MAP = {
   ArrowUp: 'speed_up',
   ArrowDown: 'speed_down',
   z: 'retract_rep',
+  '[': 'nudge_start',
+  ']': 'nudge_end',
   c: 'confirm_clean',
   r: 'restart_section',
   '-': 'transpose_down',

@@ -39,7 +39,7 @@
  * from that artboard, not from the plan's summary table alone.
  */
 
-import { viewX, positionAt } from './timeline.js';
+import { viewX, positionAt, snapToGrid } from './timeline.js';
 
 /** px per lane row (design/SongPage.dc.html: "two 44px rows"). */
 const LANE_HEIGHT = 44;
@@ -111,12 +111,17 @@ function pct(sourceS, view) {
  * unavoidable consequence of `renderSections`' two-argument-plus-handlers
  * shape carrying no `selectedId` (fixed by D0); flagged, not silently
  * patched around by inventing a new parameter.
+ * `grid` (Phase 1, G1) is passed straight through to `attachDragHandlers` —
+ * see that function's doc for how it snaps a live drag. `{bars: [], beats:
+ * []}` (an empty grid — no tempo, or a caller not yet passing one) means no
+ * dragged boundary ever snaps, matching the pre-G1 behaviour exactly.
  * @param {HTMLElement} laneRoot
  * @param {SectionView[]} sectionsData
  * @param {import('./timeline.js').View} view
+ * @param {import('./timeline.js').Grid} [grid]
  * @param {{onSelect?: (id: string) => void, onDragCommit?: (patch: object) => void}} [handlers]
  */
-export function renderSections(laneRoot, sectionsData, view, handlers = {}) {
+export function renderSections(laneRoot, sectionsData, view, grid = { bars: [], beats: [] }, handlers = {}) {
   // Children are positioned with `left`/`top` in absolute terms against
   // this element, so it needs to be a positioning context. Only set it
   // when nothing already has — a caller's own stylesheet (song.js's lane
@@ -240,7 +245,7 @@ export function renderSections(laneRoot, sectionsData, view, handlers = {}) {
       const el = buildTile(section);
       laneRoot.appendChild(el);
       if (section.id === selectedId) {
-        detachDrag = attachDragHandlers(el, section, view, handlers);
+        detachDrag = attachDragHandlers(el, section, view, grid, handlers);
       }
     }
   }
@@ -269,13 +274,27 @@ export function renderSections(laneRoot, sectionsData, view, handlers = {}) {
  * caller attaching this to some other element structure must preserve.
  * Not fixed explicitly by D0's contract; documented here since getting it
  * wrong fails silently (wrong pixel origin, not a thrown error).
+ *
+ * `grid` (Phase 1, G1): while `section.snapped` is `'beat'` or `'bar'`, the
+ * dragged edge snaps LIVE to the nearest mark in `grid.beats`/`grid.bars`
+ * (via timeline.js's `snapToGrid`, the same tolerance `woodshed.sections.
+ * snap` uses server-side) — a network round trip per pointermove is not an
+ * option, so this mirrors the algorithm rather than calling out to it.
+ * `section.snapped === 'free'` (or an empty grid — no tempo yet) never
+ * snaps, unchanged from before this parameter existed. The commit at drag
+ * end now sends `snapped: section.snapped` (this section's OWN, already-
+ * chosen mode) rather than the hardcoded `'free'` a pre-G1 drag always
+ * wrote — a beat-snapped section stays recorded as beat-snapped after
+ * being dragged, which is the whole point of `docs/02-data-model.md`'s "a
+ * section records HOW its boundary was placed".
  * @param {HTMLElement} sectionEl
- * @param {SectionView} section
+ * @param {SectionView & {snapped: string}} section
  * @param {import('./timeline.js').View} view
+ * @param {import('./timeline.js').Grid} [grid]
  * @param {{onDragCommit?: (patch: object) => void}} [handlers]
  * @returns {() => void} detach
  */
-export function attachDragHandlers(sectionEl, section, view, handlers = {}) {
+export function attachDragHandlers(sectionEl, section, view, grid = { bars: [], beats: [] }, handlers = {}) {
   const track = sectionEl.parentElement;
 
   const makeHandle = (side) => {
@@ -327,7 +346,11 @@ export function attachDragHandlers(sectionEl, section, view, handlers = {}) {
 
       const onMove = (moveEvt) => {
         const pixelX = moveEvt.clientX - trackRect.left;
-        const t = positionAt(pixelX, view);
+        let t = positionAt(pixelX, view);
+        if (section.snapped === 'beat' || section.snapped === 'bar') {
+          const marks = section.snapped === 'bar' ? grid.bars : grid.beats;
+          t = snapToGrid(t, marks, section.snapped);
+        }
         if (side === 'start') {
           live.start_s = Math.min(t, live.end_s - MIN_DURATION_S);
         } else {
@@ -344,7 +367,7 @@ export function attachDragHandlers(sectionEl, section, view, handlers = {}) {
           ...section,
           start_s: live.start_s,
           end_s: live.end_s,
-          snapped: 'free',
+          snapped: section.snapped,
         });
       };
       window.addEventListener('pointermove', onMove);
