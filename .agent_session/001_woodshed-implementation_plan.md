@@ -1,5 +1,5 @@
 # Implementation Plan: Woodshed — full build
-Plan: 001 | Name: woodshed-implementation | Created: 2026-09-05 | Status: PLANNED | GitRef: 289b0c7
+Plan: 001 | Name: woodshed-implementation | Created: 2026-09-05 | Status: IN PROGRESS | GitRef: 289b0c7
 Reviewed: 2026-09-05 (Codex + cold Claude subagent). Accepted findings are folded in
 below; the judgement calls are parked in the context file under "Open questions from
 review". `GitRef` still reflects when the plan was written, not when it was revised.
@@ -11,6 +11,58 @@ before fanning out — D0 must land before D1–D7, and P1 gates Groups D / F / 
 ## Related Files
 - **Prompt**: `.agent_session/001_woodshed-implementation_prompt.md` — the original request
 - **Context**: `.agent_session/001_woodshed-implementation_context.md` — research findings and decisions
+
+---
+
+## Implementation progress (this run started 2026-09-05, unattended)
+
+**Scope decision for this run**: P1 (exporting the nine `.dc.html` artboards from the
+published Claude Design artifact) is an explicit human prerequisite in this plan — no
+unattended agent can open a `claude.ai/code/artifact/…` URL. Groups D, F, K, M and every
+manual gate (which requires a served UI to look at or listen to) are blocked on it.
+This run therefore executes **Phase 0, Groups A/B/C only** — everything that does not
+depend on P1 or a human — and stops there to report the blocker rather than guessing at
+the front end from the token table alone. Resume by running P1 by hand, then continuing
+with Group D.
+
+- [x] Group A — scaffold
+  - [x] A1 `pyproject.toml`, `.python-version`, `src/woodshed/__init__.py`, `tests/conftest.py`
+  - [x] A2 top-level `LICENSE` (GPL-2.0-or-later), `web/vendor/README.md` — the workflow
+        agent hit a content-filter error mid-unit after writing `LICENSE` correctly;
+        `web/vendor/README.md` was finished by hand afterwards.
+- [x] Group B — pure core (test-first)
+  - [x] B1 `errors.py` + `library.py`
+  - [x] B2 `clock.py`
+  - [x] B3 `sections.py`
+  - [x] B4 `ladder.py`
+  - [x] B5 `tuning.py`
+  - [x] B6 `manifest.py` — one gap found and fixed by hand after the run: `Section` was
+        missing the `duration` property the "Types and units" section requires for it
+        to satisfy `sections.Span`; added, and a workaround adapter C2 had built around
+        the gap in `server.py` was removed once the real fix landed.
+  - [x] B7 `ledger.py`
+  - [x] B8 `tools.py`
+  - [x] B9 `config.py` — not a lettered unit in the plan; added here (Core phase) so C2
+        and C3, which both need it, don't race on it in the Server phase. See the
+        BACKLOG entry: `practice.py` has the same kind of full contract with no owning
+        unit and is still unassigned — not needed until Phase 1 Group F, so left alone.
+- [x] Group C — depends on B
+  - [x] C1 `peaks.py`
+  - [x] C2 `server.py`
+  - [x] C3 `cli.py` + `doctor.py`
+- [x] Phase 0 automated gate — `uv run ruff check .` clean, `uv run pytest` 619 passed,
+      the no-extras gate 619 passed (currently vacuous: no test yet carries
+      `needs_rubberband`/`needs_librosa`/`needs_device`, and there is no
+      `analyze.py`/`render.py`/`capture.py` yet for it to actually guard — worth
+      re-checking once Phase 1 adds `analyze.py`), `test_server_writes_nothing_else`
+      passed. Re-verified independently after the two hand fixes above.
+- [ ] **BLOCKED on P1 (human task)**: Group D (front end), the Phase 0 manual gate, and
+      every later phase. Nothing in this run touched `web/` except the vendor README.
+
+**Minor plan citation to correct**: `parse_byte_range`'s lifted test set has **14**
+parametrised cases in the current `rambass-live` working copy, not 15 as the plan and
+its "Citation corrections" table state — C2 verified by reading the sibling file
+directly rather than trusting the remembered count.
 
 ---
 

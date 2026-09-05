@@ -1,0 +1,46 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "woodshed"
+version = "0.1.0"
+description = "Guitar practice tool: slow down, transpose, loop, and count reps on commercial recordings."
+requires-python = ">=3.12"
+dependencies = [
+    "pyyaml",
+    "pydantic>=2",
+    "numpy",
+]
+
+[project.optional-dependencies]
+analyze = ["librosa"]
+render = []
+capture = ["pyaudiowpatch"]
+dev = ["pytest", "ruff"]
+
+[project.scripts]
+woodshed = "woodshed.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/woodshed"]
+
+[tool.ruff]
+line-length = 100
+# design/ holds standalone one-off scripts for generating design-brief
+# artboards -- not part of the woodshed package (see CLAUDE.md's "Layering":
+# src/woodshed/ is the generic tool; design/ is not it) and not owned by any
+# unit in the implementation plan. Scoped out of lint rather than fixed here.
+extend-exclude = ["design"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+markers = [
+    "needs_rubberband: requires the rubberband CLI binary on PATH (select with -m, not -k)",
+    "needs_librosa: requires the librosa package installed (select with -m, not -k)",
+    "needs_device: requires a real audio input/output device (select with -m, not -k)",
+]
