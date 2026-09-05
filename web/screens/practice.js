@@ -478,6 +478,52 @@ export function mount(el, payload) {
   // ---- the engine (this unit's half of D7) ----
   let engine = null;
   let engineReady = false;
+  let engineInitPromise = null;
+
+  /**
+   * Create the RealtimeEngine and load this section -- but only once, and
+   * only ever called from inside a user-gesture handler (play_pause,
+   * below), never from mount() itself.
+   *
+   * FOUND LIVE 2026-09-06: this used to run in a floating async IIFE at
+   * mount time. Browsers suspend a freshly-created AudioContext until it
+   * is resumed from within a user gesture's call stack; loadSection()
+   * awaits ctx.resume(), so calling it eagerly on mount left the context
+   * permanently suspended -- no audio ever played and the worklet's
+   * process() callback never ran, so 'pass' never fired. Meanwhile
+   * tick()'s local wall-clock estimate (module doc, decision 3) kept
+   * advancing regardless of any of that and made the ring/waveform/
+   * playhead visually complete a lap with nothing behind it -- "it did
+   * one rep but the counter still shows 0", because repCount only moves
+   * on a genuine 'pass' from the engine, never from the local estimate.
+   * @returns {Promise<void>}
+   */
+  function ensureEngine() {
+    if (!engineInitPromise) {
+      engineInitPromise = (async () => {
+        const e = createEngine();
+        e.addEventListener('pass', onPass);
+        e.addEventListener('error', (err) => console.error('practice.js: engine error', err.detail?.error));
+        await e.loadSection({
+          sectionId: section.id,
+          audioUrl: `/api/audio/${encodeURIComponent(payload.slug)}`,
+          startS: section.start_s,
+          endS: section.end_s,
+          preRollS: payload.practice.pre_roll_beats * secPerBeat(payload.tempo),
+        });
+        e.setSpeedPct(speedPct);
+        e.setSemitones(shift);
+        engine = e;
+        engineReady = true;
+      })().catch((err) => {
+        // player.js/D4's engine may simply not exist yet, or the browser
+        // may refuse AudioWorklet -- degrade to local-only state rather
+        // than fail the whole screen. See module doc.
+        console.warn(`practice.js: RealtimeEngine unavailable (${err && err.message}) — controls update local state only, no audio.`);
+      });
+    }
+    return engineInitPromise;
+  }
 
   function onPass() {
     elapsed = 0;
@@ -577,8 +623,18 @@ export function mount(el, payload) {
   const handlers = {
     play_pause() {
       playing = !playing;
-      if (engineReady) { playing ? engine.play() : engine.pause(); }
       renderCheap();
+      if (playing) {
+        // Called synchronously, same call stack as the click/keydown that
+        // reached here -- ensureEngine()'s AudioContext gets created and
+        // resumed as a direct consequence of this user gesture. Do not
+        // await this before returning; play() fires once loadSection
+        // resolves, whether that is on this press (first time) or already
+        // settled (every press after).
+        ensureEngine().then(() => { if (engineReady && playing) engine.play(); });
+      } else if (engineReady) {
+        engine.pause();
+      }
     },
     next_section() { gotoSibling(1); },
     prev_section() { gotoSibling(-1); },

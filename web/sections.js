@@ -159,7 +159,15 @@ export function renderSections(laneRoot, sectionsData, view, handlers = {}) {
     el.style.flexDirection = 'column';
     el.style.justifyContent = 'center';
     el.style.padding = '0 12px';
-    el.style.overflow = 'hidden';
+    // NOT overflow:hidden here, even though the name/caption need clipping
+    // (see nm's own overflow/ellipsis below) -- the drag handles below are
+    // deliberately positioned outside this element's own box
+    // (left:-3px/right:-3px, per the artboard) and a parent overflow:hidden
+    // clips a child positioned past its edge regardless of z-index. That
+    // silently ate 3 of the handle's 5px on both sides, leaving only a
+    // sliver anyone could actually grab -- found live 2026-09-06 as "the
+    // start handle doesn't work" (the end handle was equally broken, just
+    // less noticed). Text clipping now lives on nm/bt individually instead.
     el.style.cursor = 'pointer';
     el.style.background = look.background;
     el.style.border = look.border;
@@ -186,7 +194,8 @@ export function renderSections(laneRoot, sectionsData, view, handlers = {}) {
     bt.textContent = caption;
     bt.style.cssText =
       "font-family:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace;" +
-      `font-size:10.5px;color:${captionColor};margin-top:2px`;
+      `font-size:10.5px;color:${captionColor};margin-top:2px;white-space:nowrap;` +
+      'overflow:hidden;text-overflow:ellipsis';
 
     el.append(nm, bt);
 

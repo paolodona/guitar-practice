@@ -338,6 +338,7 @@ export function mount(el, payload) {
       </div>
       <div style="margin-top:auto;display:flex;flex-direction:column;gap:12px">
         <button class="practise-btn" data-practise>Practise this</button>
+        <button class="practise-btn" data-delete style="background:var(--warn-tint,#2A1D17);color:var(--warn,#C9805E)">Delete section</button>
       </div>
     `;
     const numField = (name, parse, extract = (v) => v) => {
@@ -357,6 +358,19 @@ export function mount(el, payload) {
     inspector.querySelector('[data-practise]').addEventListener('click', () => {
       location.hash = `#/practice/${encodeURIComponent(slug)}/${encodeURIComponent(sec.id)}`;
     });
+    inspector.querySelector('[data-delete]').addEventListener('click', () => deleteSection(sec.id));
+  }
+
+  // Found live 2026-09-06: the inspector had no way to remove a section at
+  // all -- creation exists (drag on empty lane space, attachCreateHandler
+  // above), deletion never got a unit. window.confirm is synchronous and
+  // blocks the tab, same trade renderSections' own rename prompt makes.
+  async function deleteSection(id) {
+    if (!window.confirm('Delete this section? This cannot be undone.')) return;
+    const res = await post('/api/section', { song: slug, action: 'delete', id });
+    sections = orderSections(res.sections);
+    if (selectedId === id) selectedId = null;
+    redrawAll();
   }
 
   function redrawAll() {
