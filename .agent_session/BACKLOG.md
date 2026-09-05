@@ -64,6 +64,32 @@ Out-of-scope items discovered while planning or implementing. Format:
       "Citation corrections" table states (verified 2026-09-05 during C2). Low-stakes,
       but worth fixing in the plan text so a later reader doesn't go looking for a 15th.
 
+## Medium (added implementing Phase 0 Group D, 2026-09-05)
+- [ ] **[Plan 001]** `web/sections.js`'s `renderSections` tracks which section tile is
+      "selected" (drag handles shown) in its own closure, since the D0-fixed signature
+      (`laneRoot, sectionsData, view, handlers`) carries no `selectedId`. A redraw
+      triggered by a server round-trip (e.g. committing an inspector-field edit in
+      `screens/song.js`) therefore visually deselects the tile even though the caller's
+      own selection state is still correct. Flagged by D3 in `sections.js`'s own module
+      doc rather than silently worked around. Fix means either widening the signature
+      (a real contract change every caller would need to pick up) or having the caller
+      re-apply selection after each redraw — a call for whoever picks up Group D's
+      loose ends in Phase 1.
+- [ ] **[Plan 001]** `web/player.js`'s `RealtimeEngine` has no position/progress
+      accessor — only the discrete `pass` event at a loop boundary. `screens/practice.js`
+      (D6) therefore animates the progress ring, waveform clip and playhead from a
+      local wall-clock estimate resynced to 0 at each `pass`, not from engine ground
+      truth. Correct and unnoticeable at a glance, but Phase 2's J1/J2 (the buffer
+      engine and its boundary-swap arithmetic) should add a real accessor so this
+      stops being an approximation.
+- [ ] **[Plan 001]** `screens/practice.js` has no ledger-read endpoint to ask "what rung
+      and how many clean reps does this section already have" — it starts every mount
+      from a client-side mirror of `ladder.py`'s pure rung math with zero history,
+      correct for a fresh section but wrong the moment a song has practice history.
+      This is the same underlying gap as the existing `practice.py`-has-no-owning-unit
+      item above (Phase 1 Group F / Phase 2's `GET /api/progress`) — noting the concrete
+      front-end symptom here so it's checked off the same time that endpoint lands.
+
 ## Low
 - [ ] **[Plan 001]** Add `uv run pytest` as the Stop-hook quality gate in
       `.claude/plan-project.md` now that Phase 0 has scaffolded the package and the

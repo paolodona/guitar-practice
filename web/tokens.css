@@ -1,0 +1,85 @@
+/**
+ * tokens.css — the design canvas's palette and type scale, as custom
+ * properties. This is a transcription of the plan's token table
+ * (.agent_session/001_woodshed-implementation_plan.md, "Tokens ->
+ * web/tokens.css"), cross-checked hex-by-hex against the artboards on disk
+ * (design/Components.dc.html and design/Main.dc.html) rather than trusted
+ * from the table alone — the plan itself warns the table is a
+ * transcription, not the source.
+ *
+ * One accent, and semantic colour never doubles as it (the brief's rule):
+ * --accent is the only hue used for both UI chrome (speed, ring, played
+ * waveform) and never for status — --good/--warn own that, each paired
+ * with a *-tint background and a word, never a bare hue.
+ *
+ * No light theme, no dark-mode media query: CLAUDE.md's "Don't" list rules
+ * out a light theme entirely, and the brief repeats it under "Rules the
+ * brief states as prohibitions" for practice mode specifically. This file
+ * commits to one palette, deliberately.
+ */
+
+:root {
+  /* ---- ground / surfaces, darkest to lightest ---- */
+  --ground:       #0C1211; /* the page; also the ink ON accent fills (button labels, play
+                              triangle, current ladder rung) and the 2px halo stroke that
+                              keeps a chart's end dot readable over its own line */
+  --sunken:       #0F1614; /* recessed wells: form fields, pedal chips, the Components trough */
+  --surface:      #131B19; /* cards, panels, tiles, the waveform trough */
+  --raised:       #1B2422; /* stepper buttons, section-lane tiles, active nav pill, "needs audio" badge */
+
+  /* ---- dividers ---- */
+  --hairline:     #1C2523; /* dividers inside cards; the empty half of every track, meter, ring */
+  --line:         #26302E; /* the visible 1px border; the bar grid line */
+
+  /* ---- text, brightest to dimmest ---- */
+  --ink:          #E8EEEB; /* primary text, the rep number, the ring percentage */
+  --ink-2:        #9CAAA4; /* secondary prose, stepper glyphs, table body */
+  --ink-3:        #6A7873; /* .lbl labels, mono metadata */
+  --ink-4:        #5B6A64; /* 11.5px micro-annotations */
+
+  /* ---- the accent, and its neighbours ---- */
+  --recessive:    #4C635C; /* the unplayed waveform; the rep count at 0 after an advance —
+                               a zero that reads drained, not absent */
+  --accent:       #E0913F; /* THE accent: speed, ring arc, played waveform, primary fill,
+                               selected rung, links */
+  --accent-hover: #EFA95C; /* buttons and links on hover */
+  --accent-hi:    #F6C98A; /* the playhead — one step brighter than the accent, so the
+                               moving thing is the brightest thing */
+  --accent-dim:   #8A5C29; /* 1px-border weight: CC numbers, the Next-up card border,
+                               the 34px rule, a spent lead-in pip */
+  --accent-tint:  #2A2118; /* accent-tinted surface: selected lane, pressed pedal, disabled button */
+  --on-tint:      #F0C48A; /* text on --accent-tint */
+  --on-tint-sub:  #A8845C; /* sub-text on --accent-tint */
+
+  /* ---- semantic (never doubles as the accent) ---- */
+  --good:         #5FA88F; /* at target, matched, clean, ladder advanced, transpose 0 */
+  --good-tint:    #16261F; /* background of an "at target" / "matched" badge */
+  --warn:         #C9805E; /* cold, recording, clipping */
+  --warn-tint:    #2A1D17; /* background of a "cold" / "recording" badge */
+}
+
+/* ---- the three utility classes, lifted from design/_css.txt verbatim ----
+ * (design/_css.txt hardcodes .lbl's colour as #6A7873, which is exactly
+ * --ink-3 — the token this file defines for that same purpose, so the rule
+ * below reads var(--ink-3) rather than repeating the literal.)
+ */
+.mono {
+  font-family: 'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace;
+}
+
+.lbl {
+  font-family: 'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace;
+  letter-spacing: .2em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+/* .num's tabular figures are non-negotiable: the rep count and the speed
+ * percentage change constantly and must not shift width as they change. */
+.num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+  letter-spacing: -.035em;
+  line-height: .84;
+  font-weight: 700;
+}

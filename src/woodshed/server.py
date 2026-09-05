@@ -433,7 +433,23 @@ class WoodshedHandler(BaseHTTPRequestHandler):
 
         sections.validate(song.sections, song.recording.duration_s)
         save_song(song, song_path)
-        self._json({"sections": [s.model_dump(mode="json") for s in song.sections]})
+        # Same lane/ancestors shape _song() returns -- invariant 2 says containment
+        # and lane assignment are derived, never stored, and a caller that redraws
+        # from this response (rather than re-fetching GET /api/song) needs the
+        # derived fields here too, or every section silently collapses onto lane 0
+        # after the first edit. Found while building the front end (Group D, D3).
+        spans = song.sections
+        lanes = sections.assign_lanes(spans)
+        self._json({
+            "sections": [
+                {
+                    **s.model_dump(mode="json"),
+                    "lane": lanes[s.id],
+                    "ancestors": [a.id for a in sections.ancestors(spans, s.id)],
+                }
+                for s in song.sections
+            ]
+        })
 
     def _shutdown(self) -> None:
         """Stand down. No build queue in this unit, so nothing to refuse for."""

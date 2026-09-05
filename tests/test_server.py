@@ -401,6 +401,29 @@ def test_post_section_updates_an_existing_span(served):
     assert sum(1 for s in data["sections"] if s["id"] == "solo-part") == 1
 
 
+def test_post_section_response_carries_lane_and_ancestors(served):
+    """GET /api/song computes `lane`/`ancestors` per invariant 2 (derived, never
+    stored); POST /api/section must return the same shape. Found building the front
+    end (Group D, D3): a caller that redraws lanes from this response rather than
+    re-fetching GET /api/song needs these fields too, or every section collapses onto
+    lane 0 after the first edit.
+    """
+    base, repo, slug = served
+    status, data = _post(
+        base,
+        "/api/section",
+        {
+            "song": slug, "id": "new-bit", "name": "New bit",
+            "start_s": 70.0, "end_s": 90.0, "snapped": "free",
+            "target_speed": 100.0,
+        },
+    )
+    assert status == 200
+    for section in data["sections"]:
+        assert "lane" in section
+        assert "ancestors" in section
+
+
 def test_post_section_deletes_a_span(served):
     base, repo, slug = served
     status, data = _post(

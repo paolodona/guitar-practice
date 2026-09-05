@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Woodshed</title>
+
+<!--
+  index.html — the shell. server.py's _index() serves this file verbatim at
+  "/"; every other file this page references (tokens.css, app.js, the
+  vendored fonts) is loaded through the /web/* static route (server.py's
+  _web_static), so every path below is the absolute "/web/..." form, never
+  a bare relative one — a relative "app.js" would resolve against "/" and
+  404, not against "/web/".
+
+  This page owns exactly one thing: `<div id="screen-root">`, the mount
+  point app.js's router (see app.js's SCREEN_ROOT_ID) tears down and
+  rebuilds on every navigation. Nothing here is per-screen chrome — no nav
+  bar, no wordmark — because "no navigation sidebar in practice mode" (the
+  design brief) only makes sense if navigation is each screen's own
+  decision, not chrome this shell imposes on every screen including that
+  one. Screens draw their own top bars.
+
+  Self-hosted @font-face rules below are why this has to work on a laptop
+  with no network at runtime (CLAUDE.md) — nothing here reaches the
+  network at run time; web/vendor/fonts/README.md records where the woff2
+  files came from and why there are four, not seven (Archivo is one
+  variable file reused across all four weights; IBM Plex Mono is three
+  static files, one per weight).
+-->
+<link rel="stylesheet" href="/web/tokens.css">
+
+<style>
+  /* Archivo is served by Google as a single variable woff2 — the four
+     weight declarations below all point at the same file; the browser
+     picks the right instance out of it per @font-face's declared
+     font-weight. IBM Plex Mono has no variable build, so it's three
+     distinct static files. */
+  @font-face {
+    font-family: 'Archivo';
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url('/web/vendor/fonts/archivo-variable.woff2') format('woff2');
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+      U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215,
+      U+FEFF, U+FFFD;
+  }
+  @font-face {
+    font-family: 'Archivo';
+    font-style: normal;
+    font-weight: 500;
+    font-display: swap;
+    src: url('/web/vendor/fonts/archivo-variable.woff2') format('woff2');
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+      U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215,
+      U+FEFF, U+FFFD;
+  }
+  @font-face {
+    font-family: 'Archivo';
+    font-style: normal;
+    font-weight: 600;
+    font-display: swap;
+    src: url('/web/vendor/fonts/archivo-variable.woff2') format('woff2');
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+      U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215,
+      U+FEFF, U+FFFD;
+  }
+  @font-face {
+    font-family: 'Archivo';
+    font-style: normal;
+    font-weight: 700;
+    font-display: swap;
+    src: url('/web/vendor/fonts/archivo-variable.woff2') format('woff2');
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+      U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215,
+      U+FEFF, U+FFFD;
+  }
+  @font-face {
+    font-family: 'IBM Plex Mono';
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url('/web/vendor/fonts/ibmplexmono-400.woff2') format('woff2');
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+      U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215,
+      U+FEFF, U+FFFD;
+  }
+  @font-face {
+    font-family: 'IBM Plex Mono';
+    font-style: normal;
+    font-weight: 500;
+    font-display: swap;
+    src: url('/web/vendor/fonts/ibmplexmono-500.woff2') format('woff2');
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+      U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215,
+      U+FEFF, U+FFFD;
+  }
+  @font-face {
+    font-family: 'IBM Plex Mono';
+    font-style: normal;
+    font-weight: 600;
+    font-display: swap;
+    src: url('/web/vendor/fonts/ibmplexmono-600.woff2') format('woff2');
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+      U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215,
+      U+FEFF, U+FFFD;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: 'Archivo', ui-sans-serif, system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); }
+  a:hover { color: var(--accent-hover); }
+  #screen-root { min-height: 100%; }
+</style>
+</head>
+<body>
+<div id="screen-root"></div>
+<script type="module">
+  import { start } from '/web/app.js';
+  start();
+</script>
+</body>
+</html>

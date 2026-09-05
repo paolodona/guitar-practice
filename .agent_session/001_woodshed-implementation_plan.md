@@ -79,6 +79,110 @@ parametrised cases in the current `rambass-live` working copy, not 15 as the pla
 its "Citation corrections" table state — C2 verified by reading the sibling file
 directly rather than trusting the remembered count.
 
+- [x] Group D — the front end, code complete. P1 resolved and committed (`63655e6`)
+      ahead of this unit. Built 2026-09-05 via a `Workflow` run (dynamic multi-agent
+      orchestration, one agent per file-owning unit, run ID `wf_df7d4573-dbb`): **D0**
+      first and alone (fixes every `web/*.js` export signature and the cross-unit
+      contracts), then **D1–D7 in parallel** against that contract. **D7 was not
+      spun up as its own agent** — its pass-detection rule (started within 250 ms of
+      the section's beginning, no seek/pause between) was folded into D4 (`player.js`,
+      which detects and fires a `pass` `CustomEvent`) and D6 (`screens/practice.js`,
+      which only ever listens and POSTs `/api/rep`), so the two halves stay on
+      opposite sides of the file-ownership line without a ninth agent.
+      - **D0** fixed: the screen `mount(el, payload)` / `unmount()` contract (`payload`
+        carries the route's GET response plus a merged-in `params` key for path
+        segments with no home in that JSON, e.g. practice's `sectionId`); the route
+        table; `ACTIONS` (16 names, CCs 80–85 on the six foot actions verified against
+        `design/Main.dc.html`, `null` elsewhere) with working `on`/`dispatch`;
+        `RealtimeEngine extends EventTarget` firing `pass`; `timeline.js`'s
+        `{startS, endS, widthPx}` view shape. Left three open questions for D1/D5 to
+        settle (the `screen-root` mount-point id, the four payload-less screens
+        resolving `{}` this phase, whether `app.js`'s router loop was D0's or D1's) —
+        D1 picked them up correctly, see below.
+      - **D1** (`tokens.css`, `index.html`, `app.js`'s router body, `web/vendor/fonts/`):
+        built from the artboards, not the plan's summary — caught that the plan's own
+        `.lbl` snippet cites a `--muted` token that doesn't exist in the table and
+        resolved it as `--ink-3` (what `design/_css.txt` actually hardcodes there)
+        rather than inventing a 23rd token. Self-hosted both font families for real —
+        network access for the Google Fonts CSS API worked in this sandbox, so no
+        system-font fallback was needed; discovered Archivo ships as one variable
+        woff2 covering all four weights, IBM Plex Mono as three static files.
+      - **D2** (`timeline.js`, `wave.js`): built from `design/Main.dc.html` +
+        `design/SongPage.dc.html`; caught that the song-page waveform's unplayed
+        colour is `#3F544E` on the artboard, not `--recessive` as the plan's summary
+        implied — went with the artboard. Could not cross-check the gutter/DPR trap
+        against `rambass-live/console.html` directly (sibling checkout not present on
+        this machine) — re-derived from the plan's own description of the trap
+        instead; worth a spot-check later if that checkout is ever available here.
+      - **D3** (`sections.js`): built from `design/SongPage.dc.html`. **Found a real
+        gap and worked around it, correctly flagged rather than silently patched**:
+        `POST /api/section`'s response omitted the `lane`/`ancestors` fields `GET
+        /api/song` computes, so redrawing lanes from a commit response (rather than
+        re-fetching) would collapse every section onto lane 0 after the first edit.
+        **Fixed at the source** (this session, not by a D-unit — `server.py`'s
+        `_post_section` now returns the same derived shape `_song` does; regression
+        test `test_post_section_response_carries_lane_and_ancestors` added,
+        620 tests passing). D3 also flagged that `renderSections`' "selected" tile
+        state lives in its own closure (the fixed signature carries no `selectedId`)
+        and resets on every server-round-trip redraw — a real but minor UX rough
+        edge, logged to BACKLOG rather than fixed here since it means widening a
+        signature D0 already fixed for every other unit to build against.
+      - **D4** (`player.js` + half of D7, `web/vendor/rubberband/*`): adapted
+        `tools/rb-probe/rb-worklet.js` into a real `AudioWorkletProcessor`
+        (`worklet.js`) — added play/pause gating, looping (wrap to `loopStartFrame`
+        on every pass, never finalizing the stream), and actually discarding
+        `preferredStartPad`/`startDelay` frames of warm-up output (the probe computed
+        this but never used it). Vendored the hash-verified `rubberband.wasm` plus
+        `build.sh`/`upstream-shim.c`/`upstream-LICENSE` from `tools/rb-probe/`, per
+        `web/vendor/README.md` (updated in this session — it still read "not yet
+        vendored" after D4 landed). Resolved an apparent tension in
+        `docs/03-audio-engine.md`'s own text: the doc's `r = 2^(s/12)`, `ρ = r/v`
+        identity is explicitly pedagogical ("you will not normally write it") —
+        Rubber Band's own API exposes `time_ratio`/`pitch_scale` as independent
+        parameters and does the composition internally, which is what D4 implemented
+        (`timeRatio = 1/speedFraction`, `pitchScale = 2^(semitones/12)`, set directly,
+        no manual composition). Checked against the doc during this session's review:
+        no contradiction, no doc fix needed. **D4 said plainly it cannot verify the
+        stretch sounds right or that the loop-seam tick is the documented Phase 0
+        defect rather than something worse — this is one of the two things that need
+        Paolo in person.**
+      - **D5** (`keys.js`): verified `actions.js`'s CC table against `design/Main.dc.html`
+        directly rather than re-trusting D0's transcription (matched exactly), filled
+        in the key map, left nudge_start/nudge_end unbound (Phase 1's `[`/`]`).
+      - **D6** (`screens/song.js` + `screens/practice.js`, half of D7): built from all
+        four relevant artboards. Flagged (not silently worked around) three gaps
+        outside its own files: no ledger-read endpoint yet for a section's starting
+        rung/clean-rep history (mirrors the plan's own open `practice.py`/BACKLOG
+        item — practice.js currently mirrors `ladder.py`'s pure rung math starting
+        from zero history every mount); no setlist-scoped endpoint yet to persist a
+        transpose edit (`POST /api/shift` is Phase 1's F1 — the stepper is live and
+        drives the engine but the value doesn't survive a reload); and `player.js`'s
+        `RealtimeEngine` has no position/progress accessor, only the discrete `pass`
+        event, so the ring/waveform/playhead animate from a local wall-clock estimate
+        resynced at each `pass` rather than ground truth — flagged for a future D4
+        pass to add one.
+      - **Verification this session** (beyond the phase's own automated gate, done as
+        due diligence before declaring Group D's code complete): `uv run ruff check .`
+        clean; `uv run pytest` 620 passed (619 + the new regression test); every
+        `web/*.js` file passes `node --check`; a real server stood up against a
+        synthetic scratch repo (isolated tmp dir, a genuine 1 s silent WAV, two
+        overlapping sections) confirmed `GET /`, every `/web/*` static asset
+        (including the vendored `.wasm` and fonts), `GET /api/song` (lane/ancestors
+        now present and correct on both the initial fetch and, per the fix above, a
+        section-edit response), range-served `GET /api/audio`, and a path-traversal
+        attempt all behave correctly; a headless Edge `--dump-dom` against
+        `#/song/<slug>` and `#/practice/<slug>/<id>` confirmed the real song
+        title/section names/practice-mode chrome actually render — the front end
+        mounts and talks to the real server, not just passes `node --check`.
+      - **Not run, deliberately**: no JS unit-test framework exists or was added (the
+        plan gates this phase on the Python suite plus a human manual test, not a JS
+        suite) and the headless check above cannot hear audio or press a foot pedal.
+      **Both of the phase's human-only items are still open and this run stops at
+      them rather than guessing**: the manual gate (a real file, two overlapping
+      sections, `uv run woodshed serve`, loop the inner one at 60% for five passes,
+      confirm the rep count reads 5 and `practice/reps.jsonl` has five lines) and
+      listening to D4's real-time engine in a worklet before calling it done.
+
 ---
 
 ## Context

@@ -1,33 +1,30 @@
 # Vendored third-party code
 
-## Rubber Band WASM (not yet vendored here — documented ahead of the front end)
+## Rubber Band WASM
 
-The real-time engine (`web/player.js`, work unit D4, gated on prerequisite P1) will
-vendor a Rubber Band WASM build into this directory. This README exists now, ahead of
-that unit, so the licence story is settled before any front-end code lands.
+`web/vendor/rubberband/` holds the vendored build, copied in by work unit D4
+(2026-09-05) from `tools/rb-probe/`:
+`rubberband.wasm`, `build.sh` (renamed from `upstream-build.sh`), `upstream-shim.c`,
+`upstream-LICENSE`, plus `worklet.js` — the `AudioWorkletProcessor` D4 adapted from
+`tools/rb-probe/rb-worklet.js` for looping, play/pause gating and start-pad discard.
 
 - **Build**: `rubberband-wasm@3.3.0` — Rubber Band 3.3.0 from the official source
   tarball, built by Daninet's npm package.
-- **File**: a single `dist/rubberband.wasm`. It is `STANDALONE_WASM` — it instantiates
-  directly from a `WebAssembly.Module` with no Emscripten JS glue required. See
-  `tools/rb-probe/` for the working prototype (`rb-worklet.js`) and the measurements
-  that confirmed this build runs R3 in real time inside an `AudioWorklet` at ratio 2.0
-  (`docs/03-audio-engine.md`).
+- **File**: a single `rubberband.wasm`. It is `STANDALONE_WASM` — it instantiates
+  directly from a `WebAssembly.Module` with no Emscripten JS glue required, and D4
+  confirmed the copied file's sha256 (`496d880b…f07c04dc`) matches what
+  `tools/rb-probe/fetch-wasm.ps1` originally hash-checked.
 - **Licence**: GPLv2+ (the same terms as the upstream `rubberband` CLI). Vendoring this
   binary into published `web/` makes the distributed work GPL, which is why the repo
   carries a top-level `LICENSE` (`GPL-2.0-or-later`) — see `../../LICENSE`.
-- **Corresponding source (GPLv2 §3)**: a bare `.wasm` blob is not enough on its own.
-  When D4 vendors the binary, it must also commit `build.sh` and the C shim beside it
-  — `tools/rb-probe/upstream-build.sh` and `tools/rb-probe/upstream-shim.c` are exactly
-  those files, already fetched and hash-checked by `tools/rb-probe/fetch-wasm.ps1`.
-  D4 copies (or symlinks, if that's cleaner) `rubberband.wasm`, `upstream-build.sh` (as
-  `build.sh`), `upstream-shim.c`, and `upstream-LICENSE` into this directory.
+- **Corresponding source (GPLv2 §3)**: `build.sh` and `upstream-shim.c` are committed
+  beside the binary for exactly this reason — a bare `.wasm` blob is not enough on its
+  own.
 
-**Not done by this unit, deliberately**: the actual binary/build files are not copied
-in yet. That is D4's job, and D4 is blocked on prerequisite P1 (the design artboards
-must be exported from the published canvas before front-end work starts). This file
-just fixes the licence and provenance story ahead of time so nobody has to re-derive
-it under a later deadline.
+## Self-hosted fonts
 
-Self-hosted fonts (Archivo, IBM Plex Mono) will also live under `web/vendor/fonts/`
-once the front end is built (work unit D1) — not yet present either.
+`web/vendor/fonts/` holds Archivo (one variable woff2 covering weights 400-700 — Google
+serves it as a single file, so there is nothing to duplicate per weight) and IBM Plex
+Mono (three static woff2 files, 400/500/600 — no variable build exists for this family),
+both fetched from Google Fonts by work unit D1 (2026-09-05). Both are SIL Open Font
+License 1.1; see `web/vendor/fonts/README.md` for the exact source URLs and weights.
