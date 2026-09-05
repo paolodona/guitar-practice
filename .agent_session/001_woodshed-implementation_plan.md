@@ -177,6 +177,16 @@ directly rather than trusting the remembered count.
       - **Not run, deliberately**: no JS unit-test framework exists or was added (the
         plan gates this phase on the Python suite plus a human manual test, not a JS
         suite) and the headless check above cannot hear audio or press a foot pedal.
+      - **Found live, fixed same-day (`b8038c8`)**: Paolo hit the practice view with
+        the pedalboard busy on the gx100 project and the keyboard shortcuts did
+        nothing. D5 built `keys.js` correctly and D1 built `app.js` correctly, but
+        neither unit's file list crossed the other's, so nothing ever called
+        `keys.attach()` — every keyboard binding was dead code despite existing and
+        despite `node --check` and the headless smoke test both passing (neither
+        exercises a keypress). One line in `app.js`'s `start()` closes it. The
+        headless smoke test above did not, and structurally could not, catch this —
+        worth remembering next time a phase's automated check is "does it render",
+        not "does every input path actually fire".
       **Both of the phase's human-only items are still open and this run stops at
       them rather than guessing**: the manual gate (a real file, two overlapping
       sections, `uv run woodshed serve`, loop the inner one at 60% for five passes,
