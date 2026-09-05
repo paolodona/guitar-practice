@@ -226,6 +226,66 @@ directly rather than trusting the remembered count.
         needed" once he listens. This is still the one remaining human-only item
         before Group D can be called fully done; it is not gating anything else.
 
+- [x] Group E — analysis, done directly (Paolo's explicit choice over a
+      Workflow run for Phase 1: "I execute it directly, group by group"),
+      test-first, one unit per commit. **Before starting**, re-checked the
+      plan's own pre-flight note: `sections.snap`'s signature and
+      `clock.Render`'s fields both still match what Phase 0 shipped — no
+      rebasing needed.
+      - **E1** (`6df43eb`) `tempofit.py`: `refine_tempo`, `_comb`,
+        `pulse_wander`, `_circular_mean`, `find_grid_anchor`, `_runner_up`,
+        `grid_confidence` lifted verbatim from
+        `rambass-live/src/rambass/analyze.py`. Confirmed green under the exact
+        librosa-uninstalled gate command the plan specifies.
+      - **E2** (`6df43eb`) `analyze.py`: `detect_tempo` (onset envelope ->
+        coarse librosa guess -> `tempofit.refine_tempo` -> onset times ->
+        `tempofit.find_grid_anchor`) and the pure `beat_grid`. Decodes via
+        ffmpeg (`load_mono_audio`), not librosa's own loader, specifically so
+        the same decode also feeds the peaks cache —
+        `docs/01-architecture.md:111` documents `woodshed analyze <slug>` as
+        producing tempo, grid offset **and** peaks together, and nothing in
+        the plan's Group E bullet named a unit for the peaks half of that —
+        picked up here rather than left as a second gap alongside D3's
+        already-logged one. `confidence` is the grid anchor's own `on_beat`
+        score. Verified against a synthetic click track with librosa actually
+        installed (`uv run --extra analyze pytest`), not mocked: bpm recovered
+        within 1 BPM.
+      - **E4** (`3d1f6d6`) `tempofit.tap_tempo` (median of the last 8
+        inter-tap intervals, 25% outlier rejection) and `woodshed analyze
+        --bpm`/`--tap` (mutually exclusive), both forcing `confidence: null`.
+        **Found and fixed a real gap while building this unit's named degrade
+        test**: `manifest.Song.tempo` was a required field with a required
+        `bpm`, so a song.yaml missing its `tempo:` block failed to parse —
+        contradicting `docs/02-data-model.md:160`'s explicit "if tempo.bpm is
+        0 or absent, the app still works." Every `Tempo` field now defaults
+        and `Song.tempo` gets a `default_factory`, so "0" and "the key was
+        never there" collapse to the one value `analyze.beat_grid` (and later
+        `click.py`/the front end's bar ruler) already has to check.
+      - **E3** (`fef1405`) `click.py`: `render_click(bpm, grid_offset_s,
+        time_signature, duration_s)`, built directly against Woodshed's
+        one-bpm-plus-one-offset grid rather than lifting the sibling's
+        `Timeline` (per the plan's own instruction) — `_beat_times` duplicates
+        `analyze.beat_grid`'s few lines rather than importing it, since
+        `analyze.py` sits behind the heavy-dependency line and nothing below
+        it may import that module at all, pure function or not. `_tick`,
+        `_biquad_bandpass`, `_one_pole_lowpass`, `_guard`, `_db` lifted
+        verbatim; the bandpass/lowpass pair is currently unused by
+        `render_click` (they only ever voiced the sibling's drumstick
+        count-in, which nothing in Woodshed's spec asks for) but kept
+        exercised by their own tests per the plan's explicit lift list.
+      - **Automated gate**: `uv run pytest` green (682, up from 620 at the
+        end of Group D); `uv run ruff check .` clean; the librosa-uninstalled
+        gate (`tests/test_tempofit.py` + `tests/test_click.py`, both provably
+        pure) green under
+        `uv run --no-project --with pytest --with numpy --with pyyaml --with
+        pydantic pytest tests/test_tempofit.py tests/test_click.py`.
+      - **Not yet done**: Group E's own manual gate ("detect the tempo of a
+        real song, check the bar ruler lands on the downbeat by ear with the
+        click on; step the shift from −1 to 0 and hear the pitch move") needs
+        G1's bar ruler and F3's transpose stepper, neither built yet — that
+        gate is Phase 1's, not Group E's alone, and is deferred to the end of
+        the phase.
+
 ---
 
 ## Context
