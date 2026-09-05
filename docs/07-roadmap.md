@@ -22,13 +22,17 @@ app counts. Everything after this is making that better, not making it work.
 
 ## Phase 1 — in tune, on the grid
 
-* **Transpose**, derived from setlist tuning vs recording tuning.
+* **Transpose**, per song — derived from the setlist's tuning as a default and
+  overridable from the practice view at any time.
 * Tempo detection: `analyze.refine_tempo` from `rambass-live` — refined against
   the file, not a librosa tempogram bin — plus a **tap-tempo** fallback and a
   manual override, each recording which it was.
 * Beat grid, bar ruler, boundary snapping, millisecond nudge.
 * Lead-in bars and a generated click (`click.py`, also from `rambass-live`).
-* Setlists, and the dashboard with readiness.
+* Setlists, per-song transpose with a `−`/`+` stepper, and the dashboard.
+* **Capture** — loopback recording, silence splitting, duration matching to an
+  imported tracklist. Promoted out of phase 3 on 2026-09-05: without source audio
+  there is nothing to practise against, so it is not an extra.
 
 ## Phase 2 — the ladder, and a seam you cannot hear
 
@@ -47,7 +51,7 @@ app counts. Everything after this is making that better, not making it work.
   keyboard. This is the requirement that started the project, and it is late in
   the order only because it needs something worth controlling.
 * Spotify import: search, track/album/playlist → songs and setlists, all badged
-  `needs-audio`.
+  `needs-audio` and feeding the capture queue.
 * Library scan and file binding.
 * The `gx100` cross-reference: a section names a patch; show it, optionally send
   the Program Change, optionally follow the pedal's own.

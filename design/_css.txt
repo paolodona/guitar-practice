@@ -1,0 +1,12 @@
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+  <style>
+    *{box-sizing:border-box}
+    body{margin:0;background:#0C1211;color:#E8EEEB;
+         font-family:Archivo,'Helvetica Neue',Arial,sans-serif;-webkit-font-smoothing:antialiased}
+    a{color:#E0913F} a:hover{color:#EFA95C}
+    .mono{font-family:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace}
+    .lbl{font-family:'IBM Plex Mono',ui-monospace,Menlo,monospace;letter-spacing:.2em;
+         text-transform:uppercase;color:#6A7873}
+    .num{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1;
+         letter-spacing:-.035em;line-height:.84;font-weight:700}
+  </style>

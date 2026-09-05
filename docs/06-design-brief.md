@@ -7,11 +7,13 @@ tool will not have this repo.
 
 ## Brief
 
-**Product:** *Woodshed* — a personal practice tool for one guitarist. It plays a
-song slower without changing its pitch, drops it a half step to match the band's
-tuning, loops a named section (a solo, an intro riff) over and over, and counts
-how many times you have played it and at what percentage of full speed. Local
-web app, single user, runs on his own machine.
+**Product:** a personal practice tool for one guitarist. It plays a song slower
+without changing its pitch, shifts it by a few semitones where the record's
+tuning does not match the band's, loops a named section (a solo, an intro riff)
+over and over, and counts how many times you have played it and at what
+percentage of full speed. It can also *record* a song off the machine's own audio
+output, for the songs he has no file for. Local web app, single user, runs on his
+own machine.
 
 **Design a clean, calm, dark UI for it.**
 
@@ -44,10 +46,12 @@ to the same product but not like the same screen:
 1. **Dashboard** — desktop, ~1440×900
 2. **Song page / editor** — desktop, ~1440×900
 3. **Practice mode** — full screen, ~1920×1080. **The hero. Spend the most time here.**
-4. **Library / add a song** — desktop, ~1440×900
-5. **Progress** — desktop, ~1440×900
-6. A small **component sheet**: buttons, the section chip, the speed control, the
-   readiness bar, the foot-pedal legend, the waveform + beat-grid treatment.
+4. **Capture** — desktop, ~1440×900
+5. **Library / add a song** — desktop, ~1440×900
+6. **Progress** — desktop, ~1440×900
+7. A small **component sheet**: buttons, the section chip, the speed control, the
+   transpose stepper, the readiness bar, the foot-pedal legend, the waveform +
+   beat-grid treatment.
 
 If time is limited: 3, then 1, then 2.
 
@@ -129,11 +133,31 @@ week two, so it must be present and must not compete.
   confetti. This is the emotional payoff of the whole product and it happens
   maybe six times an hour.
 
-### 4 · Library / add a song
+### 4 · Capture
 
-Three entry paths on one screen, equal weight:
+Reached from a song with no audio. He arms it, presses play in whatever app is
+playing the music, and walks away.
+
+* **Three stat tiles**: the source device, elapsed time, captured-of-total.
+* **The live signal**: L/R level meters and the segment currently being recorded,
+  with its elapsed time against the expected duration.
+* **The pass so far**: a long waveform of the whole session with the detected
+  splits marked, and under it one labelled block per segment showing which track
+  it matched and by how much the duration differed.
+* **A queue rail** on the right: the imported tracklist, each row captured /
+  capturing / waiting.
+* One line of plain copy: *everything the output device plays is recorded,
+  notifications included*. It is a caution, not a warning — style it as
+  information.
+
+Show it mid-capture, not idle.
+
+### 5 · Library / add a song
+
+Four entry paths on one screen, equal weight:
 
 * **Drop a file** — a large drop target.
+* **Capture what's playing** — leads to screen 4.
 * **Scan a folder** — pick a folder, then a result list with checkboxes.
 * **Search Spotify** — a search field and results (artwork, title, artist,
   album, duration). Also accepts a pasted Spotify URL; a pasted **playlist**
@@ -145,7 +169,7 @@ reads as *a next step*, not as an error — it is the normal state of a
 freshly-imported song, and it must not make a 23-song import look like 23
 failures.
 
-### 5 · Progress
+### 6 · Progress
 
 The long view. Per section: a small sparkline of speed over time, total reps,
 best sustained speed, last practised. Per setlist: readiness over time, and a
@@ -191,16 +215,18 @@ motivating.
   roll!". He is a working musician preparing for a gig.
 * **Assume a light theme is not needed.** One theme, done properly, beats two
   done adequately.
-* **Tuning is shown as a name** ("E♭ standard"), with the semitone number as a
-  secondary check. Never a bare "−1".
+* **Transpose is a control, not a label.** A `−` / value / `+` stepper, showing
+  the signed number (`−1`, `0`, `+2`) with the tuning names beside it as the
+  reasoning. It has to be reachable in one press from the practice view — he
+  changes it song by song and sometimes mid-session.
 
 ## Content to use in the mockups
 
 Real-feeling content, not lorem:
 
 * Songs: *Can't Stop* — Red Hot Chili Peppers · *Plush* — Stone Temple Pilots ·
-  *Sultans of Swing* — Dire Straits · *Manlio* — Ramba S.S. (his own band) ·
-  *Whole Lotta Love* — Led Zeppelin
+  *Sultans of Swing* — Dire Straits · *Manlio* — Ramba S.S. (his own band, and
+  already recorded in E♭, so its shift is 0) · *Whole Lotta Love* — Led Zeppelin
 * Sections: "Intro riff", "Verse", "Chorus", "Solo — first half", "Solo — second
   half", "Outro jam"
 * Setlists: "Ramba S.S. — the set" (E♭ standard, 23 songs), "Covers duo"

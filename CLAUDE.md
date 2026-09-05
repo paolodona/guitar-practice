@@ -36,10 +36,13 @@ original file (what `song.yaml` stores). *Playback time* is seconds in the
 rendered, stretched section, where the pre-roll occupies the head. Two functions,
 two names, converted at the boundary and nowhere else.
 
-**Transpose is derived, never typed.** `semitones = pitch(setlist.tuning) -
-pitch(song.recording.tuning)`. Changing the band's tuning re-tunes the whole
-setlist in one edit. A tuning is a *name* in the UI ("E♭ standard"), never a bare
-number.
+**Transpose is per song; the setlist only supplies a default.** A band in E♭ does
+not mean every record needs moving — some are already in E♭. The shift lives on
+the **setlist entry** (`setlist.songs[].shift`), because the same song wants a
+different shift in the E♭ band and the E covers duo; the derivation
+`pitch(setlist.tuning) - pitch(song.recording.tuning)` fills it in and nothing
+more. It is directly editable from the practice view (`−`/`+`, or `-`/`=`), shown
+as a number, and range-limited to ±6.
 
 **The ledger is append-only and it is the only irreplaceable file.**
 `practice/reps.jsonl`, one line per rep, never rewritten. A retraction is an
@@ -108,8 +111,10 @@ measurement. Verification done by hand belongs in `tests/`, not in a transcript.
   are commercial recordings I have a licence to listen to, not to publish.
 * Don't put a secret in `config.yaml` — it is tracked. Tokens go in
   `~/.woodshed/credentials.json`.
-* Don't build a Spotify audio path. It does not exist and the workarounds breach
-  their terms — `docs/04-sources.md` explains what Spotify *is* for here.
+* Don't build a Spotify audio path, a DRM-decrypting path, or a bundled
+  downloader for a service whose terms forbid it. `capture.py` records an **audio
+  device** and knows nothing about any service — that is the general answer, and
+  what it is pointed at is a human's call. `docs/04-sources.md` has the reasoning.
 * Don't send Program Changes to the GX-100 without an explicit toggle. Same
   instinct as that repo's edit-buffer-only rule: a practice tool should not
   silently change the pedal I am about to play a gig on.

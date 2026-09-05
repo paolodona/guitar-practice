@@ -13,10 +13,13 @@ foot or a single glance, it belongs on a setup screen, not in the practice view.
 
 ## What it does
 
-1. **Holds a library of songs**, each bound to an audio file you own.
+1. **Holds a library of songs**, each bound to an audio file — one you already
+   have, or one captured off the machine's own output.
 2. **Plays them slower** — 40–100 % of the original tempo — at the original pitch.
-3. **Plays them in your tuning** — the band is in E♭, the record is in E, so the
-   record goes down one semitone. Declared once per band, derived per song.
+3. **Plays them in your tuning** — **per song**, because some of these records
+   are already in E♭ and must not be touched while others are in E and have to
+   come down one. The band's tuning only supplies the default; a `−`/`+` stepper
+   is one press away in the practice view and moves it whenever you want.
 4. **Cuts them into named sections** you draw on a waveform: "Can't Stop intro",
    "solo, second half".
 5. **Loops a section seamlessly**, with a lead-in so you arrive at the downbeat
@@ -27,12 +30,16 @@ foot or a single glance, it belongs on a setup screen, not in the practice view.
    still at 55 %.
 8. **Supports several setlists** — the band's show, the covers group, a
    technique list — each with its own tuning.
-9. **Is driven by your feet** — the GX-100's own footswitches over USB MIDI.
+9. **Captures what it cannot import** — records the output device, splits a
+   playlist on the gaps, and matches the segments to the tracklist by duration.
+10. **Is driven by your feet** — the GX-100's own footswitches over USB MIDI.
 
 ## What it deliberately does not do
 
-* **It does not download from Spotify.** It cannot: see `docs/04-sources.md`.
-  Spotify is a catalogue and a search box here, never an audio source.
+* **It does not integrate with Spotify for audio.** It cannot — the samples are
+  inside a DRM path. Spotify supplies the *list*; the audio comes from your own
+  files or from **capture**, which records the machine's own output whatever is
+  playing it. See `docs/04-sources.md`.
 * **It does not judge your playing.** No pitch detection, no "you played that
   wrong". A rep is a pass through the loop; whether it was *clean* is something
   you tell it with a footswitch. Inventing a measurement the tool cannot make is
@@ -44,7 +51,7 @@ foot or a single glance, it belongs on a setup screen, not in the practice view.
 
 ---
 
-## The five screens
+## The six screens
 
 ### 1. Dashboard
 
@@ -116,7 +123,18 @@ the thing it exists to protect. (`rambass-live`'s review console reached the sam
 conclusion from the other direction: every toggle there is a *mute* on something
 already playing, because a restarted element comes back a frame late.)
 
-### 4. Library / import
+### 4. Capture
+
+Reached from a `needs-audio` song or from the library. Arm it, press play in
+whatever is playing the music, and leave it: the level meters and a growing
+waveform show the pass, silence splits it into segments, and each segment binds
+to the next track in the imported tracklist by duration. A segment more than
+1.5 s from its expected length stops and asks rather than binding on a guess.
+
+One line of copy on that screen earns its place: *everything the output device
+plays is recorded, notifications included*. See `docs/04-sources.md`.
+
+### 5. Library / import
 
 Add a song. Three routes, all landing in the same place:
 
@@ -128,7 +146,7 @@ Add a song. Three routes, all landing in the same place:
   — **and no audio**, marked `needs-audio` until you bind a file. A playlist
   imports as a setlist in one go.
 
-### 5. Progress
+### 6. Progress
 
 The long view, and the one that makes the tool worth using for a year. Per
 section: a small chart of speed over time, total reps, clean reps, best sustained
@@ -218,6 +236,7 @@ work done for the covers gig still counts for the band's.
 | `↑` / `↓` | speed up / down one ladder step |
 | `←` / `→` | previous / next section |
 | `[` / `]` | nudge the loop start / end by 10 ms |
+| `-` / `=` | transpose down / up a semitone |
 | `l` | loop on/off |
 | `c` | confirm the last pass as clean |
 | `x` | retract the last rep |

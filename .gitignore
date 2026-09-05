@@ -15,3 +15,6 @@ __pycache__/
 .venv/
 .pytest_cache/
 .ruff_cache/
+
+# Seeded design canvas — 2 MB of packaged editor, rebuilt by design/seed
+design/*.html

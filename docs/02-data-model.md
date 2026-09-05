@@ -105,9 +105,11 @@ tuning: Eb standard             # THE BAND'S tuning. This is what makes the tran
 date: 2027-04-17                # optional. Drives the countdown.
 venue: ""
 songs:
-  - cant-stop
-  - manlio
-  - by-the-way
+  - cant-stop                   # takes the derived shift for this setlist
+  - slug: manlio
+    shift: 0                    # the record is already in E♭ — nothing to move
+  - slug: sultans-of-swing
+    shift: -2                   # I want this one lower than the band's tuning
 notes: |
   Free text. Why the order is what it is.
 ```
@@ -115,27 +117,50 @@ notes: |
 Songs by slug, never copied. A song in three setlists is one song with one
 practice history.
 
-### Transpose is derived, never typed
+### Transpose is per song. The setlist only supplies a default.
+
+**A band in E♭ does not mean every record needs moving.** Some of these
+recordings are already in E♭ and must be left alone; some are in E and have to
+come down one; and sometimes you will just want a song lower than the band's
+tuning because it sits better. So the shift is **a property of the song in this
+setlist**, and it is directly editable — the derivation exists to save typing,
+not to take the decision.
+
+Three values, in precedence order:
+
+| | where it lives | what it is |
+|---|---|---|
+| the record's tuning | `song.recording.tuning` | a fact about the recording. Global to the song |
+| the band's tuning | `setlist.tuning` | a fact about the group playing it |
+| **the shift** | `setlist.songs[].shift` | **what actually happens.** An integer number of semitones |
 
 ```
-semitones = pitch_of(setlist.tuning) - pitch_of(song.recording.tuning)
+default_shift = pitch_of(setlist.tuning) - pitch_of(song.recording.tuning)
+effective     = entry.shift  if the entry declares one  else  default_shift
 ```
 
-with a table of named tunings (`E standard` 0, `Eb standard` −1, `D standard`
-−2, `drop D` 0 — same pitch reference, different string) and an explicit
-`transpose_override` on the song for the cases a name cannot express.
+So a record in E♭ inside an E♭ setlist derives **0** and is left untouched, a
+record in E derives **−1**, and either can be overridden to anything.
 
-Two consequences, both good:
+**The override belongs to the setlist entry, not to the song**, because the same
+song is a different problem in each group: *Sultans of Swing* wants −1 for the
+E♭ band and 0 for the covers duo playing in E. One song, one file, one practice
+history, two shifts.
 
-* Changing the band's tuning re-tunes the **whole setlist** in one edit. That is
-  the same argument `rambass-live` makes for bar-anchored positions, applied to
-  pitch: store the intent, derive the number.
-* The same song practised for the E♭ band and the E covers group is one song
-  with two derived offsets, and the app can render both variants into the cache
-  without either being "the" version.
+**And it is always one press away.** A `−`/`+` stepper sits in the practice
+view's header and on the song page; `-` and `=` do it from the keyboard.
+Stepping it writes the entry's `shift` and re-renders at the next loop boundary.
+The number is shown as a number — `−1`, `0`, `+2` — with the tuning names beside
+it as the explanation, not instead of it. (An earlier draft of this document said
+"a tuning is a name in the UI, never a number". That was wrong: the name is the
+default's reasoning, and the number is the control.)
 
-A tuning is a name in the UI, never a number: you pick "E♭ standard", you do not
-type "−1". The number appears next to it as a check.
+Range is ±6 semitones. Beyond that the stretch quality collapses and the answer
+is a different recording, not a bigger shift.
+
+**Changing a shift invalidates that song's renders in this setlist**, and nothing
+else — the cache key already carries `semitones`, so a stale file is impossible
+and a changed shift simply misses the cache and re-renders.
 
 ---
 

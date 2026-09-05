@@ -45,11 +45,12 @@ still run its core commands on a laptop with nothing installed:
 | `server.py` | the HTTP server, JSON endpoints, range-served media | stdlib |
 | `sources.py` | Spotify search/import, local folder scan, file binding | urllib |
 | `peaks.py` | multi-resolution waveform peaks | numpy |
+| `capture.py` | loopback recording, silence splitting, duration matching | **pyaudiowpatch** (optional) |
 | `analyze.py` | tempo refinement, beat grid, onset detection | **librosa** (optional) |
 | `render.py` | offline time-stretch / pitch-shift into the cache | **rubberband** (optional) |
 
-**Never import librosa or call the rubberband binary above the `analyze.py` /
-`render.py` line.** Everything else must run from a fresh clone with `pyyaml` and
+**Never import librosa, open an audio device, or call the rubberband binary above
+the `capture.py` / `analyze.py` / `render.py` line.** Everything else must run from a fresh clone with `pyyaml` and
 `numpy` and nothing more — which also means the whole test suite runs that way.
 Use a `require_module()`-style helper so a missing extra prints an install hint
 naming the installer that actually exists, not an `ImportError` traceback. Both
@@ -101,6 +102,7 @@ woodshed add <file> [--title --artist --spotify <id>]
 woodshed analyze <slug>              # tempo, grid offset, peaks
 woodshed section <slug> add "solo" 118.4 146.9
 woodshed setlist new <name> --tuning Eb
+woodshed capture --queue <setlist>     # arm loopback, split a playlist on the gaps
 woodshed render <slug> --section solo --speed 60 --semitones -1
 woodshed status [--setlist <name>]   # the dashboard, as text
 woodshed log <slug> <section> --speed 60 --clean   # a rep, from anywhere
@@ -111,8 +113,8 @@ woodshed doctor                      # ffmpeg, rubberband, librosa, MIDI, files
 `doctor` is not optional garnish. Both other repos have one and both earn it —
 `rambass-live`'s exists because ffmpeg was installed and unfindable, and the
 error message sent its author to install something he already had. This app has
-four external things that can each be absent (ffmpeg, rubberband, a WASM
-stretcher, a MIDI device) and `doctor` is where that is said out loud, naming
+five external things that can each be absent (ffmpeg, rubberband, a WASM
+stretcher, a MIDI device, a loopback-capable audio device) and `doctor` is where that is said out loud, naming
 the route it took to find each one.
 
 ## What to lift from the other two repos
