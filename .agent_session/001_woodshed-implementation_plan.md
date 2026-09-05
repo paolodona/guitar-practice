@@ -187,11 +187,44 @@ directly rather than trusting the remembered count.
         headless smoke test above did not, and structurally could not, catch this —
         worth remembering next time a phase's automated check is "does it render",
         not "does every input path actually fire".
-      **Both of the phase's human-only items are still open and this run stops at
+      **Both of the phase's human-only items were still open and this run stopped at
       them rather than guessing**: the manual gate (a real file, two overlapping
       sections, `uv run woodshed serve`, loop the inner one at 60% for five passes,
       confirm the rep count reads 5 and `practice/reps.jsonl` has five lines) and
       listening to D4's real-time engine in a worklet before calling it done.
+      - **Manual gate: PASSED, 2026-09-05.** Paolo looped `tutti-in-fila`'s `tapping`
+        section (nested inside `full-solo` — the required "two overlapping sections")
+        at 60% for 6 passes (one better than the gate's 5). `practice/reps.jsonl`
+        carries all 6, `loop_s: 25.714654265498687` on every line — exactly
+        `(end_s − start_s) / 0.6` for the section's current boundaries — with
+        real-clock gaps of 25.71–25.72 s between consecutive lines, no drift, no
+        duplicate, no drop. An earlier 50% pass from an older section boundary was
+        correctly **retracted** (a second appended line, invariant 5, not a rewrite)
+        rather than removed.
+      - **Found live during the gate, fixed same session**: pressing `speed_up`
+        mid-loop looked like a dropped rep followed by an early restart ("it did not
+        record the rep... a few seconds into the second loop it started again from
+        the beginning"). Root cause was cosmetic only: `screens/practice.js`'s
+        progress-ring/waveform/playhead estimate (`currentP()`) recomputed its
+        assumed loop duration from the *live* `speedPct` every frame, while `elapsed`
+        kept counting real wall-clock time since the last genuine `pass` — a mid-lap
+        speed_up shrinks that recomputed duration, so the modulo wraps and the ring
+        visually snaps to 0 before the real engine (worklet.js's boundary detection,
+        driven by input-sample position, not by ratio) actually reaches the section
+        end. The ledger above proves the real pass-detection was never affected.
+        Fixed by freezing the cosmetic duration once per lap (`beginLap()`, only
+        called on mount/restart/the real `pass` event) instead of recomputing it
+        live — a mid-loop speed change now only reshapes the *next* lap's cosmetic
+        estimate, matching what the audio engine itself does. `web/screens/practice.js`
+        changed; `node --check` clean on every `web/*.js` file; committed (`81a581f`).
+      - **Deliberately deferred, not blocking**: listening to D4's real-time engine in
+        a worklet — does the Rubber Band stretch actually sound right, and is the
+        loop-seam tick (if any) the documented Phase 0 defect (trap 3: a real-time
+        stretcher cannot loop sample-exact) rather than something worse. Paolo's call
+        (2026-09-05): his audio interface is tied up on another project right now, so
+        this stays open and Phase 1 work proceeds without it — "we'll fix it if
+        needed" once he listens. This is still the one remaining human-only item
+        before Group D can be called fully done; it is not gating anything else.
 
 ---
 
