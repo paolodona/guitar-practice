@@ -56,7 +56,6 @@ or check the toolchain first:
 #: name -> the phase that will build it (docs/07-roadmap.md), for the honest
 #: "not built yet" refusal on a command this unit does not implement.
 _NOT_YET_IMPLEMENTED = {
-    "analyze": "Phase 1 -- tempo detection and the beat grid",
     "setlist": "Phase 1 -- setlists and per-song transpose",
     "capture": "Phase 1 -- loopback recording",
     "render": "Phase 2 -- the offline render cache",
@@ -191,8 +190,8 @@ def cmd_add(args: argparse.Namespace) -> int:
     save_song(song, path)
     _say(f"added {slug!r}: {path}")
     _say(f"  {song.recording.duration_s:.1f}s, {song.recording.tuning}, "
-         f"bpm {song.tempo.bpm:g} (source: manual -- run `woodshed analyze` once "
-         "it exists, or edit song.yaml by hand)")
+         f"bpm {song.tempo.bpm:g} (source: manual -- run `woodshed analyze "
+         f"{slug}` to refine it, or edit song.yaml by hand)")
     return 0
 
 
@@ -299,6 +298,44 @@ def cmd_log(args: argparse.Namespace) -> int:
     ledger.append(repo, rep)
     verb = "clean pass" if rep.clean else ("pass" if rep.passed else "attempt")
     _say(f"{slug}/{args.section}: logged a {verb} at {rep.speed:g}%")
+    return 0
+
+
+# ── commands: analysis ────────────────────────────────────────────────────
+def cmd_analyze(args: argparse.Namespace) -> int:
+    # Lazy import: analyze.py is behind the librosa line (CLAUDE.md's
+    # layering rule), so only `analyze` itself pays for a missing librosa --
+    # same reasoning as cmd_serve's lazy `from woodshed.server import
+    # make_server` below. require_module (inside detect_tempo) gives the
+    # honest "pip install woodshed[analyze]" message; this just keeps every
+    # other command importable without librosa on the machine at all.
+    from woodshed import peaks as peaks_module
+    from woodshed.analyze import beat_grid, detect_tempo, load_mono_audio
+
+    repo = _repo()
+    slug, path, song = _load_song(repo, args.slug)
+    audio_path = repo.song_dir(slug) / song.recording.file
+    if not audio_path.is_file():
+        raise WoodshedError(f"{slug}: no such audio file: {audio_path}")
+
+    tempo = detect_tempo(audio_path)
+    song.tempo = tempo
+    save_song(song, path)
+
+    # One decode serves both tempo detection and the peaks cache --
+    # docs/01-architecture.md:111 lists them together for exactly this
+    # reason. A second ffmpeg pass is the price of detect_tempo's fixed,
+    # audio-in-tempo-out signature (see analyze.py); it is a few seconds
+    # once per `woodshed analyze`, not a hot path.
+    samples, sr = load_mono_audio(audio_path)
+    peaks_module.write_peaks(repo, slug, peaks_module.multi_resolution(samples, sr))
+
+    grid = beat_grid(tempo, song.recording.duration_s)
+    _say(f"{slug}: bpm {tempo.bpm:g} (source: {tempo.source}, "
+         f"confidence {tempo.confidence:.2f})" if tempo.confidence is not None
+         else f"{slug}: bpm {tempo.bpm:g} (source: {tempo.source})")
+    _say(f"  grid offset {tempo.grid_offset_s:.3f}s, {len(grid)} beats over "
+         f"{song.recording.duration_s:.1f}s, peaks cached")
     return 0
 
 
@@ -462,10 +499,14 @@ def build_parser() -> argparse.ArgumentParser:
                                        "the toolchain are usable")
     p.set_defaults(func=cmd_doctor)
 
+    # -- analyze --
+    p = sub.add_parser("analyze", help="detect tempo and grid offset, cache peaks")
+    p.add_argument("slug", help="song reference (slug, or a fuzzy title)")
+    p.set_defaults(func=cmd_analyze)
+
     # -- not yet implemented, registered so `--help` is honest about the
     #    tool's eventual shape (docs/01-architecture.md's full command list) --
     stub_help = {
-        "analyze": "tempo, grid offset, peaks (not yet implemented)",
         "setlist": "create or edit a setlist (not yet implemented)",
         "capture": "arm loopback, split a playlist on the gaps (not yet implemented)",
         "render": "render a section into the offline cache (not yet implemented)",

@@ -70,7 +70,7 @@ def test_no_subcommand_prints_help_and_returns_1(capsys: pytest.CaptureFixture) 
 
 
 @pytest.mark.parametrize(
-    "name", ["analyze", "setlist", "capture", "render", "status", "scan"]
+    "name", ["setlist", "capture", "render", "status", "scan"]
 )
 def test_not_yet_implemented_commands_refuse_cleanly(
     name: str, capsys: pytest.CaptureFixture
@@ -258,3 +258,58 @@ def test_cmd_doctor_runs_and_prints_a_report(
     out = capsys.readouterr().out
     assert "woodshed doctor" in out
     assert "Web MIDI is Chrome/Edge only." in out
+
+
+# ── analyze, through the CLI wiring (see tests/test_analyze.py for the module) ──
+def _write_click_wav(
+    path: Path, *, bpm: float = 100.0, seconds: float = 30.0, rate: int = 22050
+) -> None:
+    """A percussive click track, unlike `_write_wav`'s silence -- there has
+    to be something for `detect_tempo` to find a tempo in."""
+    import numpy as np
+
+    n = int(seconds * rate)
+    samples = np.zeros(n, dtype=np.float32)
+    period = 60.0 / bpm
+    click_len = int(0.02 * rate)
+    envelope = np.exp(-np.arange(click_len) / (0.003 * rate))
+    tone = np.sin(2 * np.pi * 1200.0 * np.arange(click_len) / rate)
+    click = (envelope * tone).astype(np.float32)
+    t = 0.25
+    while t < seconds:
+        start = int(t * rate)
+        end = min(start + click_len, n)
+        samples[start:end] += click[: end - start]
+        t += period
+    pcm = (np.clip(samples, -1.0, 1.0) * 32767).astype("<i2")
+    with wave.open(str(path), "wb") as f:
+        f.setnchannels(1)
+        f.setsampwidth(2)
+        f.setframerate(rate)
+        f.writeframes(pcm.tobytes())
+
+
+@pytest.mark.needs_librosa
+def test_analyze_writes_a_refined_tempo_and_caches_peaks(repo: Repo, tmp_path: Path) -> None:
+    source = tmp_path / "source.wav"
+    _write_click_wav(source, bpm=100.0, seconds=30.0)
+    argv = ["add", str(source), "--title", "Test Song", "--artist", "Nobody", "--bpm", "99"]
+    assert cli.main(argv) == 0
+    slug = "test-song"
+
+    rc = cli.main(["analyze", slug])
+    assert rc == 0
+
+    song = load_song(repo.song_dir(slug) / "song.yaml")
+    assert song.tempo.source == "refined"
+    assert song.tempo.bpm == pytest.approx(100.0, abs=1.0)
+    assert song.tempo.confidence is not None
+
+    assert (repo.cache_dir(slug) / "peaks-1024.json").is_file()
+    assert (repo.cache_dir(slug) / "peaks-4096.json").is_file()
+    assert (repo.cache_dir(slug) / "peaks-16384.json").is_file()
+
+
+def test_analyze_unknown_song_refuses(repo: Repo) -> None:
+    rc = cli.main(["analyze", "no-such-song"])
+    assert rc == 2
