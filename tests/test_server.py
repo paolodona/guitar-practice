@@ -34,7 +34,17 @@ import pytest
 
 from woodshed.ledger import read as read_ledger
 from woodshed.library import Repo
-from woodshed.manifest import Recording, Section, Song, Tempo, hash_file, save_song
+from woodshed.manifest import (
+    Recording,
+    Section,
+    Setlist,
+    SetlistEntry,
+    Song,
+    Tempo,
+    hash_file,
+    save_setlist,
+    save_song,
+)
 from woodshed.server import WoodshedServer, make_server, parse_byte_range
 
 POLL = 0.01  # server.serve_forever's poll interval; small so shutdown is fast in tests
@@ -244,13 +254,37 @@ def test_api_song_payload_has_lanes_and_ancestors(served):
     assert data["slug"] == slug
     assert data["tempo"]["bpm"] == 120.0
     assert data["peaks_url"] == f"/api/peaks/{slug}"
-    assert "readiness" not in data  # explicitly omitted -- see report
+    assert data["shift"] == 0  # no ?setlist= on this request -- unshifted
+    # readiness is real as of F1 (practice.py); no reps yet, so the two
+    # sections' shared time is entirely unreached.
+    assert data["readiness"]["ratio"] == 0.0
+    assert data["readiness"]["intervals"]
 
     by_id = {s["id"]: s for s in data["sections"]}
     assert by_id["solo-full"]["lane"] == 0
     assert by_id["solo-part"]["lane"] == 1  # nested inside solo-full
     assert by_id["solo-part"]["ancestors"] == ["solo-full"]
     assert by_id["solo-full"]["ancestors"] == []
+
+
+def test_api_song_setlist_query_param_derives_the_shift(served):
+    base, repo, slug = served
+    save_setlist(
+        Setlist(name="Gig", tuning="Eb standard", songs=[SetlistEntry(slug=slug)]),
+        repo.setlists_dir / "gig.yaml",
+    )
+    # test-song's recording.tuning is "E standard" (see _make_song) -- an
+    # Eb-standard setlist derives -1.
+    status, data = _get_json(base, f"/api/song/{slug}?setlist=gig")
+    assert status == 200
+    assert data["shift"] == -1
+
+
+def test_api_song_unknown_setlist_query_param_degrades_to_zero(served):
+    base, _, slug = served
+    status, data = _get_json(base, f"/api/song/{slug}?setlist=no-such-setlist")
+    assert status == 200
+    assert data["shift"] == 0
 
 
 def test_api_song_unknown_slug_is_404(served):
@@ -323,6 +357,111 @@ def test_audio_traversal_is_404(served):
     with pytest.raises(urllib.error.HTTPError) as caught:
         _get(base, "/api/audio/..%2f..%2fconfig.yaml")
     assert caught.value.code == 404
+
+
+# ── GET /api/setlists, GET /api/setlist/<slug> ──────────────────────────────
+
+
+def test_api_setlists_lists_every_setlist(served):
+    base, repo, slug = served
+    save_setlist(
+        Setlist(name="Gig", tuning="Eb standard", songs=[SetlistEntry(slug=slug)]),
+        repo.setlists_dir / "gig.yaml",
+    )
+    status, data = _get_json(base, "/api/setlists")
+    assert status == 200
+    assert data == [
+        {"slug": "gig", "name": "Gig", "tuning": "Eb standard", "date": None, "song_count": 1}
+    ]
+
+
+def test_api_setlist_payload_has_a_row_per_song_and_a_next_up(served):
+    base, repo, slug = served
+    save_setlist(
+        Setlist(name="Gig", tuning="Eb standard", songs=[SetlistEntry(slug=slug)]),
+        repo.setlists_dir / "gig.yaml",
+    )
+    status, data = _get_json(base, "/api/setlist/gig")
+    assert status == 200
+    assert data["name"] == "Gig"
+    assert data["song_count"] == 1
+    assert data["needs_audio_count"] == 0
+    assert len(data["rows"]) == 1
+    row = data["rows"][0]
+    assert row["slug"] == slug
+    assert row["shift"] == -1  # E standard recording, Eb standard setlist
+    assert row["section_count"] == 2
+    assert data["next_up"]["song_slug"] == slug
+
+
+def test_api_setlist_row_flags_needs_audio_for_an_unbound_song(served):
+    base, repo, slug = served
+    save_setlist(
+        Setlist(name="Gig", tuning="E standard", songs=[SetlistEntry(slug="ghost")]),
+        repo.setlists_dir / "gig.yaml",
+    )
+    status, data = _get_json(base, "/api/setlist/gig")
+    assert status == 200
+    assert data["needs_audio_count"] == 1
+    assert data["rows"][0] == {
+        "slug": "ghost", "title": "ghost", "artist": None, "needs_audio": True,
+        "readiness": None, "section_count": 0, "sections_under_target": 0,
+        "last_practised": None, "is_cold": False, "shift": None,
+    }
+
+
+def test_api_setlist_unknown_slug_is_404(served):
+    base, _, _ = served
+    with pytest.raises(urllib.error.HTTPError) as caught:
+        _get(base, "/api/setlist/no-such-setlist")
+    assert caught.value.code == 404
+
+
+# ── POST /api/shift ──────────────────────────────────────────────────────
+
+
+def test_post_shift_writes_and_returns_the_effective_value(served):
+    base, repo, slug = served
+    save_setlist(
+        Setlist(name="Gig", tuning="Eb standard", songs=[SetlistEntry(slug=slug)]),
+        repo.setlists_dir / "gig.yaml",
+    )
+    status, data = _post(base, "/api/shift", {"setlist": "gig", "song": slug, "shift": -3})
+    assert status == 200
+    assert data == {"setlist": "gig", "song": slug, "shift": -3, "raw": -3}
+
+    from woodshed.setlist import load as load_setlist
+    assert load_setlist(repo, "gig").songs[0].shift == -3
+
+
+def test_post_shift_null_clears_back_to_the_derived_default(served):
+    base, repo, slug = served
+    save_setlist(
+        Setlist(name="Gig", tuning="Eb standard", songs=[SetlistEntry(slug=slug, shift=-3)]),
+        repo.setlists_dir / "gig.yaml",
+    )
+    status, data = _post(base, "/api/shift", {"setlist": "gig", "song": slug, "shift": None})
+    assert status == 200
+    assert data["raw"] is None
+    assert data["shift"] == -1  # derived: Eb standard setlist, E standard recording
+
+
+def test_post_shift_out_of_range_is_400(served):
+    base, repo, slug = served
+    save_setlist(
+        Setlist(name="Gig", tuning="E standard", songs=[SetlistEntry(slug=slug)]),
+        repo.setlists_dir / "gig.yaml",
+    )
+    with pytest.raises(urllib.error.HTTPError) as caught:
+        _post(base, "/api/shift", {"setlist": "gig", "song": slug, "shift": 9})
+    assert caught.value.code == 400
+
+
+def test_post_shift_missing_fields_is_400(served):
+    base, _, _ = served
+    with pytest.raises(urllib.error.HTTPError) as caught:
+        _post(base, "/api/shift", {"setlist": "gig"})
+    assert caught.value.code == 400
 
 
 # ── POST /api/rep ────────────────────────────────────────────────────────
@@ -561,10 +700,15 @@ def _hash_tree(root: Path) -> dict[Path, str]:
 
 def test_server_writes_nothing_else(served):
     base, repo, slug = served
+    save_setlist(
+        Setlist(name="Gig", tuning="Eb standard", songs=[SetlistEntry(slug=slug)]),
+        repo.setlists_dir / "gig.yaml",
+    )
     before = _hash_tree(repo.root)
 
     # every GET this unit implements -- harmless, but exercised so a stray
     # write in a read path would be caught too
+    _get(base, "/api/setlist/gig")
     _get(base, "/")
     _get(base, "/web/app.js")
     _get(base, "/api/config")
@@ -589,6 +733,7 @@ def test_server_writes_nothing_else(served):
          "target_speed": 100.0},
     )
     _post(base, "/api/section", {"song": slug, "action": "delete", "id": "another-bit"})
+    _post(base, "/api/shift", {"setlist": "gig", "song": slug, "shift": -2})
 
     after = _hash_tree(repo.root)
     all_paths = set(before) | set(after)
@@ -596,9 +741,14 @@ def test_server_writes_nothing_else(served):
 
     ledger_rel = repo.ledger_path().relative_to(repo.root)
     for path in changed:
-        assert path.name == "song.yaml" or path == ledger_rel or "cache" in path.parts, (
-            f"unexpected write to {path}"
-        )
+        # setlists/<slug>.yaml is CLAUDE.md's "setlist.yaml" -- the slug
+        # names the file, not the literal word "setlist".
+        assert (
+            path.name == "song.yaml"
+            or path.parts[0] == "setlists"
+            or path == ledger_rel
+            or "cache" in path.parts
+        ), f"unexpected write to {path}"
     assert changed, "the test exercised nothing that writes -- assertion would be vacuous"
 
 

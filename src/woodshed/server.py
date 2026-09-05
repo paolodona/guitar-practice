@@ -6,27 +6,36 @@ service. Every mutation goes through the same functions the CLI uses
 browser can do differs from what a terminal can, per CLAUDE.md's "the repo
 is the database".
 
-This unit (C2) owns exactly these routes -- render/progress/setlist
-endpoints are later phases and are deliberately not built here (see the
-plan's "Endpoint ownership"):
+This unit (C2, Phase 0) owned the routes below marked (C2); render/progress
+are later phases and are deliberately not built here (see the plan's
+"Endpoint ownership"). Phase 1's F1 added the setlist-scoped routes and, with
+them, `?setlist=` and `readiness` on `/api/song/<slug>` -- practice.py did
+not exist during C2's pass, so those were placeholders (0 / omitted) until
+now:
 
-    GET  /                    -> web/index.html
-    GET  /web/*               -> static files under web/
-    GET  /api/config          -> woodshed.config.load_config(repo), as JSON
-    GET  /api/song/<slug>     -> song page payload (song, sections with
-                                 lanes + ancestors, tempo, a peaks url, shift)
-    GET  /api/peaks/<slug>    -> cached peaks json, or a 404 saying not built
-    GET  /api/audio/<slug>    -> the source file, RANGE-SERVED
-    POST /api/rep             -> appends ONE ledger line
-    POST /api/section         -> create/update/delete a span in song.yaml
-    POST /api/shutdown        -> stops the server
+    GET  /                              -> web/index.html                 (C2)
+    GET  /web/*                         -> static files under web/        (C2)
+    GET  /api/config                    -> config.load_config(repo)       (C2)
+    GET  /api/setlists                  -> [{slug, name, tuning, date,
+                                             song_count}]                 (F1)
+    GET  /api/setlist/<slug>            -> dashboard payload: rows,
+                                            next_up, needs_audio_count,
+                                            weeks_to_gig                  (F1)
+    GET  /api/song/<slug>?setlist=      -> song page payload (song,
+                                            sections with lanes +
+                                            ancestors, tempo, peaks url,
+                                            shift, readiness)        (C2, F1)
+    GET  /api/peaks/<slug>              -> cached peaks json, 404 if
+                                            not built                     (C2)
+    GET  /api/audio/<slug>              -> the source file, RANGE-SERVED  (C2)
+    POST /api/rep                       -> appends ONE ledger line        (C2)
+    POST /api/section                   -> create/update/delete a span    (C2)
+    POST /api/shift                     -> writes setlist.songs[].shift   (F1)
+    POST /api/shutdown                  -> stops the server               (C2)
 
-Two things this unit deliberately omits, both because the modules they need
-do not exist yet in this pass (see the C2 report for the full reasoning):
-readiness is left out of the /api/song payload entirely (song_readiness /
-practice.py is not built yet), and /api/peaks/<slug> answers 404 with a
-small body when woodshed.peaks cannot be imported, rather than failing to
-import at server start.
+`/api/peaks/<slug>` still answers 404 with a small body when woodshed.peaks
+cannot be imported, rather than failing to import at server start -- that
+part of C2's reasoning is unchanged.
 
 ``parse_byte_range``, the ``_send``/``_json``/``_error``/``_body``/
 ``_send_file`` plumbing, ``ConsoleServer``'s ``allow_reuse_address = False``
@@ -51,12 +60,14 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 from pydantic import ValidationError
 
-from woodshed import ledger, sections
+from woodshed import ledger, practice, sections
 from woodshed.config import load_config
 from woodshed.errors import WoodshedError
 from woodshed.ledger import Rep
 from woodshed.library import Repo
 from woodshed.manifest import Section, load_song, save_song
+from woodshed.setlist import effective_shift, set_shift
+from woodshed.setlist import load as load_setlist
 
 #: Arbitrary and unregistered; --port overrides it. Not load-bearing.
 DEFAULT_PORT = 8420
@@ -215,8 +226,12 @@ class WoodshedHandler(BaseHTTPRequestHandler):
                 self._web_static(path.removeprefix("/web/"))
             elif path == "/api/config":
                 self._json(load_config(self.repo).model_dump(mode="json"))
+            elif path == "/api/setlists":
+                self._setlists()
+            elif path.startswith("/api/setlist/"):
+                self._setlist(path.removeprefix("/api/setlist/"))
             elif path.startswith("/api/song/"):
-                self._song(path.removeprefix("/api/song/"))
+                self._song(path.removeprefix("/api/song/"), parsed.query)
             elif path.startswith("/api/peaks/"):
                 self._peaks(path.removeprefix("/api/peaks/"), parsed.query)
             elif path.startswith("/api/audio/"):
@@ -243,7 +258,7 @@ class WoodshedHandler(BaseHTTPRequestHandler):
         content_type = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
         self._send(200, target.read_bytes(), content_type)
 
-    def _song(self, raw_slug: str) -> None:
+    def _song(self, raw_slug: str, query: str = "") -> None:
         slug = self._resolve_slug(raw_slug)
         if slug is None:
             self._error(404, f"no such song: {raw_slug!r}")
@@ -253,6 +268,27 @@ class WoodshedHandler(BaseHTTPRequestHandler):
         # `duration` property) -- no adapter needed.
         spans = song.sections
         lanes = sections.assign_lanes(spans)
+
+        # `?setlist=` names WHICH setlist's shift applies (CLAUDE.md's
+        # "transpose is per song, the setlist only supplies a default" --
+        # there is no shift to derive without one). An unknown setlist slug,
+        # or a setlist this song isn't a member of, degrades to 0 rather
+        # than 404ing the whole song page over a stale query param.
+        shift = 0
+        setlist_slug = parse_qs(query).get("setlist", [None])[0]
+        if setlist_slug:
+            try:
+                setlist = load_setlist(self.repo, setlist_slug)
+            except WoodshedError:
+                setlist = None
+            if setlist is not None:
+                entry = next((e for e in setlist.songs if e.slug == slug), None)
+                if entry is not None:
+                    shift = effective_shift(setlist, entry, song)
+
+        reps = list(ledger.read(self.repo))
+        readiness = practice.song_readiness(song, reps, song.practice)
+
         self._json({
             "slug": song.slug,
             "title": song.title,
@@ -261,16 +297,20 @@ class WoodshedHandler(BaseHTTPRequestHandler):
             "recording": song.recording.model_dump(mode="json"),
             "tempo": song.tempo.model_dump(mode="json"),
             "practice": song.practice.model_dump(mode="json"),
-            # No setlist context reaches this endpoint (that is a later
-            # unit's `?setlist=` query param -- see CLAUDE.md's "Transpose
-            # is per song" invariant), so there is nothing to derive a
-            # shift FROM yet. 0 is "unshifted", the honest default until
-            # a setlist is plumbed in; documented in the C2 report.
-            "shift": 0,
+            "shift": shift,
             "peaks_url": f"/api/peaks/{slug}",
-            # readiness is deliberately omitted: song_readiness lives in
-            # practice.py, which does not exist yet in this pass -- see
-            # the module docstring and the C2 report.
+            "readiness": {
+                "ratio": readiness.ratio,
+                "intervals": [
+                    {
+                        "start_s": interval.start_s,
+                        "end_s": interval.end_s,
+                        "span_id": interval.span_id,
+                        "reached": interval.reached,
+                    }
+                    for interval in readiness.intervals
+                ],
+            },
             "sections": [
                 {
                     **section.model_dump(mode="json"),
@@ -279,6 +319,124 @@ class WoodshedHandler(BaseHTTPRequestHandler):
                 }
                 for section in song.sections
             ],
+        })
+
+    def _setlists(self) -> None:
+        result = []
+        for slug in self.repo.list_setlists():
+            try:
+                setlist = load_setlist(self.repo, slug)
+            except (WoodshedError, ValidationError):
+                # A malformed setlists/*.yaml shouldn't 500 the whole list --
+                # skip it; it will still fail loudly if opened directly via
+                # GET /api/setlist/<slug>.
+                continue
+            result.append({
+                "slug": slug,
+                "name": setlist.name,
+                "tuning": setlist.tuning,
+                "date": setlist.date.isoformat() if setlist.date else None,
+                "song_count": len(setlist.songs),
+            })
+        self._json(result)
+
+    def _setlist(self, raw_slug: str) -> None:
+        """The dashboard's whole payload for one setlist: one row per song,
+        the next-up pick, and the three headline numbers docs/00-spec.md's
+        Dashboard section names (weeks to the gig, songs at target, needs
+        audio)."""
+        slug = raw_slug
+        if slug not in self.repo.list_setlists():
+            self._error(404, f"no such setlist: {raw_slug!r}")
+            return
+        setlist = load_setlist(self.repo, slug)
+        reps = list(ledger.read(self.repo))
+        now = datetime.now(UTC)
+
+        rows = []
+        songs_at_target = 0
+        needs_audio_count = 0
+        for entry in setlist.songs:
+            song_path = self.repo.song_dir(entry.slug) / "song.yaml"
+            if not song_path.is_file():
+                needs_audio_count += 1
+                rows.append({
+                    "slug": entry.slug, "title": entry.slug, "artist": None,
+                    "needs_audio": True, "readiness": None, "section_count": 0,
+                    "sections_under_target": 0, "last_practised": None,
+                    "is_cold": False, "shift": None,
+                })
+                continue
+
+            song = load_song(song_path)
+            needs_audio = not (self.repo.song_dir(song.slug) / song.recording.file).is_file()
+            if needs_audio:
+                needs_audio_count += 1
+
+            readiness = practice.song_readiness(song, reps, song.practice)
+            counting = [s for s in song.sections if s.counts_toward_readiness]
+            under_target = sum(
+                1 for s in counting if practice.reached(reps, song, s, song.practice) < 1.0
+            )
+            if counting and under_target == 0:
+                songs_at_target += 1
+
+            last = ledger.last_practised(reps, song.slug)
+            is_cold = (
+                last is not None
+                and (now - last).total_seconds() / 86400.0 > practice.COLD_DAYS
+                and readiness.ratio > practice.COLD_REACHED_THRESHOLD
+            )
+
+            rows.append({
+                "slug": song.slug,
+                "title": song.title,
+                "artist": song.artist,
+                "needs_audio": needs_audio,
+                "readiness": readiness.ratio,
+                "section_count": len(song.sections),
+                "sections_under_target": under_target,
+                "last_practised": last.isoformat() if last else None,
+                "is_cold": is_cold,
+                "shift": effective_shift(setlist, entry, song),
+            })
+
+        cfg = load_config(self.repo).defaults
+        ranked = practice.next_up(self.repo, setlist, reps, cfg, now=now)
+        next_up_payload = None
+        if ranked:
+            top = ranked[0]
+            top_song = load_song(self.repo.song_dir(top.song_slug) / "song.yaml")
+            top_section = next(s for s in top_song.sections if s.id == top.section_id)
+            next_up_payload = {
+                "song_slug": top.song_slug,
+                "song_title": top_song.title,
+                "section_id": top.section_id,
+                "section_name": top_section.name,
+                "target_speed": top_section.target_speed,
+                "score": top.score,
+                "gap": top.gap,
+                "cold": top.cold,
+                "gig": top.gig,
+                "reached": top.reached,
+            }
+
+        weeks_to_gig = None
+        if setlist.date is not None:
+            weeks_to_gig = max(0, (setlist.date - now.date()).days // 7)
+
+        self._json({
+            "slug": slug,
+            "name": setlist.name,
+            "tuning": setlist.tuning,
+            "date": setlist.date.isoformat() if setlist.date else None,
+            "venue": setlist.venue,
+            "weeks_to_gig": weeks_to_gig,
+            "song_count": len(setlist.songs),
+            "songs_at_target": songs_at_target,
+            "needs_audio_count": needs_audio_count,
+            "next_up": next_up_payload,
+            "rows": rows,
         })
 
     def _peaks(self, raw_slug: str, query: str) -> None:
@@ -330,6 +488,8 @@ class WoodshedHandler(BaseHTTPRequestHandler):
                 self._post_rep(body)
             elif path == "/api/section":
                 self._post_section(body)
+            elif path == "/api/shift":
+                self._post_shift(body)
             elif path == "/api/shutdown":
                 self._shutdown()
             else:
@@ -449,6 +609,38 @@ class WoodshedHandler(BaseHTTPRequestHandler):
                 }
                 for s in song.sections
             ]
+        })
+
+    def _post_shift(self, body: dict) -> None:
+        """Write `setlist.songs[].shift` for one (setlist, song) pair.
+
+        `shift: null` (or the key absent) clears an override back to
+        "derive from setlist.tuning" -- the same "None means derive, 0 means
+        explicitly zero" distinction `SetlistEntry` itself carries (see
+        manifest.py and CLAUDE.md invariant 4). Range validation happens
+        inside `set_shift` -> `SetlistEntry`, not here.
+        """
+        setlist_slug = str(body.get("setlist", ""))
+        song_slug = str(body.get("song", ""))
+        if not setlist_slug or not song_slug:
+            raise WoodshedError("a shift needs both 'setlist' and 'song'")
+        raw_shift = body.get("shift")
+        shift = None if raw_shift is None else int(raw_shift)
+
+        updated = set_shift(self.repo, setlist_slug, song_slug, shift)
+        entry = next(e for e in updated.songs if e.slug == song_slug)
+
+        song_path = self.repo.song_dir(song_slug) / "song.yaml"
+        effective = shift
+        if song_path.is_file():
+            song = load_song(song_path)
+            effective = effective_shift(updated, entry, song)
+
+        self._json({
+            "setlist": setlist_slug,
+            "song": song_slug,
+            "shift": effective,
+            "raw": entry.shift,
         })
 
     def _shutdown(self) -> None:
