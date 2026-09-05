@@ -1,0 +1,17 @@
+# Audio bytes never enter git.
+songs/*/audio/
+songs/*/cache/
+*.wav
+*.mp3
+*.flac
+*.m4a
+*.ogg
+
+# Secrets
+credentials.json
+
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
