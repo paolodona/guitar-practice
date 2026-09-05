@@ -286,6 +286,68 @@ directly rather than trusting the remembered count.
         gate is Phase 1's, not Group E's alone, and is deferred to the end of
         the phase.
 
+- [x] Group F — transpose and setlists, done directly, test-first, one unit
+      per commit (continuing the same run/style as Group E). **Before
+      starting**, re-checked the plan's own signatures against what Phase 0
+      actually shipped: `manifest.py`'s B6 already built `Setlist`/
+      `SetlistEntry`/`load_setlist`/`save_setlist` (the plan's "Tier 1"
+      section had assigned those to this unit; they had moved), so F1's
+      actual job narrowed to the operations layer over them. Also found:
+      `practice.py` (readiness/cold-list/next-up) had no owning unit at all
+      — B9's note flagged this and deferred it to "not needed until Phase 1
+      Group F" — so it was built first, ahead of F1 proper, since F1's
+      dashboard endpoint depends on it.
+      - **F-prerequisite** (`32bbd72`) `practice.py`: `reached()`
+        (`best_sustained_speed / target_speed`, clamped, section-level
+        `reps_to_advance` overriding `song.practice`'s), `song_readiness()`
+        (delegates to `sections.coverage_readiness` after filtering
+        `counts_toward_readiness`), `is_cold()` (>14 days unpractised AND
+        reached > 0.8 — never-practised and reached ≤ 0.8 both resolve
+        false, per the "unlearned, not cold" rule), `next_up()`
+        (docs/00-spec.md's `gap + cold + gig` score, components kept
+        separate; `is_in_next_gig_setlist` resolved by comparing the given
+        setlist's date against every other setlist on disk). 13 tests.
+      - **F1** (`d2ef827`) `setlist.py`: create/load/save/delete a setlist
+        file, `add_song`/`remove_song` (pure), `effective_shift()` (invariant
+        4's arithmetic, clamped), `set_shift()` (the write path). Server
+        gains `GET /api/setlists`, `GET /api/setlist/<slug>` (the dashboard
+        payload: rows, next_up, weeks_to_gig, songs_at_target,
+        needs_audio_count) and `POST /api/shift`. `GET /api/song/<slug>` now
+        accepts `?setlist=` to resolve a real shift and carries `readiness`
+        for real — both were documented placeholders in the C2 report,
+        closed now that `setlist.py`/`practice.py` exist.
+        `test_api_song_payload_has_lanes_and_ancestors` and
+        `test_server_writes_nothing_else` updated to match (readiness now
+        present; `setlists/<slug>.yaml` is CLAUDE.md's "setlist.yaml", not a
+        literal filename — the assertion checked the directory, not the
+        name). 28 new tests.
+      - **F2** (`3236db0`) `web/screens/dashboard.js`: the real screen
+        against `design/Dashboard.dc.html`, replacing D3's throw-stub. Setlist
+        pills, the next-up hero card, the two stat cards, one row per song.
+        Switching setlists is a per-viewer `localStorage` preference handled
+        entirely client-side (no new route) — recorded as a scope decision
+        in the module doc, along with the footer's two counts being limited
+        to what F1's payload actually knows rather than a repo-wide song
+        total. `app.js`'s `#/` route really fetches now.
+      - **F3** (`ab9a317`) the transpose stepper persists: `app.js` exports
+        `currentSetlist()`/`setCurrentSetlist()` (the shared per-viewer
+        setlist preference), `song.js` and `practice.js`'s routes append
+        `?setlist=`, and both screens' steppers `POST /api/shift` (debounced
+        400ms) when a current setlist exists — session-only otherwise, same
+        as before. `song.js`'s cluster goes from a static display to fully
+        interactive (`-`/`+` buttons, `-`/`=` keys via `actions.js`'s global
+        `on()`).
+      - **Automated gate**: `uv run pytest` green (723, up from 682 at the
+        end of Group E); `uv run ruff check .` clean; the librosa-uninstalled
+        gate still green (unaffected by this group). No JS test framework in
+        this repo (front end is the manual gate's job per CLAUDE.md's
+        Testing section) — the four touched `web/*.js` files checked with
+        `node --check`.
+      - **Not yet done**: Phase 1's manual gate (deferred to the end of the
+        phase, same as Group E's own — see that note above) now has both of
+        its prerequisites close to hand: F3's stepper is done, G1's bar
+        ruler is still outstanding.
+
 ---
 
 ## Context
