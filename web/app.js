@@ -26,10 +26,16 @@
  * against `'/song/x'`). `loadModule` is a dynamic import() so the initial
  * page load does not pull in every screen; `loadPayload` resolves to
  * exactly what `mount`'s payload becomes (before params are merged in).
- * dashboard/capture/library/progress have no GET endpoint yet in this
- * phase (only /api/song, /api/peaks, /api/audio exist server-side, per
- * server.py's module docstring) — their loadPayload is `async () => ({})`
- * until a later phase's unit adds the endpoint AND updates the route here.
+ * capture/library/progress have no GET endpoint yet in this phase (only
+ * /api/song, /api/peaks, /api/audio, /api/setlists and /api/setlist/<slug>
+ * exist server-side, per server.py's module docstring) — their loadPayload
+ * is `async () => ({})` until a later phase's unit adds the endpoint AND
+ * updates the route here. `#/`'s loadPayload (Phase 1, F2) resolves the
+ * "current setlist" — a per-viewer preference, not itself a route, see
+ * dashboard.js's decision 1 — from localStorage, falling back to the first
+ * setlist GET /api/setlists returns; `{setlists: []}` when there are none
+ * yet, which dashboard.js renders as an empty state rather than fetching a
+ * dashboard payload for a setlist that doesn't exist.
  */
 
 import { attach } from './keys.js';
@@ -49,7 +55,19 @@ export const ROUTES = [
   {
     pattern: /^\/$/,
     loadModule: () => import('./screens/dashboard.js'),
-    loadPayload: async () => ({}),
+    loadPayload: async () => {
+      const setlists = await get('/api/setlists');
+      if (setlists.length === 0) return { setlists: [] };
+      let slug = null;
+      try {
+        slug = localStorage.getItem('woodshed:setlist');
+      } catch {
+        // private window / storage disabled -- fall through to the default below
+      }
+      if (!slug || !setlists.some((s) => s.slug === slug)) slug = setlists[0].slug;
+      const dashboard = await get(`/api/setlist/${encodeURIComponent(slug)}`);
+      return { setlists, currentSetlist: slug, ...dashboard };
+    },
   },
   {
     pattern: /^\/song\/(?<slug>[^/]+)$/,
