@@ -70,14 +70,24 @@ class Recording(BaseModel):
 class Tempo(BaseModel):
     """How source seconds map onto bars for display. Never load-bearing for
     where a section actually starts -- see CLAUDE.md's seconds-not-bars
-    invariant."""
+    invariant.
+
+    Every field defaults, so a song no analysis has ever touched -- a
+    hand-authored song.yaml, a future library-scan import -- parses to the
+    degrade state docs/02-data-model.md documents explicitly: "if tempo.bpm
+    is 0 or absent, the app still works: no grid, no click, no bar ruler,
+    free-dragged boundaries." ``bpm <= 0`` is what every grid consumer
+    (`analyze.beat_grid`, eventually `click.py`, the front end's bar ruler)
+    checks -- 0 and "the key was never there" collapse to the same value
+    here rather than needing two separate checks everywhere else.
+    """
 
     model_config = ConfigDict(extra="allow")
 
-    bpm: float
-    source: Literal["detected", "refined", "tapped", "manual"]
-    grid_offset_s: float  # where bar 1 beat 1 lands in the FILE
-    time_signature: str
+    bpm: float = 0.0
+    source: Literal["detected", "refined", "tapped", "manual"] = "manual"
+    grid_offset_s: float = 0.0  # where bar 1 beat 1 lands in the FILE
+    time_signature: str = "4/4"
     confidence: float | None = None  # null when typed by hand
 
 
@@ -149,7 +159,7 @@ class Song(BaseModel):
     artist: str
     album: str | None = None
     recording: Recording
-    tempo: Tempo
+    tempo: Tempo = Field(default_factory=Tempo)
     practice: PracticeDefaults = Field(default_factory=PracticeDefaults)
     sections: list[Section] = Field(default_factory=list)
 

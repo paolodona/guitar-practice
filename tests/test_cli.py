@@ -313,3 +313,51 @@ def test_analyze_writes_a_refined_tempo_and_caches_peaks(repo: Repo, tmp_path: P
 def test_analyze_unknown_song_refuses(repo: Repo) -> None:
     rc = cli.main(["analyze", "no-such-song"])
     assert rc == 2
+
+
+# ── analyze --bpm / --tap: manual and tapped, no librosa needed ──────────
+def test_analyze_bpm_sets_manual_tempo_and_forces_confidence_null(
+    repo: Repo, tmp_path: Path
+) -> None:
+    slug = _add(repo, tmp_path, seconds=30.0)
+    rc = cli.main(["analyze", slug, "--bpm", "140", "--grid-offset", "0.1"])
+    assert rc == 0
+
+    song = load_song(repo.song_dir(slug) / "song.yaml")
+    assert song.tempo.bpm == 140.0
+    assert song.tempo.source == "manual"
+    assert song.tempo.grid_offset_s == pytest.approx(0.1)
+    assert song.tempo.confidence is None
+    # peaks are cached regardless of which tempo path was used
+    assert (repo.cache_dir(slug) / "peaks-1024.json").is_file()
+
+
+def test_analyze_tap_computes_bpm_from_intervals_and_forces_confidence_null(
+    repo: Repo, tmp_path: Path
+) -> None:
+    slug = _add(repo, tmp_path, seconds=30.0)
+    taps = [str(i * 0.5) for i in range(9)]  # 0.5s apart -> 120 bpm
+    argv = ["analyze", slug]
+    for t in taps:
+        argv += ["--tap", t]
+    assert cli.main(argv) == 0
+
+    song = load_song(repo.song_dir(slug) / "song.yaml")
+    assert song.tempo.bpm == pytest.approx(120.0, abs=0.1)
+    assert song.tempo.source == "tapped"
+    assert song.tempo.confidence is None
+
+
+def test_analyze_tap_with_one_tap_refuses(repo: Repo, tmp_path: Path) -> None:
+    slug = _add(repo, tmp_path, seconds=30.0)
+    rc = cli.main(["analyze", slug, "--tap", "0.0"])
+    assert rc == 2
+
+
+def test_analyze_bpm_and_tap_together_refuses(repo: Repo, tmp_path: Path) -> None:
+    # argparse's own mutually-exclusive-group check, not a WoodshedError --
+    # it exits directly rather than returning, same exit code 2 either way.
+    slug = _add(repo, tmp_path, seconds=30.0)
+    with pytest.raises(SystemExit) as excinfo:
+        cli.main(["analyze", slug, "--bpm", "120", "--tap", "0.0", "--tap", "0.5"])
+    assert excinfo.value.code == 2

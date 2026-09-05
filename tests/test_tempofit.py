@@ -16,7 +16,13 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from woodshed.tempofit import find_grid_anchor, grid_confidence, pulse_wander, refine_tempo
+from woodshed.tempofit import (
+    find_grid_anchor,
+    grid_confidence,
+    pulse_wander,
+    refine_tempo,
+    tap_tempo,
+)
 
 FRAME = 0.005  # seconds per envelope frame, about what librosa gives at hop 256
 
@@ -38,6 +44,39 @@ def even_beats(bpm, duration, *, first=0.25, shift_after=None, shift=0.0):
         out.append(t + (shift if shift_after is not None and t >= shift_after else 0.0))
         t += period
     return out
+
+
+# ---------------------------------------------------------------------------
+# tap_tempo
+# ---------------------------------------------------------------------------
+
+
+def test_tap_tempo_reads_steady_taps():
+    taps = [i * 0.5 for i in range(9)]  # 9 taps, 8 intervals of 0.5s -> 120 bpm
+    assert tap_tempo(taps) == pytest.approx(120.0, abs=0.01)
+
+
+def test_tap_tempo_discards_one_fumbled_interval():
+    """A double-hit early on must not drag the reading off 120 bpm."""
+    taps = [0.0, 0.05, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5]  # 0.05s fumble, then steady
+    assert tap_tempo(taps) == pytest.approx(120.0, abs=0.5)
+
+
+def test_tap_tempo_uses_only_the_last_eight_intervals():
+    """A stale early interval outside the window must not still count."""
+    # A slow start (1.0s intervals) settling into a steady 0.5s (120bpm) tap.
+    taps = [0.0, 1.0, 2.0] + [2.0 + i * 0.5 for i in range(1, 9)]
+    assert tap_tempo(taps) == pytest.approx(120.0, abs=0.5)
+
+
+def test_tap_tempo_needs_at_least_two_taps():
+    assert tap_tempo([1.0]) == 0.0
+    assert tap_tempo([]) == 0.0
+
+
+def test_tap_tempo_is_order_independent():
+    taps = [2.0, 0.0, 1.0, 3.0]
+    assert tap_tempo(taps) == tap_tempo(sorted(taps))
 
 
 # ---------------------------------------------------------------------------

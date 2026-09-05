@@ -193,6 +193,28 @@ def test_song_load_refuses_bad_section(tmp_path: Path, song_yaml_text: str) -> N
         load_song(path)
 
 
+# --- the degrade path: tempo.bpm 0 or absent is not an error ---------------
+# docs/02-data-model.md:160 -- "if tempo.bpm is 0 or absent, the app still
+# works: no grid, no click, no bar ruler, free-dragged boundaries." Every
+# grid consumer has to tolerate this and none of them will unless a test
+# says so.
+
+
+def test_song_with_no_tempo_key_at_all_still_loads(tmp_path: Path, song_yaml_text: str) -> None:
+    data = yaml.safe_load(song_yaml_text)
+    del data["tempo"]
+    path = tmp_path / "song.yaml"
+    path.write_text(yaml.safe_dump(data), encoding="utf-8")
+
+    song = load_song(path)
+    assert song.tempo.bpm == 0.0
+    assert song.tempo.confidence is None
+
+
+def test_tempo_bpm_defaults_to_zero_not_a_validation_error() -> None:
+    assert Tempo().bpm == 0.0
+
+
 def test_section_valid_span_does_not_raise() -> None:
     section = Section(
         id="ok",
@@ -263,6 +285,21 @@ def test_save_song_round_trip_is_byte_stable(tmp_path: Path) -> None:
     save_song(reloaded, path2)
 
     assert path1.read_bytes() == path2.read_bytes()
+
+
+@pytest.mark.parametrize("source", ["detected", "refined", "tapped", "manual"])
+def test_tempo_source_round_trips_through_song_yaml(
+    source: str, tmp_path: Path
+) -> None:
+    """Every value Tempo.source can take -- "each recording which it was",
+    docs/07-roadmap.md -- survives a save/load cycle unchanged."""
+    song = _minimal_song()
+    song.tempo = Tempo(bpm=100.0, source=source, grid_offset_s=0.0,
+                        time_signature="4/4", confidence=None if source in
+                        ("tapped", "manual") else 0.5)
+    path = tmp_path / "song.yaml"
+    save_song(song, path)
+    assert load_song(path).tempo.source == source
 
 
 def test_save_song_preserves_field_order(tmp_path: Path) -> None:

@@ -303,14 +303,16 @@ def cmd_log(args: argparse.Namespace) -> int:
 
 # ── commands: analysis ────────────────────────────────────────────────────
 def cmd_analyze(args: argparse.Namespace) -> int:
-    # Lazy import: analyze.py is behind the librosa line (CLAUDE.md's
-    # layering rule), so only `analyze` itself pays for a missing librosa --
-    # same reasoning as cmd_serve's lazy `from woodshed.server import
-    # make_server` below. require_module (inside detect_tempo) gives the
-    # honest "pip install woodshed[analyze]" message; this just keeps every
-    # other command importable without librosa on the machine at all.
+    # analyze.py's own top-level imports need no librosa (require_module is
+    # only called inside detect_tempo) -- so beat_grid/load_mono_audio are
+    # always safe to import; only the auto-detect branch below reaches for
+    # detect_tempo, and only that branch pays for a missing librosa. Same
+    # lazy-import reasoning as cmd_serve's `from woodshed.server import
+    # make_server`: a command that does not need the optional piece must
+    # still run without it installed.
     from woodshed import peaks as peaks_module
-    from woodshed.analyze import beat_grid, detect_tempo, load_mono_audio
+    from woodshed.analyze import beat_grid, load_mono_audio
+    from woodshed.tempofit import tap_tempo
 
     repo = _repo()
     slug, path, song = _load_song(repo, args.slug)
@@ -318,15 +320,33 @@ def cmd_analyze(args: argparse.Namespace) -> int:
     if not audio_path.is_file():
         raise WoodshedError(f"{slug}: no such audio file: {audio_path}")
 
-    tempo = detect_tempo(audio_path)
+    grid_offset = args.grid_offset if args.grid_offset is not None else 0.0
+    if args.bpm is not None:
+        # A typed number is not a fit -- confidence is null, always. See
+        # Tempo.confidence's "null when typed by hand" and docs/07-roadmap.md's
+        # "manual override, ... recording which it was".
+        tempo = Tempo(bpm=args.bpm, source="manual", grid_offset_s=grid_offset,
+                       time_signature=args.time_signature, confidence=None)
+    elif args.tap:
+        bpm = tap_tempo(args.tap)
+        if bpm <= 0:
+            raise WoodshedError("--tap needs at least two tap timestamps")
+        tempo = Tempo(bpm=round(bpm, 2), source="tapped", grid_offset_s=grid_offset,
+                       time_signature=args.time_signature, confidence=None)
+    else:
+        from woodshed.analyze import detect_tempo  # the one librosa-gated path
+        tempo = detect_tempo(audio_path)
+
     song.tempo = tempo
     save_song(song, path)
 
     # One decode serves both tempo detection and the peaks cache --
     # docs/01-architecture.md:111 lists them together for exactly this
-    # reason. A second ffmpeg pass is the price of detect_tempo's fixed,
-    # audio-in-tempo-out signature (see analyze.py); it is a few seconds
-    # once per `woodshed analyze`, not a hot path.
+    # reason -- and peaks are cached regardless of which tempo path was
+    # used above, since they have nothing to do with tempo at all. A second
+    # ffmpeg pass on the auto-detect path is the price of detect_tempo's
+    # fixed, audio-in-tempo-out signature (see analyze.py); it is a few
+    # seconds once per `woodshed analyze`, not a hot path.
     samples, sr = load_mono_audio(audio_path)
     peaks_module.write_peaks(repo, slug, peaks_module.multi_resolution(samples, sr))
 
@@ -502,6 +522,21 @@ def build_parser() -> argparse.ArgumentParser:
     # -- analyze --
     p = sub.add_parser("analyze", help="detect tempo and grid offset, cache peaks")
     p.add_argument("slug", help="song reference (slug, or a fuzzy title)")
+    override = p.add_mutually_exclusive_group()
+    override.add_argument("--bpm", type=float, default=None,
+                           help="skip detection: a typed bpm (source: manual, "
+                                "confidence: null)")
+    override.add_argument("--tap", type=float, action="append", default=None,
+                           metavar="SECONDS",
+                           help="skip detection: a tap timestamp in seconds -- "
+                                "repeat for each tap (needs at least two); bpm is "
+                                "the median of the last 8 inter-tap intervals "
+                                "(source: tapped, confidence: null)")
+    p.add_argument("--grid-offset", dest="grid_offset", type=float, default=None,
+                   help="where bar 1 beat 1 lands in the file, in seconds "
+                        "(only used with --bpm/--tap; ignored for detection)")
+    p.add_argument("--time-signature", dest="time_signature", default="4/4",
+                   help="only used with --bpm/--tap; detection always assumes 4/4")
     p.set_defaults(func=cmd_analyze)
 
     # -- not yet implemented, registered so `--help` is honest about the

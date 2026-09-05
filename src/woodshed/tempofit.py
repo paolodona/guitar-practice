@@ -16,7 +16,37 @@ module's docstring for why a tempogram bin centre is not a measurement.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 import numpy as np
+
+
+def tap_tempo(taps: Sequence[float]) -> float:
+    """BPM from a sequence of tap timestamps (seconds), in any order.
+
+    docs/07-roadmap.md's tap-tempo fallback: median of the last 8
+    inter-tap intervals, discarding any that land more than 25% off that
+    median before taking the final period. Only the last 8 intervals (the
+    last 9 taps) are used -- a steadying hand settles faster than a whole
+    song's worth of taps would let it, and a stale tap from ten seconds ago
+    should not still be dragging the average around. Returns ``0.0`` (no
+    measurement) with fewer than two taps, mirroring `Tempo.bpm`'s own
+    "0 means not yet known".
+    """
+    ordered = sorted(float(t) for t in taps)
+    if len(ordered) < 2:
+        return 0.0
+    intervals = [b - a for a, b in zip(ordered, ordered[1:], strict=False)][-8:]
+    med = float(np.median(intervals))
+    if med <= 0:
+        return 0.0
+    # A fumbled tap -- a double-hit, a missed beat -- produces one interval
+    # far from the others; drop it rather than let it drag the average,
+    # but never drop ALL of them (a genuinely erratic tapper still gets a
+    # number back, just not a great one).
+    kept = [iv for iv in intervals if abs(iv - med) / med <= 0.25]
+    period = float(np.median(kept)) if kept else med
+    return 60.0 / period if period > 0 else 0.0
 
 
 def _comb(env: np.ndarray, times: np.ndarray, bpms: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
