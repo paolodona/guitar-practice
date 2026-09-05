@@ -404,6 +404,84 @@ directly rather than trusting the remembered count.
         per Paolo's own instruction (a human, once, at the actual
         machine).
 
+- [x] Group H — capture, done directly, test-first, one unit per commit
+      folded into a single commit (`b7ca8ce`) rather than split H1/H2/H3
+      three ways: H3's overflow rule is inseparable from H1's own
+      `bind_segments` contract (folding it in after the fact would mean
+      writing `bind_segments` wrong first, on purpose, then fixing it),
+      and H2/H3's doctor check are two small, tightly coupled pieces of
+      the same device-half unit. **Before starting**, confirmed
+      `pyaudiowpatch` is genuinely absent from this dev venv (checked
+      directly), which shaped the scope decision below rather than being
+      discovered partway through.
+      - **H1**: `split_on_silence`, `bind_segments`, `Segment`/
+        `TracklistEntry`/`Binding` -- pure, numpy only, tested with
+        synthetic audio (13 tests). `Segment.overflowed` and
+        `bind_segments`' unconditional refusal of an overflowed segment
+        (H3's rule) are part of the type from the start.
+      - **H2**: `list_devices`/`default_device`/`capture` (device half,
+        gated behind `require_module("pyaudiowpatch", "capture")`, ring-
+        buffered to disk during the live recording, per-chunk overflow
+        tracking via `exception_on_overflow=True` rather than the
+        silently-swallowing default) -- **unverified without real
+        hardware**, named as such in the module doc, the same honesty the
+        plan itself asks for ("the device half is one thin unverified
+        call"). `woodshed capture "<title>"` (single-song, the documented
+        fallback path) and `--queue <setlist>` (refuses cleanly, naming
+        Phase 3's M1 -- Spotify import -- as the real missing
+        prerequisite for a tracklist to match against, rather than
+        silently no-op-ing or fabricating one).
+      - **Found and fixed alongside this group**: `woodshed setlist` had
+        no CLI subcommands at all -- `setlist.py` itself (F1) landed with
+        the server routes only, and the CLI surface was left in
+        `_NOT_YET_IMPLEMENTED` by oversight. Wired `list`/`create`/
+        `add-song`/`rm-song`/`shift`, smoke-tested end to end against a
+        scratch repo.
+      - **H3**: `doctor.py` gains a loopback-open check (opens and closes
+        the default WASAPI device, degrading -- not failing -- when
+        `pyaudiowpatch` is absent, per docs/04-sources.md's "doctor checks
+        the loopback opens and reports it"); "ring buffer to disk, never
+        memory" is `capture()`'s own streaming design, not a separate
+        piece.
+      - **`web/screens/capture.js`**: real, but deliberately narrower than
+        `design/Capture.dc.html` — that artboard is a LIVE session with no
+        endpoint that could honestly back it this phase (no `/api/capture`
+        in server.py's routes; a matched tracklist needs the same M1
+        prerequisite `--queue` does). Shows the current setlist's
+        `needs_audio` rows (F1's genuine data) with the exact capture
+        command for each, rather than fabricated meters.
+      - **Automated gate**: `uv run pytest` green (758, up from 739 at the
+        end of Group G); `uv run ruff check .` clean; the full no-extras
+        gate (`-m "not needs_rubberband and not needs_librosa and not
+        needs_device"`) green. `node --check` on the one touched
+        `web/*.js` file. Smoke-tested by hand against a scratch repo
+        (`setlist create/add-song/shift/rm-song`, `capture`/`--queue`/
+        `--list-devices` degrade paths) and `woodshed doctor` against the
+        real repo.
+      - **Not yet done, and cannot be from here**: the device half
+        (`list_devices`/`default_device`/`capture`) has never run against
+        real WASAPI loopback hardware. This is Group D's own deferred
+        real-time-engine listen check's sibling gap, not a new one --
+        both wait on time at the actual machine, Paolo's choice from
+        earlier in this run.
+
+---
+
+## Phase 1 gate — automated half done, manual half still pending
+
+Every unit above is built and its own automated checks are green. The
+gate's **manual** half (`docs/00-spec.md`'s own words: "detect the tempo of
+a real song, check the bar ruler lands on the downbeat by ear with the
+click on; step the shift from −1 to 0 and hear the pitch move") needs a
+human at the actual machine and was explicitly deferred, twice over, by
+Paolo's own choice earlier in this run -- once for Group E's own gate, once
+again for Group D's real-time-engine listening check. All of its code-side
+prerequisites now exist: G1's bar ruler and grid, F3's transpose stepper,
+G2's audible click. Phase 2 (the render cache, the ladder in the UI, the
+progress screen) should not start until this gate is actually run, per the
+plan's own rule ("the phase gate is the join... the next phase begins by
+re-reading what actually shipped").
+
 ---
 
 ## Context
