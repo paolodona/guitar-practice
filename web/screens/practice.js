@@ -67,18 +67,30 @@
  *    on RealtimeEngine would let a later pass replace this estimate with
  *    an exact one.
  *
- * 4. Ten of the sixteen actions are wired here (play_pause, next_section,
+ * 4. Eleven of the sixteen actions are wired here (play_pause, next_section,
  *    prev_section, speed_up, speed_down, retract_rep, confirm_clean,
- *    restart_section, transpose_up, transpose_down) — exactly the set the
- *    brief names as "at least". loop_toggle/metronome/fullscreen/help/
- *    nudge_start/nudge_end have no represented control on this artboard
- *    ("six elements, nothing else") and are left unsubscribed rather than
- *    given invented behaviour.
+ *    restart_section, transpose_up, transpose_down, help) — the ten the
+ *    brief names as "at least", plus help (added live 2026-09-06: a
+ *    shortcut reference overlay, built from ACTIONS + keys.js's KEY_MAP
+ *    directly so it can't drift from what actually fires). It's the one
+ *    deliberate exception to "six elements, nothing else" — hidden until
+ *    invoked, so it doesn't compete with the hero for attention while
+ *    playing. loop_toggle/metronome/fullscreen/nudge_start/nudge_end still
+ *    have no represented control on this artboard and are left unsubscribed
+ *    rather than given invented behaviour.
  */
 import { get, post } from '../app.js';
 import { drawWave, PRACTICE_WAVE_OPTS } from '../wave.js';
 import { createEngine } from '../player.js';
 import { ACTIONS, on, dispatch } from '../actions.js';
+import { KEY_MAP } from '../keys.js';
+
+// Human-readable form of the KeyboardEvent.key values KEY_MAP uses — for
+// the help overlay only; keys.js itself never needs a display label.
+const KEY_LABELS = {
+  ' ': 'Space', ArrowRight: '→', ArrowLeft: '←', ArrowUp: '↑', ArrowDown: '↓',
+};
+function keyLabel(k) { return KEY_LABELS[k] ?? k.toUpperCase(); }
 
 const STYLE_ID = 'practice-screen-style';
 
@@ -101,6 +113,7 @@ function ensureStyle() {
       text-align:left;font-family:inherit;color:inherit }
     .ws-practice .chip:hover { border-color:var(--accent-dim,#8A5C29) }
     .ws-practice .pill { width:64px;height:6px;border-radius:3px }
+    .ws-practice .ws-song-link:hover { color:var(--ink,#E8EEEB);text-decoration:underline }
   `;
   document.head.appendChild(style);
 }
@@ -229,7 +242,7 @@ export function mount(el, payload) {
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:48px">
         <div style="display:flex;flex-direction:column;gap:8px">
           <div class="lbl" data-eyebrow style="font-size:13px"></div>
-          <div style="font-size:23px;color:var(--ink-2,#9CAAA4);letter-spacing:.01em">${escapeHtml(payload.title)} &middot; ${escapeHtml(payload.artist)}</div>
+          <a class="ws-song-link" href="#/song/${encodeURIComponent(payload.slug)}" style="font-size:23px;color:var(--ink-2,#9CAAA4);letter-spacing:.01em;text-decoration:none">${escapeHtml(payload.title)} &middot; ${escapeHtml(payload.artist)}</a>
           <div style="font-size:68px;font-weight:600;letter-spacing:-.025em;line-height:1.04;margin-top:2px">${escapeHtml(section.name)}</div>
           <div class="mono" style="font-size:17px;color:var(--ink-3,#6A7873);letter-spacing:.05em;margin-top:4px" data-breadcrumb></div>
         </div>
@@ -297,6 +310,18 @@ export function mount(el, payload) {
       <div data-leadin-pills style="display:flex;gap:14px;align-items:center;margin-top:14px"></div>
       <div class="mono" data-leadin-caption style="font-size:20px;color:var(--ink-3,#6A7873);letter-spacing:.06em;margin-top:22px"></div>
     </div>
+
+    <div data-help-overlay style="position:absolute;inset:0;display:none;align-items:center;justify-content:center;
+                background:rgba(12,18,17,.82)">
+      <div style="background:var(--surface,#131B19);border:1px solid var(--line,#26302E);border-radius:8px;
+                  padding:32px 40px;min-width:420px;max-width:560px;max-height:80vh;overflow:auto">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:18px">
+          <div style="font-size:22px;font-weight:600">Shortcuts</div>
+          <div class="mono lbl" style="font-size:11px;color:var(--ink-3,#6A7873)">? to close</div>
+        </div>
+        <div data-help-body style="display:flex;flex-direction:column;gap:2px"></div>
+      </div>
+    </div>
   `;
   el.appendChild(root);
 
@@ -324,6 +349,34 @@ export function mount(el, payload) {
   const leadInCountEl = root.querySelector('[data-leadin-count]');
   const leadInPillsEl = root.querySelector('[data-leadin-pills]');
   const leadInCaptionEl = root.querySelector('[data-leadin-caption]');
+  const helpOverlay = root.querySelector('[data-help-overlay]');
+  const helpBodyEl = root.querySelector('[data-help-body]');
+
+  // Reverse KEY_MAP once: action name -> every key that reaches it (usually
+  // one, but the table doesn't promise that). Built from KEY_MAP/ACTIONS
+  // directly so this can never drift from what actually fires -- no second
+  // hand-typed shortcut list to fall out of sync with keys.js/actions.js.
+  const keysForAction = {};
+  for (const [key, name] of Object.entries(KEY_MAP)) {
+    (keysForAction[name] ??= []).push(key);
+  }
+  function renderHelp() {
+    helpBodyEl.innerHTML = Object.entries(ACTIONS).map(([name, spec]) => {
+      const keys = (keysForAction[name] ?? []).map(keyLabel).join(' / ');
+      const cc = spec.cc != null ? `CC ${spec.cc}` : '';
+      return `
+        <div style="display:flex;justify-content:space-between;gap:24px;padding:7px 0;border-bottom:1px solid var(--hairline,#1C2523)">
+          <div style="font-size:14px;color:var(--ink,#E8EEEB)">${escapeHtml(spec.label ?? name)}</div>
+          <div class="mono" style="font-size:13px;color:var(--ink-3,#6A7873);white-space:nowrap">${escapeHtml([keys, cc].filter(Boolean).join('  ·  ') || '—')}</div>
+        </div>`;
+    }).join('');
+  }
+  function toggleHelp() {
+    const opening = helpOverlay.style.display !== 'flex';
+    if (opening) renderHelp();
+    helpOverlay.style.display = opening ? 'flex' : 'none';
+  }
+  helpOverlay.addEventListener('click', (e) => { if (e.target === helpOverlay) toggleHelp(); });
 
   // ---- foot strip: exactly the six CC actions, in ACTIONS' own table
   // order (never hand-reordered — see CLAUDE.md's "one action table"). ----
@@ -681,6 +734,7 @@ export function mount(el, payload) {
       if (engineReady) engine.setSemitones(shift);
       renderDiscrete();
     },
+    help() { toggleHelp(); },
   };
   for (const name of Object.keys(handlers)) bind(name, handlers[name]);
 

@@ -4,6 +4,14 @@ Out-of-scope items discovered while planning or implementing. Format:
 `- [ ] **[Plan <NNN>]** <description>`
 
 ## Requested live during Phase 0 manual testing, 2026-09-06
+- [ ] **[Plan 001]** Paolo asked for the setlist name in the practice-screen header
+      (`design/Main.dc.html` fixes it there) to link back to that setlist. Genuinely
+      not buildable yet: `GET /api/song/<slug>` has no `?setlist=` context (server.py's
+      own comment: "No setlist context reaches this endpoint... 0 is the honest
+      default until a setlist is plumbed in"), there's no `/api/setlist/<slug>`
+      endpoint, and no setlist-detail screen exists in the module map to link to. All
+      three arrive together in Phase 1's F1. The song-title link Paolo asked for in
+      the same message (`#/song/<slug>`) was buildable now and is done.
 - [ ] **[Plan 001]** Paolo requested a default, non-editable section spanning the
       whole song, always present on the song page even before any section is drawn.
       Not in `docs/00-spec.md` or `docs/02-data-model.md` today -- a real design
