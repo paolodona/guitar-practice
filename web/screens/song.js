@@ -10,15 +10,17 @@
  *
  * Three scope decisions, made explicit here rather than silently assumed:
  *
- * 1. The transpose cluster is a STATIC display this phase. `payload.shift`
- *    is always 0 (server.py's _song: "No setlist context reaches this
- *    endpoint... 0 is the honest default until a setlist is plumbed in").
- *    CLAUDE.md's invariant makes the transpose stepper editable from the
- *    PRACTICE view (practice.js, this same unit's other file) once a
- *    setlist entry exists to hold the override; there is nothing for the
- *    song page's cluster to persist to yet, so it renders the value and
- *    nothing wires its buttons. Not a shortcut: there is no server
- *    surface to call.
+ * 1. The transpose cluster is interactive as of Phase 1's F3, on the same
+ *    terms as practice.js's (see that file's decision 2): `-`/`+` clicks
+ *    and the `-`/`=` keys (via actions.js's `on('transpose_up'/'down', …)`
+ *    -- keys.js's listener is global, wired once in app.js's `start()`, so
+ *    it reaches this screen with no key handling of its own) step
+ *    `payload.shift`, and `POST /api/shift` persists the change ONLY when
+ *    app.js's `currentSetlist()` names one -- with none, there is still no
+ *    setlist entry to hold an override, so the number updates locally and
+ *    nothing is written, exactly the prior behaviour. This screen has no
+ *    audio engine (see decision 2 below) to re-pitch live; the number is
+ *    the whole of what changes here.
  *
  * 2. The transport bar is visual scaffolding, not a second audio engine.
  *    D6's brief assigns instantiating `player.RealtimeEngine` to
@@ -62,10 +64,11 @@
  * patched-around gap, not something introduced here; flagged again in
  * this unit's report.
  */
-import { get, post } from '../app.js';
+import { currentSetlist, get, post } from '../app.js';
 import { drawWave, SONG_WAVE_OPTS } from '../wave.js';
 import { renderSections, attachCreateHandler } from '../sections.js';
 import { viewX } from '../timeline.js';
+import { on } from '../actions.js';
 
 const STYLE_ID = 'song-screen-style';
 
@@ -122,6 +125,8 @@ function orderSections(sections) {
   return [...sections].sort((a, b) => a.start_s - b.start_s || (b.end_s - b.start_s) - (a.end_s - a.start_s));
 }
 
+function clampShift(v) { return Math.min(6, Math.max(-6, Math.round(v))); }
+
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
@@ -146,9 +151,21 @@ export function mount(el, payload) {
   let previewSpeed = closestRung(payload.practice.start_speed);
   let transportPlaying = false;
 
-  const shift = payload.shift; // always 0 this phase — see module doc, decision 1.
-  const shiftColor = shift === 0 ? 'var(--good,#5FA88F)' : 'var(--accent,#E0913F)';
+  let shift = clampShift(payload.shift ?? 0); // interactive — see module doc, decision 1.
   const durationS = payload.recording.duration_s;
+  let shiftPersistTimer = null;
+  const unsubs = [];
+
+  function persistShift() {
+    const setlist = currentSetlist();
+    if (!setlist) return; // no setlist entry to hold an override -- session-only
+    clearTimeout(shiftPersistTimer);
+    shiftPersistTimer = setTimeout(() => {
+      post('/api/shift', { setlist, song: slug, shift }).catch(() => {
+        // best-effort; the displayed number is already right locally
+      });
+    }, 400);
+  }
 
   const root = document.createElement('div');
   root.className = 'ws-song';
@@ -163,12 +180,11 @@ export function mount(el, payload) {
       <div style="margin-left:auto;display:flex;align-items:center;gap:12px">
         <div class="mono" style="font-size:13px;color:var(--ink-3,#6A7873);letter-spacing:.04em">RECORD IN ${escapeHtml(payload.recording.tuning).toUpperCase()}</div>
         <div style="display:flex;align-items:center;gap:6px;border:1px solid var(--line,#26302E);border-radius:5px;padding:4px">
-          <div style="width:28px;height:28px;border-radius:3px;background:var(--raised,#1B2422);display:flex;align-items:center;justify-content:center;font-size:17px;color:var(--ink-2,#9CAAA4);opacity:.4">&minus;</div>
-          <div class="mono" style="font-size:17px;color:${shiftColor};width:34px;text-align:center;font-weight:600;font-variant-numeric:tabular-nums">${shift > 0 ? '+' : ''}${shift}</div>
-          <div style="width:28px;height:28px;border-radius:3px;background:var(--raised,#1B2422);display:flex;align-items:center;justify-content:center;font-size:17px;color:var(--ink-2,#9CAAA4);opacity:.4">+</div>
+          <button data-shift-minus style="width:28px;height:28px;border-radius:3px;border:none;background:var(--raised,#1B2422);display:flex;align-items:center;justify-content:center;font-size:17px;color:var(--ink-2,#9CAAA4);cursor:pointer">&minus;</button>
+          <div class="mono num" data-shift-val style="font-size:17px;width:34px;text-align:center;font-weight:600;font-variant-numeric:tabular-nums"></div>
+          <button data-shift-plus style="width:28px;height:28px;border-radius:3px;border:none;background:var(--raised,#1B2422);display:flex;align-items:center;justify-content:center;font-size:17px;color:var(--ink-2,#9CAAA4);cursor:pointer">+</button>
         </div>
         <div style="font-size:14px;color:var(--ink-2,#9CAAA4)">plays in ${escapeHtml(payload.recording.tuning)}</div>
-        <div class="mono" style="font-size:11.5px;color:var(--ink-4,#5B6A64);letter-spacing:.06em" title="No setlist context reaches this endpoint yet">NOT EDITABLE HERE</div>
       </div>
     </div>
 
@@ -214,6 +230,22 @@ export function mount(el, payload) {
   const transportPlayBtn = root.querySelector('[data-transport-play]');
 
   root.querySelector('[data-back]').addEventListener('click', () => { location.hash = '#/'; });
+
+  const shiftValEl = root.querySelector('[data-shift-val]');
+  function renderShift() {
+    shiftValEl.textContent = `${shift > 0 ? '+' : ''}${shift}`;
+    shiftValEl.style.color = shift === 0 ? 'var(--good,#5FA88F)' : 'var(--accent,#E0913F)';
+  }
+  renderShift();
+  function bumpShift(delta) {
+    shift = clampShift(shift + delta);
+    renderShift();
+    persistShift();
+  }
+  root.querySelector('[data-shift-minus]').addEventListener('click', () => bumpShift(-1));
+  root.querySelector('[data-shift-plus]').addEventListener('click', () => bumpShift(1));
+  unsubs.push(on('transpose_down', () => bumpShift(-1)));
+  unsubs.push(on('transpose_up', () => bumpShift(1)));
 
   transportPlayBtn.addEventListener('click', () => {
     // Visual-only toggle — see module doc, decision 2: no engine lives here.
@@ -398,5 +430,7 @@ export function mount(el, payload) {
 
   return function unmount() {
     resizeObserver.disconnect();
+    clearTimeout(shiftPersistTimer);
+    for (const unsub of unsubs) unsub();
   };
 }

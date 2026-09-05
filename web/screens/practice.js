@@ -15,11 +15,11 @@
  *   tempo: { bpm, source, grid_offset_s, time_signature, confidence },
  *   practice: { start_speed, ladder_step, reps_to_advance, pre_roll_beats,
  *               pre_roll_every_pass, click, loop_crossfade_ms },
- *   shift: 0,                 // always 0 this phase — no setlist context
- *                             // reaches /api/song yet (CLAUDE.md's
- *                             // "transpose is per song" invariant). The
- *                             // stepper below still WORKS — it just keeps
- *                             // its result in memory only; see decision 2.
+ *   shift: 0,                 // the effective shift for app.js's current
+ *                             // setlist (0 with none set) -- resolved
+ *                             // server-side from `?setlist=` (F1); see
+ *                             // decision 2 for how the stepper persists
+ *                             // a change back onto it.
  *   peaks_url,                // GET this; a 404 means "not built yet"
  *   sections: Array<{ id, name, start_s, end_s, snapped, target_speed,
  *     ladder_step, reps_to_advance, notes, patch, counts_toward_readiness,
@@ -43,12 +43,16 @@
  *    reach it), needed only because that read endpoint does not exist.
  *
  * 2. The transpose stepper is fully interactive and drives the engine live
- *    (`engine.setSemitones`), but the result is NOT persisted anywhere —
- *    there is no setlist-scoped endpoint to save it to this phase (see the
- *    payload note on `shift` above). This is the CLAUDE.md-mandated
- *    control (`−`/`+`, range ±6) working exactly as specified for the
- *    current session; only cross-session persistence is deferred, and
- *    that is a server-surface gap, not a shortcut taken here.
+ *    (`engine.setSemitones`). Persistence (Phase 1, F3) is conditional on
+ *    setlist context existing at all: with no "current setlist" (see
+ *    app.js's `currentSetlist()` — a per-viewer localStorage preference,
+ *    not part of this route), there is no setlist ENTRY to hold an
+ *    override, so the stepper still works but keeps its result in memory
+ *    only, exactly as before. With a current setlist, each change debounces
+ *    a `POST /api/shift` (400ms, so holding the key doesn't fire one per
+ *    keystroke) — fire-and-forget: a failed persist doesn't interrupt
+ *    practice, since the engine and the displayed number are already
+ *    correct locally regardless of whether the write lands.
  *
  * 3. Playback PROGRESS (the one 0-1 fraction driving the ring, the
  *    waveform's clip-path and the playhead) has no authoritative source in
@@ -79,7 +83,7 @@
  *    have no represented control on this artboard and are left unsubscribed
  *    rather than given invented behaviour.
  */
-import { get, post } from '../app.js';
+import { currentSetlist, get, post } from '../app.js';
 import { drawWave, PRACTICE_WAVE_OPTS } from '../wave.js';
 import { createEngine } from '../player.js';
 import { ACTIONS, on, dispatch } from '../actions.js';
@@ -254,6 +258,20 @@ export function mount(el, payload) {
   let advanceTimer = null;
   let playing = false;
   let peaks = null;
+  let shiftPersistTimer = null;
+
+  // Debounced POST /api/shift -- see module doc, decision 2. No-op with no
+  // setlist context: there is nothing to write the override onto.
+  function persistShift() {
+    const setlist = currentSetlist();
+    if (!setlist) return;
+    clearTimeout(shiftPersistTimer);
+    shiftPersistTimer = setTimeout(() => {
+      post('/api/shift', { setlist, song: payload.slug, shift }).catch(() => {
+        // best-effort; the local display and the engine are already right
+      });
+    }, 400);
+  }
 
   function preRollPlaybackSeconds() {
     return (payload.practice.pre_roll_beats * secPerBeat(payload.tempo)) / (speedPct / 100);
@@ -785,11 +803,13 @@ export function mount(el, payload) {
     transpose_up() {
       shift = clampShift(shift + 1);
       if (engineReady) engine.setSemitones(shift);
+      persistShift();
       renderDiscrete();
     },
     transpose_down() {
       shift = clampShift(shift - 1);
       if (engineReady) engine.setSemitones(shift);
+      persistShift();
       renderDiscrete();
     },
     help() { toggleHelp(); },
@@ -814,6 +834,7 @@ export function mount(el, payload) {
   return function unmount() {
     cancelAnimationFrame(rafId);
     clearTimeout(advanceTimer);
+    clearTimeout(shiftPersistTimer);
     resizeObserver.disconnect();
     window.removeEventListener('resize', applyScale);
     for (const unsub of unsubs) unsub();

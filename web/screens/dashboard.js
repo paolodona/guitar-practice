@@ -42,10 +42,9 @@
  *    plain empty state ("create one with `woodshed setlist add`") rather
  *    than a blank screen or a fabricated row.
  */
-import { get } from '../app.js';
+import { get, setCurrentSetlist } from '../app.js';
 
 const STYLE_ID = 'dashboard-screen-style';
-const SETLIST_STORAGE_KEY = 'woodshed:setlist';
 
 function ensureStyle() {
   if (document.getElementById(STYLE_ID)) return;
@@ -81,15 +80,6 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
   }[c]));
-}
-
-function rememberSetlist(slug) {
-  try {
-    localStorage.setItem(SETLIST_STORAGE_KEY, slug);
-  } catch {
-    // private window / storage disabled -- the pill click still works for
-    // this visit, only the memory of it across visits is lost.
-  }
 }
 
 /** Days since *iso* (a last_practised timestamp), or null if never. */
@@ -210,7 +200,7 @@ export function mount(el, payload) {
  * by the initial mount and by a pill click (see decision 1 above: this
  * never goes through app.js's router). */
 async function switchTo(el, setlists, slug) {
-  rememberSetlist(slug);
+  setCurrentSetlist(slug);
   const dashboard = await get(`/api/setlist/${encodeURIComponent(slug)}`);
   render(el, { setlists, currentSetlist: slug, ...dashboard });
 }

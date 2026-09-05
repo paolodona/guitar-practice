@@ -41,6 +41,46 @@
 import { attach } from './keys.js';
 
 const SCREEN_ROOT_ID = 'screen-root';
+const SETLIST_STORAGE_KEY = 'woodshed:setlist';
+
+/**
+ * The viewer's remembered "current setlist" slug, or null if none is set
+ * (or storage is unavailable). A per-viewer preference, not part of any
+ * route -- see dashboard.js's decision 1. Read by the dashboard route
+ * below, by song.js/practice.js (to ask `/api/song` for the right shift
+ * and to know where the transpose stepper's `POST /api/shift` should
+ * write), and written by dashboard.js's pill click.
+ * @returns {string | null}
+ */
+export function currentSetlist() {
+  try {
+    return localStorage.getItem(SETLIST_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Remember *slug* as the viewer's current setlist.
+ * @param {string} slug
+ */
+export function setCurrentSetlist(slug) {
+  try {
+    localStorage.setItem(SETLIST_STORAGE_KEY, slug);
+  } catch {
+    // private window / storage disabled -- the choice still applies for
+    // the rest of this page's lifetime via whatever in-memory state the
+    // caller already holds; only remembering it across visits is lost.
+  }
+}
+
+/** `?setlist=<currentSetlist()>`, or '' when there is none -- shared by the
+ * song and practice routes below, both of which need it to resolve a real
+ * shift (see server.py's `_song`). */
+function setlistQuery() {
+  const slug = currentSetlist();
+  return slug ? `?setlist=${encodeURIComponent(slug)}` : '';
+}
 
 /**
  * @typedef {Object} Route
@@ -58,12 +98,7 @@ export const ROUTES = [
     loadPayload: async () => {
       const setlists = await get('/api/setlists');
       if (setlists.length === 0) return { setlists: [] };
-      let slug = null;
-      try {
-        slug = localStorage.getItem('woodshed:setlist');
-      } catch {
-        // private window / storage disabled -- fall through to the default below
-      }
+      let slug = currentSetlist();
       if (!slug || !setlists.some((s) => s.slug === slug)) slug = setlists[0].slug;
       const dashboard = await get(`/api/setlist/${encodeURIComponent(slug)}`);
       return { setlists, currentSetlist: slug, ...dashboard };
@@ -72,7 +107,7 @@ export const ROUTES = [
   {
     pattern: /^\/song\/(?<slug>[^/]+)$/,
     loadModule: () => import('./screens/song.js'),
-    loadPayload: async (params) => get(`/api/song/${encodeURIComponent(params.slug)}`),
+    loadPayload: async (params) => get(`/api/song/${encodeURIComponent(params.slug)}${setlistQuery()}`),
   },
   {
     pattern: /^\/practice\/(?<slug>[^/]+)\/(?<sectionId>[^/]+)$/,
@@ -80,7 +115,7 @@ export const ROUTES = [
     // Same endpoint as the song screen — there is no separate practice
     // payload; practice.js finds its section by params.sectionId within
     // payload.sections.
-    loadPayload: async (params) => get(`/api/song/${encodeURIComponent(params.slug)}`),
+    loadPayload: async (params) => get(`/api/song/${encodeURIComponent(params.slug)}${setlistQuery()}`),
   },
   {
     pattern: /^\/capture$/,
