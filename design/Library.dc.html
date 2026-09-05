@@ -1,0 +1,160 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+  <style>
+    *{box-sizing:border-box}
+    body{margin:0;background:#0C1211;color:#E8EEEB;
+         font-family:Archivo,'Helvetica Neue',Arial,sans-serif;-webkit-font-smoothing:antialiased}
+    a{color:#E0913F} a:hover{color:#EFA95C}
+    .mono{font-family:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace}
+    .lbl{font-family:'IBM Plex Mono',ui-monospace,Menlo,monospace;letter-spacing:.2em;
+         text-transform:uppercase;color:#6A7873}
+    .num{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1;
+         letter-spacing:-.035em;line-height:.84;font-weight:700}
+  </style>
+<style>
+  .entry{flex:1;min-width:0;background:#131B19;border:1px solid #1C2523;border-radius:5px;padding:18px;
+         display:flex;flex-direction:column;gap:10px}
+  .art{width:42px;height:42px;border-radius:3px;background:#1B2422;display:flex;
+       align-items:center;justify-content:center;font-family:'IBM Plex Mono',monospace;
+       font-size:12px;color:#5B6A64;flex-shrink:0}
+  .irow{display:grid;grid-template-columns:42px 300px 1fr 66px 250px;align-items:center;gap:18px;
+        padding:13px 12px;border-bottom:1px solid #1C2523}
+  .badge{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.12em;
+         text-transform:uppercase;padding:3px 8px;border-radius:3px;white-space:nowrap}
+  .btn{border:1px solid #26302E;border-radius:4px;padding:6px 12px;font-size:13px;color:#E8EEEB}
+</style>
+</helmet>
+<div style="width:1440px;height:900px;background:#0C1211;display:flex;flex-direction:column;padding:30px 44px 26px">
+
+  <div style="display:flex;align-items:baseline;gap:18px;padding-bottom:20px;border-bottom:1px solid #26302E">
+    <div style="font-size:26px;font-weight:600;letter-spacing:-.015em">Library</div>
+    <div style="font-size:15px;color:#6A7873">34 songs &nbsp;·&nbsp; 4 need audio</div>
+  </div>
+
+  <!-- three ways in -->
+  <div style="display:flex;gap:14px;padding:22px 0 26px">
+    <div class="entry"  style="padding:18px;border-style:dashed;border-color:#2E3A37;align-items:center;justify-content:center;text-align:center">
+      <svg width="26" height="26" viewBox="0 0 26 26" fill="none">
+        <path d="M13 18V5M8 10l5-5 5 5" fill="none" stroke="#E0913F" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M3 17v4h20v-4" fill="none" stroke="#3E4A46" stroke-width="1.7" stroke-linecap="round"/></svg>
+      <div style="font-size:17px;font-weight:500;margin-top:4px">Drop a file</div>
+      <div style="font-size:13.5px;color:#6A7873;line-height:1.5">MP3, FLAC, WAV or M4A you already own.<br>Tags fill in the title and artist.</div>
+    </div>
+    <div class="entry"  style="border-color:#8A5C29">
+      <svg width="26" height="26" viewBox="0 0 26 26" fill="none">
+        <rect x="9" y="2.5" width="8" height="13" rx="4" stroke="#E0913F" stroke-width="1.7"/>
+        <path d="M5.5 12a7.5 7.5 0 0015 0M13 19.5V23" fill="none" stroke="#3E4A46" stroke-width="1.7" stroke-linecap="round"/></svg>
+      <div style="font-size:17px;font-weight:500;margin-top:4px">Capture what’s playing</div>
+      <div style="font-size:13.5px;color:#6A7873;line-height:1.5">Records the machine’s own output, bit-for-bit. Play a whole playlist once; it splits on the gaps.</div>
+      <div class="mono" style="font-size:12px;color:#5B6A64;margin-top:auto;padding-top:8px">WASAPI LOOPBACK · 48 kHz</div>
+    </div>
+    <div class="entry" >
+      <svg width="26" height="26" viewBox="0 0 26 26" fill="none">
+        <path d="M3 8a2 2 0 012-2h5l2 2.5h9a2 2 0 012 2V19a2 2 0 01-2 2H5a2 2 0 01-2-2V8z" fill="none" stroke="#3E4A46" stroke-width="1.7" stroke-linejoin="round"/>
+        <circle cx="13" cy="14" r="3.5" stroke="#E0913F" stroke-width="1.7"/><path d="M15.6 16.6L18 19" fill="none" stroke="#E0913F" stroke-width="1.7" stroke-linecap="round"/></svg>
+      <div style="font-size:17px;font-weight:500;margin-top:4px">Scan a folder</div>
+      <div style="font-size:13.5px;color:#6A7873;line-height:1.5">Match on tags first, then filename. Candidates are shown — nothing binds on a fuzzy match.</div>
+      <div class="mono" style="font-size:12px;color:#5B6A64;margin-top:auto;padding-top:8px">D:\Music</div>
+    </div>
+    <div class="entry" >
+      <svg width="26" height="26" viewBox="0 0 26 26" fill="none">
+        <circle cx="13" cy="13" r="10" stroke="#3E4A46" stroke-width="1.7"/>
+        <path d="M7.5 10.5c3.6-1.1 7.4-.8 10.6 1M8.5 14c2.9-.9 5.9-.6 8.5.9M9.5 17.3c2.2-.7 4.5-.5 6.5.7" fill="none" stroke="#E0913F" stroke-width="1.7" stroke-linecap="round"/></svg>
+      <div style="font-size:17px;font-weight:500;margin-top:4px">Search Spotify</div>
+      <div style="font-size:13.5px;color:#6A7873;line-height:1.5">Titles, artists and artwork — never audio. A pasted playlist becomes a whole setlist.</div>
+      <div style="background:#0F1614;border:1px solid #26302E;border-radius:4px;padding:8px 11px;
+                  font-size:13.5px;color:#5B6A64;margin-top:auto">open.spotify.com/playlist/…</div>
+    </div>
+  </div>
+
+  <!-- the import -->
+  <div style="display:flex;align-items:center;gap:14px;padding-bottom:12px">
+    <div style="font-size:17px;font-weight:500">Imported from “Ramba live 2027”</div>
+    <div class="mono" style="font-size:12.5px;color:#6A7873;letter-spacing:.06em">23 TRACKS · 4 NEED AUDIO</div>
+    <div class="btn" style="margin-left:auto">Make this a setlist</div>
+  </div>
+
+  <div class="irow" style="border-bottom:1px solid #26302E;padding-top:0;padding-bottom:9px">
+    <div></div><div class="lbl" style="font-size:10px">Track</div>
+    <div class="lbl" style="font-size:10px">Album</div>
+    <div class="lbl" style="font-size:10px">Length</div>
+    <div class="lbl" style="font-size:10px">Audio</div>
+  </div>
+
+  <div class="irow">
+    <div class="art">RH</div>
+    <div><div style="font-size:15.5px">Can’t Stop</div><div style="font-size:13px;color:#6A7873;margin-top:2px">Red Hot Chili Peppers</div></div>
+    <div style="font-size:14px;color:#9CAAA4">By the Way</div>
+    <div class="mono num" style="font-size:13px;color:#9CAAA4">4:29</div>
+    <div style="display:flex;align-items:center;gap:8px">
+      <svg width="13" height="10" viewBox="0 0 13 10" fill="none"><path d="M1 5l4 4 7-8" fill="none" stroke="#5FA88F" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <div class="mono" style="font-size:12.5px;color:#6A7873">cant-stop.flac</div></div>
+  </div>
+
+  <div class="irow">
+    <div class="art">ST</div>
+    <div><div style="font-size:15.5px">Plush</div><div style="font-size:13px;color:#6A7873;margin-top:2px">Stone Temple Pilots</div></div>
+    <div style="font-size:14px;color:#9CAAA4">Core</div>
+    <div class="mono num" style="font-size:13px;color:#9CAAA4">5:13</div>
+    <div style="display:flex;align-items:center;gap:8px">
+      <svg width="13" height="10" viewBox="0 0 13 10" fill="none"><path d="M1 5l4 4 7-8" fill="none" stroke="#5FA88F" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <div class="mono" style="font-size:12.5px;color:#6A7873">plush.mp3</div></div>
+  </div>
+
+  <div class="irow">
+    <div class="art">DS</div>
+    <div><div style="font-size:15.5px">Sultans of Swing</div><div style="font-size:13px;color:#6A7873;margin-top:2px">Dire Straits</div></div>
+    <div style="font-size:14px;color:#9CAAA4">Dire Straits</div>
+    <div class="mono num" style="font-size:13px;color:#9CAAA4">5:47</div>
+    <div style="display:flex;align-items:center;gap:8px">
+      <svg width="13" height="10" viewBox="0 0 13 10" fill="none"><path d="M1 5l4 4 7-8" fill="none" stroke="#5FA88F" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <div class="mono" style="font-size:12.5px;color:#6A7873">sultans-of-swing.flac</div></div>
+  </div>
+
+  <div class="irow">
+    <div class="art">RS</div>
+    <div><div style="font-size:15.5px">Il Phurgone</div><div style="font-size:13px;color:#6A7873;margin-top:2px">Ramba S.S.</div></div>
+    <div style="font-size:14px;color:#9CAAA4">Diversamente Giovani</div>
+    <div class="mono num" style="font-size:13px;color:#9CAAA4">3:08</div>
+    <div style="display:flex;align-items:center;gap:9px">
+      <div class="badge" style="background:#1B2422;color:#9CAAA4">needs audio</div>
+      <div class="mono" style="font-size:12px;color:#E0913F">IN rambass-live</div></div>
+  </div>
+
+  <div class="irow">
+    <div class="art">LZ</div>
+    <div><div style="font-size:15.5px">Whole Lotta Love</div><div style="font-size:13px;color:#6A7873;margin-top:2px">Led Zeppelin</div></div>
+    <div style="font-size:14px;color:#9CAAA4">Led Zeppelin II</div>
+    <div class="mono num" style="font-size:13px;color:#9CAAA4">5:34</div>
+    <div style="display:flex;align-items:center;gap:9px">
+      <div class="badge" style="background:#1B2422;color:#9CAAA4">needs audio</div>
+      <div class="btn" style="border-color:#8A5C29;color:#E0913F">Capture</div></div>
+  </div>
+
+  <div class="irow" style="border-bottom:none">
+    <div class="art">RS</div>
+    <div><div style="font-size:15.5px">Mother Sacher</div><div style="font-size:13px;color:#6A7873;margin-top:2px">Ramba S.S.</div></div>
+    <div style="font-size:14px;color:#9CAAA4">Diversamente Giovani</div>
+    <div class="mono num" style="font-size:13px;color:#9CAAA4">3:52</div>
+    <div style="display:flex;align-items:center;gap:9px">
+      <div class="badge" style="background:#1B2422;color:#9CAAA4">needs audio</div>
+      <div class="btn">Bind file</div></div>
+  </div>
+
+  <div style="margin-top:auto;padding-top:16px;display:flex;justify-content:space-between">
+    <div class="mono" style="font-size:12px;color:#4C5854;letter-spacing:.08em">17 MORE</div>
+    <div class="mono" style="font-size:12px;color:#4C5854;letter-spacing:.08em">ARTWORK IS A PLACEHOLDER — INITIALS, NOT THE REAL SLEEVE</div>
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>

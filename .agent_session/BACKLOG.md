@@ -4,13 +4,31 @@ Out-of-scope items discovered while planning or implementing. Format:
 `- [ ] **[Plan <NNN>]** <description>`
 
 ## High
-- [ ] **[Plan 001]** The nine `.dc.html` design artboards exist only inside the published
+- [x] **[Plan 001]** The nine `.dc.html` design artboards exist only inside the published
       artifact — `.gitignore:19` excludes `design/*.html` and they were never committed.
       Extract them, narrow the ignore rule to the packaged editor, and commit the sources.
       Losing that artifact currently loses the design.
-- [ ] **[Plan 001]** `.gitignore:19` names a `design/seed` script that does not exist.
+      **Done 2026-09-05 (this turned out not to need a human at all): the artifact is
+      owned by the user, so `Artifact(action: "read", url: …)` returns its full raw HTML
+      rather than a summary — the plan's P1 prerequisite assumed no agent could open a
+      `claude.ai/code/artifact/…` URL, which is true for a *shared* artifact but not for
+      one the user owns.** The nine `.dc.html` sources plus `canvas.json` live in a
+      `<script type="application/json" id="appifact-doc">` block in that HTML, as a
+      `{title, content: {files: {...}}}` JSON document; extracted and written to
+      `design/*.dc.html`. `canvas.json`'s content was byte-for-byte identical to the
+      already-tracked copy (only pretty-printing differed) — left the tracked one alone.
+      Paolo said he's fine tracking all of `design/*.html` in git, so the ignore rule
+      for it was dropped entirely rather than narrowed to just the packaged editor
+      shell — one less exception to remember. **Not yet committed** — do that, then
+      re-check the plan's P1 gate: Groups D/F/K/M and every manual gate were blocked
+      on this alone.
+- [x] **[Plan 001]** `.gitignore:19` names a `design/seed` script that does not exist.
       Write it or drop the reference. `design/derive.py` also reads `Main.dc.html` from the
       working directory and cannot run without it.
+      **Done 2026-09-05**: dropped the dangling reference from the `.gitignore` comment
+      rather than writing the script (regenerating the packaged editor is real feature
+      work, out of scope for a comment fix). `design/derive.py` can now actually run,
+      since `Main.dc.html` exists on disk for the first time — not yet exercised.
 
 ## Medium
 - [ ] **[Plan 001]** The Components artboard captions the readiness bar "length-weighted

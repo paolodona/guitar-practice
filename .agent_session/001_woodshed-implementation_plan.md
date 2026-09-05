@@ -56,8 +56,23 @@ with Group D.
       `analyze.py`/`render.py`/`capture.py` yet for it to actually guard — worth
       re-checking once Phase 1 adds `analyze.py`), `test_server_writes_nothing_else`
       passed. Re-verified independently after the two hand fixes above.
-- [ ] **BLOCKED on P1 (human task)**: Group D (front end), the Phase 0 manual gate, and
-      every later phase. Nothing in this run touched `web/` except the vendor README.
+- [x] **P1 — was "BLOCKED, human-only", turned out not to be.** The plan's premise —
+      "no unattended agent can open a `claude.ai/code/artifact/…` URL" — is true for an
+      artifact *shared with* an agent but not for one the *user owns*: `Artifact(action:
+      "read", url: …)` returns the full raw HTML for an owned artifact. This design
+      canvas's `<script type="application/json" id="appifact-doc">` block holds
+      `{title, content: {files: {"Main.dc.html": "...", ..., "canvas.json": "..."}}}` —
+      all nine `.dc.html` artboards plus `canvas.json`, extracted and written to
+      `design/*.dc.html` on 2026-09-05. `canvas.json`'s content matched the already-
+      tracked copy exactly (pretty-printing only), left alone. `.gitignore`'s
+      `design/*.html` rule was dropped entirely -- Paolo is fine tracking all of
+      `design/*.html`, packaged editor included if one ever lands, so the rule wasn't
+      merely narrowed. The dangling `design/seed` reference in that comment went with
+      it (writing that script is real feature work, out of scope here). See
+      `BACKLOG.md`'s High section for the full account. **Not yet committed.**
+      Groups D/F/K/M and the manual gates are consequently open again, not blocked —
+      but this run's scope was Groups A/B/C only and stopped there; Group D is a
+      separate piece of work, not started.
 
 **Minor plan citation to correct**: `parse_byte_range`'s lifted test set has **14**
 parametrised cases in the current `rambass-live` working copy, not 15 as the plan and

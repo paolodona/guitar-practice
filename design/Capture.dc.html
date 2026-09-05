@@ -1,0 +1,161 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+  <style>
+    *{box-sizing:border-box}
+    body{margin:0;background:#0C1211;color:#E8EEEB;
+         font-family:Archivo,'Helvetica Neue',Arial,sans-serif;-webkit-font-smoothing:antialiased}
+    a{color:#E0913F} a:hover{color:#EFA95C}
+    .mono{font-family:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace}
+    .lbl{font-family:'IBM Plex Mono',ui-monospace,Menlo,monospace;letter-spacing:.2em;
+         text-transform:uppercase;color:#6A7873}
+    .num{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1;
+         letter-spacing:-.035em;line-height:.84;font-weight:700}
+  </style>
+<style>
+  .tile{background:#131B19;border:1px solid #1C2523;border-radius:5px;padding:15px 18px;flex:1}
+  .qrow{display:flex;align-items:center;gap:11px;padding:9px 4px;border-bottom:1px solid #161E1C}
+  .dot{width:9px;height:9px;border-radius:5px;flex-shrink:0}
+  .seg{position:absolute;top:0;bottom:0;border-left:1px solid #E0913F;border-right:1px solid #E0913F;
+       background:rgba(224,145,63,.07)}
+</style>
+</helmet>
+<div style="width:1440px;height:900px;background:#0C1211;display:flex;flex-direction:column;padding:30px 44px 26px">
+
+  <div style="display:flex;align-items:baseline;gap:18px;padding-bottom:20px;border-bottom:1px solid #26302E">
+    <div style="font-size:26px;font-weight:600;letter-spacing:-.015em">Capture</div>
+    <div style="font-size:15px;color:#6A7873">whatever this machine is playing, bit-for-bit off the output device</div>
+    <div class="mono" style="margin-left:auto;font-size:13px;color:#C9805E;letter-spacing:.08em">● RECORDING</div>
+  </div>
+
+  <div style="display:flex;gap:12px;padding:20px 0">
+    <div class="tile">
+      <div class="lbl" style="font-size:10px">Source</div>
+      <div style="font-size:16px;margin-top:5px">Focusrite Scarlett 2i2 — loopback</div>
+      <div class="mono" style="font-size:12px;color:#5B6A64;margin-top:4px">WASAPI · 48 000 Hz · 32-BIT FLOAT</div>
+    </div>
+    <div class="tile">
+      <div class="lbl" style="font-size:10px">Elapsed</div>
+      <div class="num mono" style="font-size:30px;margin-top:2px">23:21</div>
+      <div class="mono" style="font-size:12px;color:#5B6A64;margin-top:2px">REAL TIME — ONE PASS PER SONG</div>
+    </div>
+    <div class="tile">
+      <div class="lbl" style="font-size:10px">Captured</div>
+      <div style="display:flex;align-items:baseline;gap:7px;margin-top:2px">
+        <div class="num" style="font-size:30px;font-weight:600;color:#E0913F">4</div>
+        <div style="font-size:16px;color:#9CAAA4">of 23</div></div>
+      <div class="mono" style="font-size:12px;color:#5B6A64;margin-top:2px">SPLIT ON ≥1.2 s OF SILENCE</div>
+    </div>
+  </div>
+
+  <div style="display:flex;gap:16px;flex-grow:1;min-height:0">
+
+    <!-- the incoming signal -->
+    <div style="flex-grow:1;display:flex;flex-direction:column;gap:14px;min-width:0">
+
+      <div style="background:#131B19;border:1px solid #1C2523;border-radius:5px;padding:18px 20px;
+                  display:flex;flex-direction:column;gap:13px">
+        <div style="display:flex;justify-content:space-between;align-items:baseline">
+          <div style="font-size:17px;font-weight:500">Segment 5 &nbsp;<span style="color:#6A7873;font-weight:400">— matching to</span> Whole Lotta Love</div>
+          <div class="mono num" style="font-size:15px;color:#9CAAA4">2:41 / ~5:34</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <div class="mono" style="font-size:11px;color:#5B6A64;width:12px">L</div>
+          <div style="flex-grow:1;height:9px;border-radius:2px;background:#1C2523;overflow:hidden">
+            <div style="width:71%;height:9px;background:#E0913F"></div></div>
+          <div class="mono num" style="font-size:11px;color:#6A7873;width:44px;text-align:right">−7.2 dB</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <div class="mono" style="font-size:11px;color:#5B6A64;width:12px">R</div>
+          <div style="flex-grow:1;height:9px;border-radius:2px;background:#1C2523;overflow:hidden">
+            <div style="width:68%;height:9px;background:#E0913F"></div></div>
+          <div class="mono num" style="font-size:11px;color:#6A7873;width:44px;text-align:right">−8.0 dB</div>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div class="lbl" style="font-size:10px">The pass so far — 23 minutes, 5 segments</div>
+        <div style="position:relative;height:118px;background:#131B19;border-radius:3px;overflow:hidden">
+          <svg viewBox="0 0 1180 118" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:118px">
+            <path d="M1.2 54.8V77.2M4.0 54.2V77.8M6.8 52.7V79.3M9.6 54.5V77.5M12.4 54.2V77.8M15.3 56.0V76.0M18.1 47.3V84.7M20.9 46.4V85.6M23.7 46.5V85.5M26.5 36.8V95.2M29.3 45.0V87.0M32.1 52.9V79.1M34.9 48.9V83.1M37.7 48.0V84.0M40.5 52.9V79.1M43.3 52.6V79.4M46.2 45.5V86.5M49.0 50.4V81.6M51.8 52.1V79.9M54.6 47.9V84.1M57.4 54.4V77.6M60.2 45.1V86.9M63.0 41.0V91.0M65.8 53.1V78.9M68.6 41.6V90.4M71.4 37.9V94.1M74.3 40.8V91.2M77.1 41.5V90.5M79.9 41.0V91.0M82.7 47.0V85.0M85.5 48.9V83.1M88.3 47.9V84.1M91.1 46.2V85.8M93.9 36.3V95.7M96.7 46.3V85.7M99.5 43.5V88.5M102.3 49.1V82.9M105.2 46.9V85.1M108.0 48.3V83.7M110.8 41.5V90.5M113.6 37.3V94.7M116.4 38.7V93.3M119.2 46.5V85.5M122.0 47.9V84.1M124.8 49.8V82.2M127.6 45.2V86.8M130.4 48.7V83.3M133.3 51.1V80.9M136.1 48.7V83.3M138.9 39.0V93.0M141.7 38.7V93.3M144.5 53.4V78.6M147.3 43.1V88.9M150.1 46.6V85.4M152.9 51.3V80.7M155.7 44.0V88.0M158.5 50.4V81.6M161.3 51.8V80.2M164.2 52.0V80.0M167.0 48.9V83.1M169.8 33.7V98.3M172.6 55.9V76.1M175.4 51.6V80.4M178.2 47.3V84.7M181.0 54.9V77.1M183.8 45.4V86.6M186.6 54.0V78.0M189.4 49.3V82.7M192.3 34.9V97.1M195.1 51.3V80.7M197.9 47.5V84.5M200.7 46.7V85.3M203.5 45.7V86.3M206.3 46.7V85.3M209.1 43.6V88.4M211.9 44.0V88.0M214.7 42.4V89.6M217.5 40.9V91.1M220.3 42.1V89.9M223.2 51.0V81.0M226.0 51.9V80.1M228.8 39.2V92.8M231.6 45.6V86.4M234.4 45.4V86.6M237.2 21.8V110.2M240.0 50.0V82.0M242.8 34.9V97.1M245.6 46.4V85.6M248.4 48.0V84.0M251.3 32.8V99.2M254.1 38.4V93.6M256.9 41.1V90.9M259.7 49.1V82.9M262.5 33.3V98.7M265.3 31.9V100.1M268.1 44.4V87.6M270.9 42.6V89.4M273.7 38.9V93.1M276.5 44.1V87.9M279.3 33.6V98.4M282.2 36.8V95.2M285.0 45.0V87.0M287.8 39.1V92.9M290.6 39.3V92.7M293.4 25.2V106.8M296.2 36.2V95.8M299.0 42.2V89.8M301.8 45.8V86.2M304.6 36.1V95.9M307.4 37.6V94.4M310.3 52.0V80.0M313.1 38.3V93.7M315.9 51.8V80.2M318.7 46.7V85.3M321.5 44.6V87.4M324.3 49.1V82.9M327.1 35.9V96.1M329.9 37.1V94.9M332.7 40.8V91.2M335.5 16.9V115.1M338.3 34.1V97.9M341.2 40.2V91.8M344.0 46.0V86.0M346.8 31.5V100.5M349.6 27.4V104.6M352.4 32.7V99.3M355.2 44.3V87.7M358.0 26.9V105.1M360.8 38.6V93.4M363.6 24.7V107.3M366.4 27.7V104.3M369.3 44.6V87.4M372.1 30.5V101.5M374.9 44.8V87.2M377.7 37.8V94.2M380.5 37.1V94.9M383.3 34.4V97.6M386.1 45.9V86.1M388.9 29.1V102.9M391.7 25.7V106.3M394.5 42.5V89.5M397.3 42.7V89.3M400.2 37.8V94.2M403.0 34.8V97.2M405.8 49.6V82.4M408.6 48.9V83.1M411.4 33.1V98.9M414.2 40.9V91.1M417.0 45.8V86.2M419.8 48.3V83.7M422.6 51.3V80.7M425.4 44.8V87.2M428.3 49.3V82.7M431.1 40.0V92.0M433.9 49.3V82.7M436.7 49.7V82.3M439.5 40.2V91.8M442.3 51.4V80.6M445.1 49.2V82.8M447.9 44.8V87.2M450.7 36.0V96.0M453.5 52.0V80.0M456.3 43.3V88.7M459.2 49.8V82.2M462.0 49.2V82.8M464.8 55.1V76.9M467.6 54.7V77.3M470.4 52.7V79.3M473.2 48.9V83.1M476.0 49.6V82.4M478.8 31.2V100.8M481.6 41.7V90.3M484.4 50.9V81.1M487.3 46.2V85.8M490.1 51.4V80.6M492.9 48.0V84.0M495.7 36.4V95.6M498.5 45.3V86.7M501.3 34.4V97.6M504.1 42.5V89.5M506.9 37.3V94.7M509.7 45.2V86.8M512.5 49.5V82.5M515.3 33.1V98.9M518.2 42.4V89.6M521.0 36.5V95.5M523.8 42.3V89.7M526.6 37.3V94.7M529.4 33.9V98.1M532.2 37.7V94.3M535.0 36.2V95.8M537.8 32.4V99.6M540.6 40.2V91.8M543.4 36.1V95.9M546.3 39.8V92.2M549.1 37.0V95.0M551.9 41.5V90.5M554.7 29.6V102.4M557.5 47.9V84.1M560.3 44.1V87.9M563.1 50.2V81.8M565.9 36.9V95.1M568.7 41.1V90.9M571.5 33.6V98.4M574.3 46.4V85.6M577.2 48.3V83.7M580.0 42.4V89.6M582.8 42.8V89.2M585.6 43.9V88.1M588.4 35.8V96.2M591.2 45.8V86.2M594.0 51.0V81.0M596.8 47.8V84.2M599.6 44.4V87.6M602.4 19.6V112.4M605.3 50.1V81.9M608.1 44.2V87.8M610.9 48.1V83.9M613.7 36.1V95.9M616.5 30.6V101.4M619.3 35.7V96.3M622.1 40.7V91.3M624.9 44.5V87.5M627.7 40.6V91.4M630.5 47.0V85.0M633.3 39.4V92.6M636.2 27.8V104.2M639.0 36.1V95.9M641.8 32.2V99.8M644.6 20.7V111.3M647.4 38.2V93.8M650.2 45.8V86.2M653.0 43.9V88.1M655.8 47.1V84.9M658.6 36.2V95.8M661.4 29.6V102.4M664.3 36.7V95.3M667.1 36.1V95.9M669.9 35.1V96.9M672.7 39.6V92.4M675.5 35.9V96.1M678.3 44.2V87.8M681.1 33.5V98.5M683.9 43.3V88.7M686.7 33.0V99.0M689.5 37.1V94.9M692.3 48.6V83.4M695.2 40.3V91.7M698.0 49.5V82.5M700.8 40.7V91.3M703.6 42.7V89.3M706.4 42.9V89.1M709.2 53.5V78.5M712.0 45.0V87.0M714.8 45.4V86.6M717.6 52.6V79.4M720.4 42.0V90.0M723.3 46.1V85.9M726.1 40.7V91.3M728.9 51.8V80.2M731.7 45.4V86.6M734.5 44.2V87.8M737.3 45.7V86.3M740.1 40.0V92.0M742.9 29.5V102.5M745.7 50.7V81.3M748.5 46.3V85.7M751.3 48.1V83.9M754.2 39.0V93.0M757.0 49.5V82.5M759.8 34.5V97.5M762.6 36.7V95.3M765.4 33.6V98.4M768.2 48.8V83.2M771.0 36.8V95.2M773.8 48.1V83.9M776.6 39.3V92.7M779.4 41.6V90.4M782.3 36.8V95.2M785.1 39.4V92.6M787.9 25.6V106.4M790.7 38.4V93.6M793.5 44.5V87.5M796.3 35.1V96.9M799.1 31.9V100.1M801.9 35.2V96.8M804.7 30.8V101.2M807.5 25.5V106.5M810.3 28.6V103.4M813.2 32.8V99.2M816.0 39.6V92.4M818.8 35.7V96.3M821.6 33.3V98.7M824.4 45.9V86.1M827.2 36.2V95.8M830.0 29.6V102.4M832.8 46.0V86.0M835.6 33.3V98.7M838.4 39.6V92.4M841.3 30.6V101.4M844.1 39.5V92.5M846.9 32.5V99.5M849.7 35.7V96.3M852.5 41.8V90.2M855.3 32.0V100.0M858.1 42.8V89.2M860.9 38.8V93.2M863.7 19.3V112.7M866.5 48.9V83.1M869.3 36.9V95.1M872.2 48.1V83.9M875.0 27.0V105.0M877.8 45.7V86.3M880.6 48.4V83.6M883.4 37.3V94.7M886.2 33.2V98.8M889.0 47.5V84.5M891.8 24.2V107.8M894.6 32.1V99.9M897.4 43.5V88.5M900.3 43.7V88.3M903.1 35.0V97.0M905.9 29.4V102.6M908.7 32.7V99.3M911.5 26.7V105.3M914.3 44.4V87.6M917.1 40.4V91.6M919.9 41.9V90.1M922.7 41.1V90.9M925.5 21.9V110.1M928.3 21.8V110.2M931.2 41.4V90.6M934.0 39.3V92.7M936.8 38.8V93.2M939.6 45.2V86.8M942.4 28.7V103.3M945.2 41.7V90.3M948.0 27.0V105.0M950.8 24.6V107.4M953.6 26.0V106.0M956.4 33.6V98.4M959.3 21.3V110.7M962.1 47.1V84.9M964.9 38.0V94.0M967.7 27.1V104.9M970.5 35.0V97.0M973.3 40.5V91.5M976.1 34.9V97.1M978.9 36.7V95.3M981.7 40.7V91.3M984.5 38.0V94.0M987.3 32.4V99.6M990.2 46.2V85.8M993.0 38.0V94.0M995.8 40.6V91.4M998.6 51.7V80.3M1001.4 40.8V91.2M1004.2 45.5V86.5M1007.0 41.3V90.7M1009.8 51.9V80.1M1012.6 49.9V82.1M1015.4 50.8V81.2M1018.3 44.3V87.7M1021.1 44.8V87.2M1023.9 38.8V93.2M1026.7 35.6V96.4M1029.5 41.4V90.6M1032.3 41.7V90.3M1035.1 43.2V88.8M1037.9 32.8V99.2M1040.7 28.0V104.0M1043.5 31.7V100.3M1046.3 31.7V100.3M1049.2 38.9V93.1M1052.0 37.7V94.3M1054.8 46.9V85.1M1057.6 44.3V87.7M1060.4 42.2V89.8M1063.2 23.3V108.7M1066.0 20.9V111.1M1068.8 47.5V84.5M1071.6 45.2V86.8M1074.4 41.2V90.8M1077.3 34.8V97.2M1080.1 38.6V93.4M1082.9 45.1V86.9M1085.7 37.6V94.4M1088.5 42.3V89.7M1091.3 47.9V84.1M1094.1 40.2V91.8M1096.9 31.9V100.1M1099.7 50.6V81.4M1102.5 38.5V93.5M1105.3 36.6V95.4M1108.2 36.4V95.6M1111.0 37.5V94.5M1113.8 51.2V80.8M1116.6 48.0V84.0M1119.4 49.4V82.6M1122.2 41.6V90.4M1125.0 49.0V83.0M1127.8 55.0V77.0M1130.6 48.7V83.3M1133.4 51.8V80.2M1136.3 45.8V86.2M1139.1 49.7V82.3M1141.9 52.1V79.9M1144.7 46.3V85.7M1147.5 50.8V81.2M1150.3 50.5V81.5M1153.1 51.3V80.7M1155.9 57.3V74.7M1158.7 57.5V74.5M1161.5 53.4V78.6M1164.3 59.3V72.7M1167.2 59.0V73.0M1170.0 56.4V75.6M1172.8 59.7V72.3M1175.6 59.4V72.6M1178.4 60.4V71.6" fill="none" stroke="#3F544E" stroke-width="1.41" transform="translate(0,-7)"></path>
+          </svg>
+          <div class="seg" style="left:0%;width:20%"></div>
+          <div class="seg" style="left:20.6%;width:23%"></div>
+          <div class="seg" style="left:44.2%;width:25.5%"></div>
+          <div class="seg" style="left:70.3%;width:22.5%"></div>
+          <div class="seg" style="left:93.4%;width:6.6%;background:rgba(201,128,94,.12);border-color:#C9805E"></div>
+          <div style="position:absolute;top:0;bottom:0;left:100%;width:2px;background:#C9805E"></div>
+        </div>
+        <div style="position:relative;height:52px">
+          <div style="position:absolute;left:0%;width:19.4%;padding:7px 9px;background:#131B19;border-radius:3px">
+            <div style="font-size:12.5px;color:#C6D2CD;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Can’t Stop</div>
+            <div class="mono" style="font-size:10.5px;color:#5FA88F;margin-top:2px">4:29 · MATCHED</div></div>
+          <div style="position:absolute;left:20.6%;width:22.4%;padding:7px 9px;background:#131B19;border-radius:3px">
+            <div style="font-size:12.5px;color:#C6D2CD;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Plush</div>
+            <div class="mono" style="font-size:10.5px;color:#5FA88F;margin-top:2px">5:13 · MATCHED</div></div>
+          <div style="position:absolute;left:44.2%;width:24.9%;padding:7px 9px;background:#131B19;border-radius:3px">
+            <div style="font-size:12.5px;color:#C6D2CD;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Sultans of Swing</div>
+            <div class="mono" style="font-size:10.5px;color:#5FA88F;margin-top:2px">5:47 · MATCHED</div></div>
+          <div style="position:absolute;left:70.3%;width:21.9%;padding:7px 9px;background:#131B19;border-radius:3px">
+            <div style="font-size:12.5px;color:#C6D2CD;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Manlio</div>
+            <div class="mono" style="font-size:10.5px;color:#E0913F;margin-top:2px">5:11 · +2 s, CONFIRM</div></div>
+          <div style="position:absolute;left:93.4%;width:6.6%;padding:7px 9px;background:#1B2422;border-radius:3px">
+            <div style="font-size:12.5px;color:#9CAAA4">…</div>
+            <div class="mono" style="font-size:10.5px;color:#C9805E;margin-top:2px">NOW</div></div>
+        </div>
+      </div>
+
+      <div style="margin-top:auto;display:flex;align-items:center;gap:14px;padding-top:6px">
+        <div style="background:#C9805E;color:#0C1211;border-radius:4px;padding:12px 26px;font-size:16px;font-weight:600">Stop</div>
+        <div style="border:1px solid #26302E;border-radius:4px;padding:11px 20px;font-size:15px">Split here</div>
+        <div style="font-size:13.5px;color:#6A7873;line-height:1.45;max-width:520px">
+          Everything the output device plays is recorded, notifications included — mute them, and play one thing at a time.</div>
+      </div>
+    </div>
+
+    <!-- the queue -->
+    <div style="width:322px;flex-shrink:0;background:#131B19;border:1px solid #1C2523;border-radius:5px;
+                padding:18px 20px;display:flex;flex-direction:column;min-height:0">
+      <div class="lbl" style="font-size:10px;margin-bottom:10px">Tracklist · Ramba live 2027</div>
+      <div class="qrow"><div class="dot" style="background:#5FA88F"></div>
+        <div style="flex-grow:1;font-size:14px">Can’t Stop</div>
+        <div class="mono num" style="font-size:12px;color:#6A7873">4:29</div></div>
+      <div class="qrow"><div class="dot" style="background:#5FA88F"></div>
+        <div style="flex-grow:1;font-size:14px">Plush</div>
+        <div class="mono num" style="font-size:12px;color:#6A7873">5:13</div></div>
+      <div class="qrow"><div class="dot" style="background:#5FA88F"></div>
+        <div style="flex-grow:1;font-size:14px">Sultans of Swing</div>
+        <div class="mono num" style="font-size:12px;color:#6A7873">5:47</div></div>
+      <div class="qrow"><div class="dot" style="background:#E0913F"></div>
+        <div style="flex-grow:1;font-size:14px">Manlio</div>
+        <div class="mono num" style="font-size:12px;color:#E0913F">+2 s</div></div>
+      <div class="qrow" style="background:#1B2422;border-radius:3px;padding-left:8px;padding-right:8px">
+        <div class="dot" style="background:#C9805E"></div>
+        <div style="flex-grow:1;font-size:14px;color:#E8EEEB">Whole Lotta Love</div>
+        <div class="mono num" style="font-size:12px;color:#9CAAA4">2:41</div></div>
+      <div class="qrow"><div class="dot" style="background:#26302E"></div>
+        <div style="flex-grow:1;font-size:14px;color:#6A7873">Mother Sacher</div>
+        <div class="mono num" style="font-size:12px;color:#4C5854">3:52</div></div>
+      <div class="qrow"><div class="dot" style="background:#26302E"></div>
+        <div style="flex-grow:1;font-size:14px;color:#6A7873">Il Phurgone</div>
+        <div class="mono num" style="font-size:12px;color:#4C5854">3:08</div></div>
+      <div class="qrow" style="border-bottom:none"><div class="dot" style="background:#26302E"></div>
+        <div style="flex-grow:1;font-size:14px;color:#6A7873">Orologiaio</div>
+        <div class="mono num" style="font-size:12px;color:#4C5854">1:34</div></div>
+      <div style="margin-top:auto;padding-top:14px;border-top:1px solid #1C2523">
+        <div class="mono" style="font-size:11.5px;color:#5B6A64;line-height:1.6">
+          MATCHED BY DURATION, IN ORDER.<br>A SEGMENT MORE THAN 1.5 s OUT<br>ASKS BEFORE IT BINDS.</div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

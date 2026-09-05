@@ -1,0 +1,152 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+  <style>
+    *{box-sizing:border-box}
+    body{margin:0;background:#0C1211;color:#E8EEEB;
+         font-family:Archivo,'Helvetica Neue',Arial,sans-serif;-webkit-font-smoothing:antialiased}
+    a{color:#E0913F} a:hover{color:#EFA95C}
+    .mono{font-family:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace}
+    .lbl{font-family:'IBM Plex Mono',ui-monospace,Menlo,monospace;letter-spacing:.2em;
+         text-transform:uppercase;color:#6A7873}
+    .num{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1;
+         letter-spacing:-.035em;line-height:.84;font-weight:700}
+  </style>
+<style>
+  .prow{display:grid;grid-template-columns:290px 156px 66px 74px 74px 96px;align-items:center;
+        gap:20px;padding:13px 10px;border-bottom:1px solid #1C2523}
+  .chip{font-size:13.5px;padding:6px 13px;border-radius:4px;color:#9CAAA4}
+</style>
+</helmet>
+<div style="width:1440px;height:900px;background:#0C1211;display:flex;flex-direction:column;padding:30px 44px 26px">
+
+  <div style="display:flex;align-items:center;gap:18px;padding-bottom:20px;border-bottom:1px solid #26302E">
+    <div style="font-size:26px;font-weight:600;letter-spacing:-.015em">Progress</div>
+    <div style="font-size:15px;color:#6A7873">Ramba S.S. — the set</div>
+    <div style="margin-left:auto;display:flex;gap:4px">
+      <div class="chip">12 weeks</div>
+      <div class="chip" style="background:#1B2422;color:#E8EEEB">26 weeks</div>
+      <div class="chip">All</div>
+    </div>
+  </div>
+
+  <!-- set readiness over time -->
+  <div style="padding:22px 0 10px">
+    <div style="display:flex;align-items:baseline;gap:14px;margin-bottom:12px">
+      <div style="font-size:17px;font-weight:500">Set readiness</div>
+      <div class="mono" style="font-size:12.5px;color:#6A7873;letter-spacing:.05em">LENGTH-WEIGHTED MEAN OF EVERY SECTION · 26 WEEKS</div>
+    </div>
+    <div style="position:relative;height:150px">
+      <svg viewBox="0 0 1180 150" preserveAspectRatio="none" style="width:100%;height:150px;display:block">
+        <line x1="6" y1="6" x2="1174" y2="6" stroke="#1C2523" stroke-width="1"></line>
+        <line x1="6" y1="75" x2="1174" y2="75" stroke="#1C2523" stroke-width="1"></line>
+        <line x1="6" y1="144.0" x2="1174" y2="144.0" stroke="#26302E" stroke-width="1"></line>
+        <path d="M6.0 133.0 L52.7 130.2 L99.4 126.1 L146.2 123.3 L192.9 123.3 L239.6 117.8 L286.3 113.6 L333.0 110.9 L379.8 106.7 L426.5 104.0 L473.2 104.0 L519.9 98.5 L566.6 94.3 L613.4 88.8 L660.1 84.7 L706.8 81.9 L753.5 77.8 L800.2 75.0 L847.0 69.5 L893.7 65.3 L940.4 62.6 L987.1 59.8 L1033.8 55.7 L1080.6 52.9 L1127.3 48.8 L1174.0 41.9 L1174.0 144.0 L6.0 144.0 Z" fill="rgba(224,145,63,.13)" stroke="none"></path>
+        <path d="M6.0 133.0 L52.7 130.2 L99.4 126.1 L146.2 123.3 L192.9 123.3 L239.6 117.8 L286.3 113.6 L333.0 110.9 L379.8 106.7 L426.5 104.0 L473.2 104.0 L519.9 98.5 L566.6 94.3 L613.4 88.8 L660.1 84.7 L706.8 81.9 L753.5 77.8 L800.2 75.0 L847.0 69.5 L893.7 65.3 L940.4 62.6 L987.1 59.8 L1033.8 55.7 L1080.6 52.9 L1127.3 48.8 L1174.0 41.9" fill="none" stroke="#E0913F" stroke-width="2"></path>
+        <circle cx="1174.0" cy="41.9" r="4.5" fill="#E0913F" stroke="#0C1211" stroke-width="2"></circle>
+      </svg>
+      <div class="mono" style="position:absolute;left:0;top:-2px;font-size:11px;color:#5B6A64">100%</div>
+      <div class="mono" style="position:absolute;left:0;top:67px;font-size:11px;color:#5B6A64">50%</div>
+      <div class="mono num" style="position:absolute;right:0;top:16px;font-size:15px;color:#E0913F;font-weight:600">74%</div>
+    </div>
+    <div style="display:flex;justify-content:space-between;margin-top:6px">
+      <div class="mono" style="font-size:11px;color:#5B6A64">26 WEEKS AGO</div>
+      <div class="mono" style="font-size:11px;color:#5B6A64">13</div>
+      <div class="mono" style="font-size:11px;color:#5B6A64">NOW</div>
+    </div>
+  </div>
+
+  <div style="display:flex;gap:18px;flex-grow:1;min-height:0;padding-top:14px">
+
+    <div style="flex-grow:1;min-width:0">
+      <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:6px">
+        <div style="font-size:17px;font-weight:500">Furthest from target first</div>
+        <div class="mono" style="font-size:12px;color:#6A7873">SPEED OVER THE LAST 13 SESSIONS</div>
+      </div>
+      <div class="prow" style="border-bottom:1px solid #26302E;padding-bottom:8px">
+        <div class="lbl" style="font-size:10px">Section</div><div class="lbl" style="font-size:10px">Speed</div>
+        <div class="lbl" style="font-size:10px">Reps</div><div class="lbl" style="font-size:10px">Best</div>
+        <div class="lbl" style="font-size:10px">Target</div><div class="lbl" style="font-size:10px">Last</div>
+      </div>
+
+      <div class="prow">
+        <div><div style="font-size:15px">Solo — second half</div><div style="font-size:13px;color:#6A7873;margin-top:2px">Can’t Stop</div></div>
+        <svg width="152" height="50" viewBox="0 -5 152 50"><path d="M2.0 32.0 L14.0 32.0 L26.0 32.0 L38.0 29.0 L50.0 29.0 L62.0 29.0 L74.0 29.0 L86.0 26.0 L98.0 26.0 L110.0 26.0 L122.0 26.0 L134.0 26.0 L146.0 23.0" fill="none" stroke="#E0913F" stroke-width="2" stroke-linejoin="round"/><circle cx="146.0" cy="23.0" r="3.5" fill="#E0913F" stroke="#0C1211" stroke-width="2"/></svg>
+        <div class="mono num" style="font-size:14px;color:#9CAAA4">18</div>
+        <div class="mono num" style="font-size:14px">65%</div>
+        <div class="mono num" style="font-size:14px;color:#6A7873">95%</div>
+        <div style="font-size:13.5px;color:#9CAAA4">yesterday</div>
+      </div>
+      <div class="prow">
+        <div><div style="font-size:15px">Solo — first half</div><div style="font-size:13px;color:#6A7873;margin-top:2px">Can’t Stop</div></div>
+        <svg width="152" height="50" viewBox="0 -5 152 50"><path d="M2.0 32.0 L14.0 32.0 L26.0 29.0 L38.0 29.0 L50.0 29.0 L62.0 26.0 L74.0 26.0 L86.0 26.0 L98.0 23.0 L110.0 23.0 L122.0 20.0 L134.0 20.0 L146.0 17.0" fill="none" stroke="#E0913F" stroke-width="2" stroke-linejoin="round"/><circle cx="146.0" cy="17.0" r="3.5" fill="#E0913F" stroke="#0C1211" stroke-width="2"/></svg>
+        <div class="mono num" style="font-size:14px;color:#9CAAA4">31</div>
+        <div class="mono num" style="font-size:14px">75%</div>
+        <div class="mono num" style="font-size:14px;color:#6A7873">95%</div>
+        <div style="font-size:13.5px;color:#9CAAA4">yesterday</div>
+      </div>
+      <div class="prow">
+        <div><div style="font-size:15px">Finale</div><div style="font-size:13px;color:#6A7873;margin-top:2px">Manlio</div></div>
+        <svg width="152" height="50" viewBox="0 -5 152 50"><path d="M2.0 32.0 L14.0 29.0 L26.0 26.0 L38.0 26.0 L50.0 23.0 L62.0 20.0 L74.0 17.0 L86.0 14.0 L98.0 11.0 L110.0 8.0 L122.0 8.0 L134.0 5.0 L146.0 5.0" fill="none" stroke="#E0913F" stroke-width="2" stroke-linejoin="round"/><circle cx="146.0" cy="5.0" r="3.5" fill="#E0913F" stroke="#0C1211" stroke-width="2"/></svg>
+        <div class="mono num" style="font-size:14px;color:#9CAAA4">40</div>
+        <div class="mono num" style="font-size:14px">95%</div>
+        <div class="mono num" style="font-size:14px;color:#6A7873">100%</div>
+        <div style="font-size:13.5px;color:#9CAAA4">6 days</div>
+      </div>
+      <div class="prow" style="border-bottom:none">
+        <div><div style="font-size:15px">Intro riff</div><div style="font-size:13px;color:#6A7873;margin-top:2px">Can’t Stop</div></div>
+        <svg width="152" height="50" viewBox="0 -5 152 50"><path d="M2.0 29.0 L14.0 26.0 L26.0 23.0 L38.0 20.0 L50.0 17.0 L62.0 14.0 L74.0 11.0 L86.0 8.0 L98.0 5.0 L110.0 5.0 L122.0 2.0 L134.0 2.0 L146.0 2.0" fill="none" stroke="#5FA88F" stroke-width="2" stroke-linejoin="round"/><circle cx="146.0" cy="2.0" r="3.5" fill="#5FA88F" stroke="#0C1211" stroke-width="2"/></svg>
+        <div class="mono num" style="font-size:14px;color:#9CAAA4">62</div>
+        <div class="mono num" style="font-size:14px;color:#5FA88F">100%</div>
+        <div class="mono num" style="font-size:14px;color:#6A7873">100%</div>
+        <div style="font-size:13.5px;color:#9CAAA4">3 days</div>
+      </div>
+      <div class="prow">
+        <div><div style="font-size:15px">Third solo</div><div style="font-size:13px;color:#6A7873;margin-top:2px">Sultans of Swing</div></div>
+        <svg width="152" height="50" viewBox="0 -5 152 50"><path d="M2.0 32.0 L14.0 29.0 L26.0 26.0 L38.0 23.0 L50.0 20.0 L62.0 17.0 L74.0 14.0 L86.0 11.0 L98.0 11.0 L110.0 8.0 L122.0 5.0 L134.0 5.0 L146.0 2.0" fill="none" stroke="#E0913F" stroke-width="2" stroke-linejoin="round"/><circle cx="146.0" cy="2.0" r="3.5" fill="#E0913F" stroke="#0C1211" stroke-width="2"/></svg>
+        <div class="mono num" style="font-size:14px;color:#9CAAA4">22</div>
+        <div class="mono num" style="font-size:14px">100%</div>
+        <div class="mono num" style="font-size:14px;color:#6A7873">90%</div>
+        <div style="font-size:13.5px;color:#9CAAA4">4 days</div>
+      </div>
+    </div>
+
+    <div style="width:308px;flex-shrink:0;display:flex;flex-direction:column;gap:12px">
+      <div style="background:#131B19;border:1px solid #1C2523;border-radius:5px;padding:18px 20px">
+        <div class="lbl" style="font-size:10px;color:#C9805E">Going cold</div>
+        <div style="font-size:13px;color:#6A7873;margin:6px 0 12px;line-height:1.5">
+          Above 80% once, untouched for a fortnight.</div>
+        <div style="display:flex;justify-content:space-between;padding:7px 0;border-top:1px solid #1C2523">
+          <div style="font-size:14px">Plush — all four</div><div class="mono num" style="font-size:13px;color:#C9805E">16 d</div></div>
+        <div style="display:flex;justify-content:space-between;padding:7px 0;border-top:1px solid #1C2523">
+          <div style="font-size:14px">Sultans — intro run</div><div class="mono num" style="font-size:13px;color:#C9805E">21 d</div></div>
+        <div style="display:flex;justify-content:space-between;padding:7px 0;border-top:1px solid #1C2523">
+          <div style="font-size:14px">Manlio — theme</div><div class="mono num" style="font-size:13px;color:#C9805E">18 d</div></div>
+      </div>
+      <div style="background:#131B19;border:1px solid #1C2523;border-radius:5px;padding:18px 20px;flex-grow:1">
+        <div class="lbl" style="font-size:10px">This week</div>
+        <div style="display:flex;align-items:baseline;gap:8px;margin-top:8px">
+          <div class="num" style="font-size:38px;font-weight:600">4:12</div>
+          <div style="font-size:15px;color:#9CAAA4">practised</div></div>
+        <div style="display:flex;justify-content:space-between;margin-top:16px;padding-top:14px;border-top:1px solid #1C2523">
+          <div><div class="num" style="font-size:22px;font-weight:600">214</div>
+               <div class="mono" style="font-size:11px;color:#6A7873;margin-top:3px">REPS</div></div>
+          <div><div class="num" style="font-size:22px;font-weight:600">187</div>
+               <div class="mono" style="font-size:11px;color:#6A7873;margin-top:3px">CLEAN</div></div>
+          <div><div class="num" style="font-size:22px;font-weight:600;color:#E0913F">9</div>
+               <div class="mono" style="font-size:11px;color:#6A7873;margin-top:3px">RUNGS GAINED</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

@@ -16,9 +16,6 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 
-# Seeded design canvas — 2 MB of packaged editor, rebuilt by design/seed
-design/*.html
-
 # rb-probe fetches the GPL Rubber Band WASM build; it is not distributed from here.
 # fetch-wasm.ps1 reproduces all of these from the pinned, hash-checked npm tarball.
 tools/rb-probe/rubberband.wasm

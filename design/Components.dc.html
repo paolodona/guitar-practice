@@ -1,0 +1,229 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+  <style>
+    *{box-sizing:border-box}
+    body{margin:0;background:#0C1211;color:#E8EEEB;
+         font-family:Archivo,'Helvetica Neue',Arial,sans-serif;-webkit-font-smoothing:antialiased}
+    a{color:#E0913F} a:hover{color:#EFA95C}
+    .mono{font-family:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace}
+    .lbl{font-family:'IBM Plex Mono',ui-monospace,Menlo,monospace;letter-spacing:.2em;
+         text-transform:uppercase;color:#6A7873}
+    .num{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1;
+         letter-spacing:-.035em;line-height:.84;font-weight:700}
+  </style>
+<style>
+  .cell{background:#131B19;border:1px solid #1C2523;border-radius:5px;padding:18px 20px;
+        display:flex;flex-direction:column;gap:13px}
+  .cl{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.18em;
+      text-transform:uppercase;color:#6A7873}
+  .sw{height:46px;border-radius:3px}
+  .badge{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.12em;
+         text-transform:uppercase;padding:3px 8px;border-radius:3px}
+  .btn{border-radius:4px;padding:10px 20px;font-size:15px;text-align:center}
+  .rung{font-family:'IBM Plex Mono',monospace;font-size:12px;color:#6A7873;padding:6px 8px;border-radius:3px}
+  .track{height:6px;border-radius:3px;background:#1C2523;overflow:hidden}
+  .step{width:32px;height:32px;border-radius:3px;background:#1B2422;display:flex;
+        align-items:center;justify-content:center;font-size:19px;color:#9CAAA4}
+  .pedal{flex:1;background:#0F1614;border:1px solid #1C2523;border-radius:4px;padding:10px 13px}
+</style>
+</helmet>
+<div style="width:1440px;height:1180px;background:#0C1211;padding:32px 44px;display:flex;flex-direction:column;gap:18px">
+
+  <div style="display:flex;align-items:baseline;gap:16px;padding-bottom:16px;border-bottom:1px solid #26302E">
+    <div style="font-size:24px;font-weight:600;letter-spacing:-.015em">Components</div>
+    <div style="font-size:14.5px;color:#6A7873">one accent, semantic colour kept separate from it, tabular figures everywhere a number can change</div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px">
+
+    <div class="cell">
+      <div class="cl">Palette</div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:7px">
+        <div><div class="sw" style="background:#0C1211;border:1px solid #26302E"></div><div class="mono" style="font-size:10px;color:#6A7873;margin-top:5px">0C1211<br>ground</div></div>
+        <div><div class="sw" style="background:#131B19"></div><div class="mono" style="font-size:10px;color:#6A7873;margin-top:5px">131B19<br>surface</div></div>
+        <div><div class="sw" style="background:#1B2422"></div><div class="mono" style="font-size:10px;color:#6A7873;margin-top:5px">1B2422<br>raised</div></div>
+        <div><div class="sw" style="background:#26302E"></div><div class="mono" style="font-size:10px;color:#6A7873;margin-top:5px">26302E<br>line</div></div>
+        <div><div class="sw" style="background:#E8EEEB"></div><div class="mono" style="font-size:10px;color:#6A7873;margin-top:5px">E8EEEB<br>ink</div></div>
+        <div><div class="sw" style="background:#9CAAA4"></div><div class="mono" style="font-size:10px;color:#6A7873;margin-top:5px">9CAAA4<br>ink 2</div></div>
+        <div><div class="sw" style="background:#E0913F"></div><div class="mono" style="font-size:10px;color:#E0913F;margin-top:5px">E0913F<br>accent</div></div>
+        <div><div class="sw" style="background:linear-gradient(90deg,#5FA88F 50%,#C9805E 50%)"></div><div class="mono" style="font-size:10px;color:#6A7873;margin-top:5px">5FA88F<br>C9805E</div></div>
+      </div>
+    </div>
+
+    <div class="cell">
+      <div class="cl">Type</div>
+      <div class="num" style="font-size:52px;color:#E0913F;line-height:.9">55%</div>
+      <div style="font-size:26px;font-weight:600;letter-spacing:-.02em">Archivo 600 — screen titles</div>
+      <div style="font-size:15px;color:#9CAAA4">Archivo 400 — body, 15px, the reading size</div>
+      <div class="mono" style="font-size:13px;color:#9CAAA4">IBM Plex Mono — 118.402 s · bar 63.1 · CC 83</div>
+      <div class="lbl" style="font-size:10px">Plex Mono, tracked, uppercase — labels</div>
+    </div>
+
+    <div class="cell">
+      <div class="cl">Buttons</div>
+      <div style="display:flex;gap:9px">
+        <div class="btn" style="background:#E0913F;color:#0C1211;font-weight:600">Practise</div>
+        <div class="btn" style="background:#EFA95C;color:#0C1211;font-weight:600">Hover</div>
+        <div class="btn" style="background:#2A2118;color:#6A5540;font-weight:600">Disabled</div>
+      </div>
+      <div style="display:flex;gap:9px">
+        <div class="btn" style="border:1px solid #26302E;color:#E8EEEB">Bind file</div>
+        <div class="btn" style="border:1px solid #8A5C29;color:#E0913F">Capture</div>
+        <div class="btn" style="color:#9CAAA4">Cancel</div>
+      </div>
+      <div class="btn" style="background:#C9805E;color:#0C1211;font-weight:600;align-self:flex-start">Stop recording</div>
+    </div>
+
+    <div class="cell">
+      <div class="cl">Badges &amp; state</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <div class="badge" style="background:#1B2422;color:#9CAAA4">needs audio</div>
+        <div class="badge" style="background:#2A1D17;color:#C9805E">cold</div>
+        <div class="badge" style="background:#16261F;color:#5FA88F">at target</div>
+        <div class="badge" style="background:#2A1D17;color:#C9805E">● recording</div>
+        <div class="badge" style="background:#16261F;color:#5FA88F">matched</div>
+        <div class="badge" style="background:#2A2118;color:#E0913F">+2 s · confirm</div>
+      </div>
+      <div class="mono" style="font-size:11.5px;color:#5B6A64;line-height:1.6">
+        SEMANTIC COLOUR NEVER DOUBLES AS THE ACCENT.<br>EVERY BADGE CARRIES A WORD, NOT JUST A HUE.</div>
+    </div>
+
+    <div class="cell">
+      <div class="cl">Readiness</div>
+      <div style="display:flex;align-items:center;gap:12px">
+        <div class="track" style="flex-grow:1"><div style="height:6px;border-radius:3px;background:#E0913F;width:12%"></div></div>
+        <div class="mono num" style="font-size:13px;width:38px;text-align:right">12%</div></div>
+      <div style="display:flex;align-items:center;gap:12px">
+        <div class="track" style="flex-grow:1"><div style="height:6px;border-radius:3px;background:#E0913F;width:74%"></div></div>
+        <div class="mono num" style="font-size:13px;width:38px;text-align:right">74%</div></div>
+      <div style="display:flex;align-items:center;gap:12px">
+        <div class="track" style="flex-grow:1"><div style="height:6px;border-radius:3px;background:#5FA88F;width:100%"></div></div>
+        <div class="mono num" style="font-size:13px;width:38px;text-align:right;color:#5FA88F">100%</div></div>
+      <div class="mono" style="font-size:11.5px;color:#5B6A64;line-height:1.6">
+        LENGTH-WEIGHTED MEAN OF THE SONG'S SECTIONS.<br>HOVER SHOWS THE COMPONENTS, NOT JUST THE TOTAL.</div>
+    </div>
+
+    <div class="cell">
+      <div class="cl">Speed ladder</div>
+      <div style="display:flex;align-items:center;gap:2px;flex-wrap:wrap">
+        <span class="rung" style="color:#3E4A46">40</span><span class="rung" style="color:#3E4A46">45</span>
+        <span class="rung">50</span><span class="rung">55</span>
+        <span class="rung" style="background:#E0913F;color:#0C1211;font-weight:600">60</span>
+        <span class="rung">65</span><span class="rung">70</span><span class="rung">75</span>
+        <span class="rung">80</span><span class="rung">85</span><span class="rung">90</span>
+        <span class="rung" style="color:#5FA88F">95</span><span class="rung" style="color:#5FA88F">100</span>
+      </div>
+      <div class="mono" style="font-size:11.5px;color:#5B6A64;line-height:1.6">
+        DISCRETE, SO EACH RUNG IS A CACHED RENDER.<br>GREEN RUNGS ARE AT OR ABOVE THIS SECTION'S TARGET.</div>
+    </div>
+
+    <div class="cell">
+      <div class="cl">Transpose — per song, always reachable</div>
+      <div style="display:flex;gap:10px;align-items:center">
+        <div style="display:flex;align-items:center;gap:6px;border:1px solid #26302E;border-radius:5px;padding:4px">
+          <div class="step">−</div><div class="mono num" style="font-size:17px;color:#E0913F;width:34px;text-align:center;font-weight:600">−1</div><div class="step">+</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;border:1px solid #26302E;border-radius:5px;padding:4px">
+          <div class="step">−</div><div class="mono num" style="font-size:17px;color:#5FA88F;width:34px;text-align:center;font-weight:600">0</div><div class="step">+</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;border:1px solid #26302E;border-radius:5px;padding:4px">
+          <div class="step">−</div><div class="mono num" style="font-size:17px;color:#E0913F;width:34px;text-align:center;font-weight:600">+2</div><div class="step">+</div>
+        </div>
+      </div>
+      <div class="mono" style="font-size:11.5px;color:#5B6A64;line-height:1.6">
+        0 MEANS THE RECORD IS ALREADY IN YOUR TUNING.<br>THE SETLIST SUGGESTS IT; THE SONG DECIDES.</div>
+    </div>
+
+    <div class="cell">
+      <div class="cl">Section lanes — spans, not tiles</div>
+      <div style="position:relative;height:92px">
+        <div style="position:absolute;left:0;width:30%;top:0;height:42px;border-radius:3px;background:#1B2422;border:1px solid #26302E;padding:0 11px;display:flex;flex-direction:column;justify-content:center">
+          <div style="font-size:12.5px;color:#C6D2CD">Verse 2</div>
+          <div class="mono" style="font-size:10px;color:#5B6A64;margin-top:2px">39.1</div></div>
+        <div style="position:absolute;left:32%;width:52%;top:0;height:42px;border-radius:3px;background:#1E2724;border:1px solid #3A4844;padding:0 11px;display:flex;flex-direction:column;justify-content:center">
+          <div style="font-size:12.5px;color:#C6D2CD">Full solo</div>
+          <div class="mono" style="font-size:10px;color:#5B6A64;margin-top:2px">63.1 · CONTAINS 2</div></div>
+        <div style="position:absolute;left:32%;width:25%;top:50px;height:42px;border-radius:3px;background:#2A2118;border:1px solid #E0913F;padding:0 11px;display:flex;flex-direction:column;justify-content:center">
+          <div style="font-size:12.5px;color:#F0C48A">Tapping</div>
+          <div class="mono" style="font-size:10px;color:#A8845C;margin-top:2px">63.1</div>
+          <div style="position:absolute;left:-3px;top:7px;width:5px;height:28px;border-radius:2px;background:#E0913F"></div>
+          <div style="position:absolute;right:-3px;top:7px;width:5px;height:28px;border-radius:2px;background:#E0913F"></div></div>
+        <div style="position:absolute;left:59%;width:25%;top:50px;height:42px;border-radius:3px;background:#161E1C;border:1px dashed #5B6A64;padding:0 11px;display:flex;flex-direction:column;justify-content:center">
+          <div style="font-size:12.5px;color:#9CAAA4">Run</div>
+          <div class="mono" style="font-size:10px;color:#5B6A64;margin-top:2px">DRAGGING</div></div>
+      </div>
+      <div class="mono" style="font-size:11.5px;color:#5B6A64;line-height:1.6">
+        LANES AND ORDER ARE DERIVED: (START, LONGEST FIRST).<br>NOTHING ABOUT THE NESTING IS STORED.</div>
+    </div>
+
+    <div class="cell">
+      <div class="cl">Waveform, grid, loop, playhead</div>
+      <div style="position:relative;height:64px;background:#0F1614;border-radius:3px;overflow:hidden;
+                  background-image:repeating-linear-gradient(to right,#26302E 0 1px,transparent 1px 96px),
+                                   repeating-linear-gradient(to right,#1C2523 0 1px,transparent 1px 24px)">
+        <svg viewBox="0 0 1180 64" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:64px">
+          <path d="M3.3 26.7V37.3M11.2 24.1V39.9M19.1 18.8V45.2M26.9 22.5V41.5M34.8 14.8V49.2M42.7 26.2V37.8M50.5 21.9V42.1M58.4 18.3V45.7M66.3 19.2V44.8M74.1 22.2V41.8M82.0 13.0V51.0M89.9 19.0V45.0M97.7 21.3V42.7M105.6 14.4V49.6M113.5 22.0V42.0M121.3 15.8V48.2M129.2 24.3V39.7M137.1 11.1V52.9M144.9 16.4V47.6M152.8 19.0V45.0M160.7 22.7V41.3M168.5 20.6V43.4M176.4 19.1V44.9M184.3 14.1V49.9M192.1 18.3V45.7M200.0 21.9V42.1M207.9 10.8V53.2M215.7 20.3V43.7M223.6 21.6V42.4M231.5 10.9V53.1M239.3 17.8V46.2M247.2 21.3V42.7M255.1 23.5V40.5M262.9 23.4V40.6M270.8 20.1V43.9M278.7 18.9V45.1M286.5 25.6V38.4M294.4 20.8V43.2M302.3 20.1V43.9M310.1 22.0V42.0M318.0 24.2V39.8M325.9 24.6V39.4M333.7 20.4V43.6M341.6 22.7V41.3M349.5 20.8V43.2M357.3 24.9V39.1M365.2 24.6V39.4M373.1 22.2V41.8M380.9 23.3V40.7M388.8 25.8V38.2M396.7 20.3V43.7M404.5 23.0V41.0M412.4 24.3V39.7M420.3 24.5V39.5M428.1 22.0V42.0M436.0 21.2V42.8M443.9 19.8V44.2M451.7 16.6V47.4M459.6 23.4V40.6M467.5 24.5V39.5M475.3 18.0V46.0M483.2 22.0V42.0M491.1 9.8V54.2M498.9 20.2V43.8M506.8 17.0V47.0M514.7 18.7V45.3M522.5 21.2V42.8M530.4 10.0V54.0M538.3 23.5V40.5M546.1 22.3V41.7M554.0 23.8V40.2M561.9 16.5V47.5M569.7 24.6V39.4M577.6 23.1V40.9M585.5 21.0V43.0M593.3 18.7V45.3M601.2 23.4V40.6M609.1 22.1V41.9M616.9 22.7V41.3M624.8 13.9V50.1M632.7 17.6V46.4M640.5 20.3V43.7M648.4 18.1V45.9M656.3 15.4V48.6M664.1 16.0V48.0M672.0 20.7V43.3M679.9 24.0V40.0M687.7 19.9V44.1M695.6 24.3V39.7M703.5 25.5V38.5M711.3 24.1V39.9M719.2 24.2V39.8M727.1 19.4V44.6M734.9 25.5V38.5M742.8 21.5V42.5M750.7 24.0V40.0M758.5 24.4V39.6M766.4 17.7V46.3M774.3 20.4V43.6M782.1 24.3V39.7M790.0 23.8V40.2M797.9 18.4V45.6M805.7 22.8V41.2M813.6 26.0V38.0M821.5 25.6V38.4M829.3 21.8V42.2M837.2 24.7V39.3M845.1 25.2V38.8M852.9 22.0V42.0M860.8 24.5V39.5M868.7 24.9V39.1M876.5 19.3V44.7M884.4 23.0V41.0M892.3 13.9V50.1M900.1 20.8V43.2M908.0 14.2V49.8M915.9 12.3V51.7M923.7 11.2V52.8M931.6 18.7V45.3M939.5 19.8V44.2M947.3 14.1V49.9M955.2 20.1V43.9M963.1 20.9V43.1M970.9 21.8V42.2M978.8 22.4V41.6M986.7 16.4V47.6M994.5 24.1V39.9M1002.4 22.3V41.7M1010.3 16.6V47.4M1018.1 19.2V44.8M1026.0 23.2V40.8M1033.9 18.4V45.6M1041.7 16.5V47.5M1049.6 20.4V43.6M1057.5 11.3V52.7M1065.3 21.5V42.5M1073.2 16.5V47.5M1081.1 22.6V41.4M1088.9 25.0V39.0M1096.8 23.1V40.9M1104.7 22.5V41.5M1112.5 20.6V43.4M1120.4 22.5V41.5M1128.3 21.3V42.7M1136.1 19.1V44.9M1144.0 25.2V38.8M1151.9 21.0V43.0M1159.7 16.4V47.6M1167.6 15.5V48.5M1175.5 15.9V48.1" fill="none" stroke="#4C635C" stroke-width="5.67"></path>
+          <path d="M3.3 26.7V37.3M11.2 24.1V39.9M19.1 18.8V45.2M26.9 22.5V41.5M34.8 14.8V49.2M42.7 26.2V37.8M50.5 21.9V42.1M58.4 18.3V45.7M66.3 19.2V44.8M74.1 22.2V41.8M82.0 13.0V51.0M89.9 19.0V45.0M97.7 21.3V42.7M105.6 14.4V49.6M113.5 22.0V42.0M121.3 15.8V48.2M129.2 24.3V39.7M137.1 11.1V52.9M144.9 16.4V47.6M152.8 19.0V45.0M160.7 22.7V41.3M168.5 20.6V43.4M176.4 19.1V44.9M184.3 14.1V49.9M192.1 18.3V45.7M200.0 21.9V42.1M207.9 10.8V53.2M215.7 20.3V43.7M223.6 21.6V42.4M231.5 10.9V53.1M239.3 17.8V46.2M247.2 21.3V42.7M255.1 23.5V40.5M262.9 23.4V40.6M270.8 20.1V43.9M278.7 18.9V45.1M286.5 25.6V38.4M294.4 20.8V43.2M302.3 20.1V43.9M310.1 22.0V42.0M318.0 24.2V39.8M325.9 24.6V39.4M333.7 20.4V43.6M341.6 22.7V41.3M349.5 20.8V43.2M357.3 24.9V39.1M365.2 24.6V39.4M373.1 22.2V41.8M380.9 23.3V40.7M388.8 25.8V38.2M396.7 20.3V43.7M404.5 23.0V41.0M412.4 24.3V39.7M420.3 24.5V39.5M428.1 22.0V42.0M436.0 21.2V42.8M443.9 19.8V44.2M451.7 16.6V47.4M459.6 23.4V40.6M467.5 24.5V39.5M475.3 18.0V46.0M483.2 22.0V42.0M491.1 9.8V54.2M498.9 20.2V43.8M506.8 17.0V47.0M514.7 18.7V45.3M522.5 21.2V42.8M530.4 10.0V54.0M538.3 23.5V40.5M546.1 22.3V41.7M554.0 23.8V40.2M561.9 16.5V47.5M569.7 24.6V39.4M577.6 23.1V40.9M585.5 21.0V43.0M593.3 18.7V45.3M601.2 23.4V40.6M609.1 22.1V41.9M616.9 22.7V41.3M624.8 13.9V50.1M632.7 17.6V46.4M640.5 20.3V43.7M648.4 18.1V45.9M656.3 15.4V48.6M664.1 16.0V48.0M672.0 20.7V43.3M679.9 24.0V40.0M687.7 19.9V44.1M695.6 24.3V39.7M703.5 25.5V38.5M711.3 24.1V39.9M719.2 24.2V39.8M727.1 19.4V44.6M734.9 25.5V38.5M742.8 21.5V42.5M750.7 24.0V40.0M758.5 24.4V39.6M766.4 17.7V46.3M774.3 20.4V43.6M782.1 24.3V39.7M790.0 23.8V40.2M797.9 18.4V45.6M805.7 22.8V41.2M813.6 26.0V38.0M821.5 25.6V38.4M829.3 21.8V42.2M837.2 24.7V39.3M845.1 25.2V38.8M852.9 22.0V42.0M860.8 24.5V39.5M868.7 24.9V39.1M876.5 19.3V44.7M884.4 23.0V41.0M892.3 13.9V50.1M900.1 20.8V43.2M908.0 14.2V49.8M915.9 12.3V51.7M923.7 11.2V52.8M931.6 18.7V45.3M939.5 19.8V44.2M947.3 14.1V49.9M955.2 20.1V43.9M963.1 20.9V43.1M970.9 21.8V42.2M978.8 22.4V41.6M986.7 16.4V47.6M994.5 24.1V39.9M1002.4 22.3V41.7M1010.3 16.6V47.4M1018.1 19.2V44.8M1026.0 23.2V40.8M1033.9 18.4V45.6M1041.7 16.5V47.5M1049.6 20.4V43.6M1057.5 11.3V52.7M1065.3 21.5V42.5M1073.2 16.5V47.5M1081.1 22.6V41.4M1088.9 25.0V39.0M1096.8 23.1V40.9M1104.7 22.5V41.5M1112.5 20.6V43.4M1120.4 22.5V41.5M1128.3 21.3V42.7M1136.1 19.1V44.9M1144.0 25.2V38.8M1151.9 21.0V43.0M1159.7 16.4V47.6M1167.6 15.5V48.5M1175.5 15.9V48.1" fill="none" stroke="#E0913F" stroke-width="5.67" clip-path="inset(0 55% 0 20%)"></path>
+        </svg>
+        <div style="position:absolute;top:0;bottom:0;left:20%;width:25%;background:rgba(224,145,63,.10);
+                    border-left:1px solid #E0913F;border-right:1px solid #E0913F"></div>
+        <div style="position:absolute;top:0;bottom:0;left:45%;width:2px;background:#F6C98A"></div>
+      </div>
+      <div class="mono" style="font-size:11.5px;color:#5B6A64;line-height:1.6">
+        WAVE IS RECESSIVE; THE PLAYHEAD IS THE ACCENT.<br>ONE PIXEL MAPPING FOR WAVE, GRID, LANE AND HEAD.</div>
+    </div>
+
+    <div class="cell">
+      <div class="cl">Loop ring</div>
+      <div style="display:flex;gap:22px;align-items:center;justify-content:center;padding:4px 0">
+        <svg width="86" height="86" viewBox="0 0 120 120"><circle cx="60" cy="60" r="52" fill="none" stroke="#1C2523" stroke-width="7"/><circle cx="60" cy="60" r="52" fill="none" stroke="#E0913F" stroke-width="7" stroke-linecap="round" stroke-dasharray="327" stroke-dashoffset="327" transform="rotate(-90 60 60)"/></svg>
+        <svg width="86" height="86" viewBox="0 0 120 120"><circle cx="60" cy="60" r="52" fill="none" stroke="#1C2523" stroke-width="7"/><circle cx="60" cy="60" r="52" fill="none" stroke="#E0913F" stroke-width="7" stroke-linecap="round" stroke-dasharray="327" stroke-dashoffset="124" transform="rotate(-90 60 60)"/></svg>
+        <svg width="86" height="86" viewBox="0 0 120 120"><circle cx="60" cy="60" r="52" fill="none" stroke="#1C2523" stroke-width="7"/><circle cx="60" cy="60" r="52" fill="none" stroke="#5FA88F" stroke-width="7" stroke-linecap="round" stroke-dasharray="327" stroke-dashoffset="0" transform="rotate(-90 60 60)"/></svg>
+      </div>
+      <div class="mono" style="font-size:11.5px;color:#5B6A64;line-height:1.6">
+        FOR PERIPHERAL VISION ONLY — NEVER LOOKED AT.<br>ONE TURN PER PASS.</div>
+    </div>
+
+    <div class="cell">
+      <div class="cl">Foot legend</div>
+      <div style="display:flex;gap:8px">
+        <div class="pedal"><div class="mono" style="font-size:11px;color:#8A5C29;letter-spacing:.13em">CC 83</div>
+          <div style="font-size:15px;font-weight:500;margin-top:2px">Faster</div></div>
+        <div class="pedal" style="background:#2A2118;border-color:#E0913F"><div class="mono" style="font-size:11px;color:#E0913F;letter-spacing:.13em">CC 84</div>
+          <div style="font-size:15px;font-weight:500;margin-top:2px;color:#F0C48A">Slower</div></div>
+        <div class="pedal"><div class="mono" style="font-size:11px;color:#8A5C29;letter-spacing:.13em">CC 85</div>
+          <div style="font-size:15px;font-weight:500;margin-top:2px">Retract</div></div>
+      </div>
+      <div class="mono" style="font-size:11.5px;color:#5B6A64;line-height:1.6">
+        SIX ACTIONS, NEVER SEVEN.<br>MOUSE, KEYBOARD AND MIDI SHARE ONE TABLE.</div>
+    </div>
+
+    <div class="cell">
+      <div class="cl">Level meter</div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <div class="mono" style="font-size:11px;color:#5B6A64;width:12px">L</div>
+        <div style="flex-grow:1;height:9px;border-radius:2px;background:#1C2523;overflow:hidden"><div style="width:71%;height:9px;background:#E0913F"></div></div>
+        <div class="mono num" style="font-size:11px;color:#6A7873;width:44px;text-align:right">−7.2 dB</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <div class="mono" style="font-size:11px;color:#5B6A64;width:12px">R</div>
+        <div style="flex-grow:1;height:9px;border-radius:2px;background:#1C2523;overflow:hidden"><div style="width:96%;height:9px;background:#C9805E"></div></div>
+        <div class="mono num" style="font-size:11px;color:#C9805E;width:44px;text-align:right">−0.3 dB</div>
+      </div>
+      <div class="mono" style="font-size:11.5px;color:#5B6A64;line-height:1.6">
+        CAPTURE ONLY. NOTHING IN THE PRACTICE VIEW<br>MOVES THAT FAST ON PURPOSE.</div>
+    </div>
+
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

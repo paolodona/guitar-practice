@@ -1,0 +1,172 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+  <style>
+    *{box-sizing:border-box}
+    body{margin:0;background:#0C1211;color:#E8EEEB;
+         font-family:Archivo,'Helvetica Neue',Arial,sans-serif;-webkit-font-smoothing:antialiased}
+    a{color:#E0913F} a:hover{color:#EFA95C}
+    .mono{font-family:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace}
+    .lbl{font-family:'IBM Plex Mono',ui-monospace,Menlo,monospace;letter-spacing:.2em;
+         text-transform:uppercase;color:#6A7873}
+    .num{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1;
+         letter-spacing:-.035em;line-height:.84;font-weight:700}
+  </style>
+<style>
+  .row{display:grid;grid-template-columns:380px 1fr 210px 130px 96px 20px;align-items:center;
+       gap:24px;padding:17px 12px;border-bottom:1px solid #1C2523}
+  .track{height:6px;border-radius:3px;background:#1C2523;overflow:hidden}
+  .fill{height:6px;border-radius:3px;background:#E0913F}
+  .badge{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.12em;
+         text-transform:uppercase;padding:3px 8px;border-radius:3px;white-space:nowrap}
+</style>
+</helmet>
+<div style="width:1440px;height:900px;background:#0C1211;display:flex;flex-direction:column;padding:34px 48px 30px">
+
+  <!-- top bar -->
+  <div style="display:flex;align-items:center;gap:36px;padding-bottom:22px;border-bottom:1px solid #26302E">
+    <div class="mono" style="font-size:14px;letter-spacing:.32em;color:#E8EEEB;font-weight:600">WOODSHED</div>
+    <div style="display:flex;gap:6px;align-items:center">
+      <div style="font-size:15px;padding:7px 14px;border-radius:4px;background:#1B2422;color:#E8EEEB">Ramba S.S. — the set</div>
+      <div style="font-size:15px;padding:7px 14px;border-radius:4px;color:#9CAAA4">Covers duo</div>
+      <div style="font-size:15px;padding:7px 14px;border-radius:4px;color:#9CAAA4">Technique</div>
+    </div>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:14px">
+      <div class="mono" style="font-size:13px;color:#6A7873;letter-spacing:.06em">23 SONGS</div>
+      <div style="border:1px solid #26302E;border-radius:4px;padding:6px 12px;font-size:14px">E♭ standard</div>
+    </div>
+  </div>
+
+  <!-- next up -->
+  <div style="display:flex;gap:14px;padding:22px 0 26px">
+    <div style="flex:1;background:#131B19;border:1px solid #8A5C29;border-radius:5px;
+                padding:22px 26px;display:flex;align-items:center;gap:28px">
+      <div style="flex-grow:1;display:flex;flex-direction:column;gap:5px">
+        <div class="lbl" style="font-size:11px;color:#E0913F">Next up</div>
+        <div style="font-size:29px;font-weight:600;letter-spacing:-.015em">Can’t Stop — Solo, first half</div>
+        <div class="mono" style="font-size:13px;color:#6A7873;letter-spacing:.04em">
+          at 55% &nbsp;·&nbsp; 8 rungs below target &nbsp;·&nbsp; last touched yesterday</div>
+      </div>
+      <div style="background:#E0913F;color:#0C1211;border-radius:4px;padding:15px 30px;
+                  font-size:19px;font-weight:600;white-space:nowrap">Practise</div>
+    </div>
+    <div style="width:250px;display:flex;flex-direction:column;gap:10px">
+      <div style="flex:1;background:#131B19;border:1px solid #1C2523;border-radius:5px;padding:14px 18px">
+        <div class="lbl" style="font-size:10px">To the gig</div>
+        <div style="display:flex;align-items:baseline;gap:8px;margin-top:4px">
+          <div class="num" style="font-size:34px;font-weight:600">31</div>
+          <div style="font-size:15px;color:#9CAAA4">weeks</div>
+        </div>
+        <div class="mono" style="font-size:12px;color:#6A7873;margin-top:4px">8 OF 23 AT TARGET</div>
+      </div>
+      <div style="flex:1;background:#131B19;border:1px solid #1C2523;border-radius:5px;padding:14px 18px">
+        <div class="lbl" style="font-size:10px">Needs audio</div>
+        <div style="display:flex;align-items:baseline;gap:8px;margin-top:4px">
+          <div class="num" style="font-size:34px;font-weight:600;color:#9CAAA4">4</div>
+          <div style="font-size:15px;color:#9CAAA4">songs</div>
+        </div>
+        <div class="mono" style="font-size:12px;color:#6A7873;margin-top:4px">BIND A FILE →</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- table -->
+  <div class="row" style="border-bottom:1px solid #26302E;padding-top:0;padding-bottom:10px">
+    <div class="lbl" style="font-size:10px">Song</div>
+    <div class="lbl" style="font-size:10px">Readiness</div>
+    <div class="lbl" style="font-size:10px">Sections</div>
+    <div class="lbl" style="font-size:10px">Practised</div>
+    <div class="lbl" style="font-size:10px;text-align:right">Shift</div>
+    <div></div>
+  </div>
+
+  <div class="row" style="background:#111917">
+    <div><div style="font-size:17px;font-weight:500">Can’t Stop</div>
+         <div style="font-size:14px;color:#6A7873;margin-top:2px">Red Hot Chili Peppers</div></div>
+    <div style="display:flex;align-items:center;gap:12px">
+      <div class="track" style="flex-grow:1"><div class="fill" style="width:68%"></div></div>
+      <div class="mono num" style="font-size:14px;width:38px;text-align:right">68%</div></div>
+    <div style="font-size:14px;color:#9CAAA4">7 · <span style="color:#6A7873">3 under target</span></div>
+    <div style="font-size:14px;color:#9CAAA4">yesterday</div>
+    <div class="mono" class="mono num" style="font-size:13px;color:#9CAAA4;text-align:right">−1</div>
+    <div><svg width="7" height="12" viewBox="0 0 7 12" fill="none"><path d="M1 1l5 5-5 5" fill="none" stroke="#3E4A46" stroke-width="1.5" stroke-linecap="round"/></svg></div>
+  </div>
+
+  <div class="row">
+    <div><div style="font-size:17px;font-weight:500">Plush</div>
+         <div style="font-size:14px;color:#6A7873;margin-top:2px">Stone Temple Pilots</div></div>
+    <div style="display:flex;align-items:center;gap:12px">
+      <div class="track" style="flex-grow:1"><div class="fill" style="width:100%;background:#5FA88F"></div></div>
+      <div class="mono num" style="font-size:14px;width:38px;text-align:right">100%</div></div>
+    <div style="font-size:14px;color:#9CAAA4">4 · <span style="color:#5FA88F">all at target</span></div>
+    <div style="display:flex;align-items:center;gap:8px">
+      <div style="font-size:14px;color:#9CAAA4">16 days</div>
+      <div class="badge" style="background:#2A1D17;color:#C9805E">cold</div></div>
+    <div class="mono" class="mono num" style="font-size:13px;color:#9CAAA4;text-align:right">−1</div>
+    <div><svg width="7" height="12" viewBox="0 0 7 12" fill="none"><path d="M1 1l5 5-5 5" fill="none" stroke="#3E4A46" stroke-width="1.5" stroke-linecap="round"/></svg></div>
+  </div>
+
+  <div class="row">
+    <div><div style="font-size:17px;font-weight:500">Sultans of Swing</div>
+         <div style="font-size:14px;color:#6A7873;margin-top:2px">Dire Straits</div></div>
+    <div style="display:flex;align-items:center;gap:12px">
+      <div class="track" style="flex-grow:1"><div class="fill" style="width:38%"></div></div>
+      <div class="mono num" style="font-size:14px;width:38px;text-align:right">38%</div></div>
+    <div style="font-size:14px;color:#9CAAA4">7 · <span style="color:#6A7873">5 under target</span></div>
+    <div style="font-size:14px;color:#9CAAA4">4 days</div>
+    <div class="mono" class="mono num" style="font-size:13px;color:#9CAAA4;text-align:right">−1</div>
+    <div><svg width="7" height="12" viewBox="0 0 7 12" fill="none"><path d="M1 1l5 5-5 5" fill="none" stroke="#3E4A46" stroke-width="1.5" stroke-linecap="round"/></svg></div>
+  </div>
+
+  <div class="row">
+    <div><div style="font-size:17px;font-weight:500">Manlio</div>
+         <div style="font-size:14px;color:#6A7873;margin-top:2px">Ramba S.S.</div></div>
+    <div style="display:flex;align-items:center;gap:12px">
+      <div class="track" style="flex-grow:1"><div class="fill" style="width:62%"></div></div>
+      <div class="mono num" style="font-size:14px;width:38px;text-align:right">62%</div></div>
+    <div style="font-size:14px;color:#9CAAA4">5 · <span style="color:#6A7873">3 under target</span></div>
+    <div style="font-size:14px;color:#9CAAA4">6 days</div>
+    <div class="mono num" style="font-size:13px;color:#5FA88F;text-align:right">0</div>
+    <div><svg width="7" height="12" viewBox="0 0 7 12" fill="none"><path d="M1 1l5 5-5 5" fill="none" stroke="#3E4A46" stroke-width="1.5" stroke-linecap="round"/></svg></div>
+  </div>
+
+  <div class="row">
+    <div><div style="font-size:17px;font-weight:500;color:#6A7873">Whole Lotta Love</div>
+         <div style="font-size:14px;color:#6A7873;margin-top:2px">Led Zeppelin</div></div>
+    <div style="display:flex;align-items:center;gap:9px">
+      <div class="badge" style="background:#2A1D17;color:#C9805E">● capturing</div>
+      <div style="font-size:14px;color:#6A7873">segment 5 of the playlist pass</div></div>
+    <div style="font-size:14px;color:#4C5854">—</div>
+    <div style="font-size:14px;color:#4C5854">—</div>
+    <div class="mono" class="mono num" style="font-size:13px;color:#9CAAA4;text-align:right">−1</div>
+    <div><svg width="7" height="12" viewBox="0 0 7 12" fill="none"><path d="M1 1l5 5-5 5" fill="none" stroke="#3E4A46" stroke-width="1.5" stroke-linecap="round"/></svg></div>
+  </div>
+
+  <div class="row" style="border-bottom:none">
+    <div><div style="font-size:17px;font-weight:500;color:#6A7873">Mother Sacher</div>
+         <div style="font-size:14px;color:#4C5854;margin-top:2px">Ramba S.S.</div></div>
+    <div style="display:flex;align-items:center;gap:12px">
+      <div class="badge" style="background:#1B2422;color:#9CAAA4">needs audio</div>
+      <div style="font-size:14px;color:#6A7873">drop a file, or scan the library</div></div>
+    <div style="font-size:14px;color:#4C5854">—</div>
+    <div style="font-size:14px;color:#4C5854">—</div>
+    <div class="mono" style="font-size:13px;color:#4C5854;text-align:right">?</div>
+    <div></div>
+  </div>
+
+  <div style="margin-top:auto;padding-top:18px;display:flex;justify-content:space-between">
+    <div class="mono" style="font-size:12px;color:#4C5854;letter-spacing:.08em">17 MORE IN THIS SET</div>
+    <div class="mono" style="font-size:12px;color:#4C5854;letter-spacing:.08em">LIBRARY · 34 SONGS · 3 SETLISTS</div>
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>
