@@ -281,9 +281,20 @@ export function attachDragHandlers(sectionEl, section, view, handlers = {}) {
   const makeHandle = (side) => {
     const h = document.createElement('div');
     h.className = `sect__handle sect__handle--${side}`;
+    // FOUND LIVE 2026-09-06, and it's the real bug behind "only one handle,
+    // only the end one moves": `side` is 'start'/'end', not a CSS physical
+    // property -- `start:-3px`/`end:-3px` are not valid CSS and the browser
+    // silently drops them, so NEITHER handle ever got a left/right position.
+    // Both absolutely-positioned handles collapsed onto the same default
+    // spot, and since endHandle is appended after startHandle it painted on
+    // top and ate every pointerdown regardless of where you clicked. The
+    // earlier overflow:hidden fix was real but could not have been
+    // sufficient on its own -- there was nothing correctly positioned yet
+    // for it to have been clipping.
+    const edge = side === 'start' ? 'left' : 'right';
     h.style.cssText =
       'position:absolute;top:9px;width:5px;height:28px;border-radius:2px;' +
-      `background:var(--accent);cursor:ew-resize;${side}:-3px`;
+      `background:var(--accent);cursor:ew-resize;${edge}:-3px`;
     return h;
   };
   const startHandle = makeHandle('start');
