@@ -6,9 +6,9 @@ b = b.replace('<div style="width:1920px;height:1080px;background:#0C1211;display
  '<div style="width:1920px;height:1080px;display:flex;flex-direction:column;padding:68px 80px 60px;opacity:.2">')
 b = b.replace('<div class="lbl" style="font-size:13px;color:#E0913F">Practising</div>',
               '<div class="lbl" style="font-size:13px;color:#E0913F">Lead-in</div>')
-b = b.replace('left:62%;width:2px;background:#F6C98A', 'left:6%;width:2px;background:#F6C98A')
-b = b.replace('left:62%;margin-left:-6px', 'left:6%;margin-left:-6px')
-b = b.replace('clip-path="inset(0 38% 0 0)"', 'clip-path="inset(0 94% 0 0)"')
+b = b.replace('left:62%;width:2px;background:#F6C98A', 'left:0%;width:2px;background:#F6C98A')
+b = b.replace('left:62%;margin-left:-6px', 'left:0%;margin-left:0')
+b = b.replace('clip-path="inset(0 38% 0 0)"', 'clip-path="inset(0 100% 0 0)"')
 b = b.replace('stroke-dashoffset="325"', 'stroke-dashoffset="854"')
 b = b.replace('>62%</text>', '>0%</text>')
 overlay = '''
@@ -40,6 +40,7 @@ c = c.replace('<div class="lbl" style="font-size:13px">Speed</div>',
 c = c.replace('<div class="num" style="font-size:236px;color:#E0913F">55%</div>',
  '<div class="num" style="font-size:236px;color:#E0913F;text-shadow:0 0 90px rgba(224,145,63,.34)">60%</div>')
 c = c.replace('50 bpm &nbsp;·&nbsp; 91.5 at full speed', '55 bpm &nbsp;·&nbsp; 91.5 at full speed')
+c = c.replace('38.2 s AT 55%', '35.0 s AT 60%')
 c = c.replace('<div class="num" style="font-size:236px;color:#E8EEEB;font-weight:600">25</div>',
               '<div class="num" style="font-size:236px;color:#4C635C;font-weight:600">0</div>')
 c = c.replace('2 of 3 clean to advance', 'counter reset at the new rung')
@@ -47,7 +48,7 @@ c = c.replace('stroke-dashoffset="325"', 'stroke-dashoffset="854"')
 c = c.replace('>62%</text>', '>0%</text>')
 c = c.replace('clip-path="inset(0 38% 0 0)"', 'clip-path="inset(0 100% 0 0)"')
 c = c.replace('left:62%;width:2px;background:#F6C98A', 'left:0%;width:2px;background:#F6C98A')
-c = c.replace('left:62%;margin-left:-6px', 'left:0%;margin-left:-6px')
+c = c.replace('left:62%;margin-left:-6px', 'left:0%;margin-left:0')
 c = c.replace(
  '''<div style="width:34px;height:1px;background:#8A5C29"></div>
     <div style="font-size:27px;color:#9CAAA4">Next rung
