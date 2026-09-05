@@ -64,8 +64,8 @@ to its 10 ms search window") paid at ten times the ratio.
 **Use Rubber Band.** Its R3 engine is a phase-locked vocoder with explicit
 transient detection and per-partial phase handling — the class of algorithm that
 holds up at these ratios — and it is what every practice tool worth using is
-built on. Offline it is a command-line binary; in the browser there are
-maintained WASM builds.
+built on. Offline it is a command-line binary; in the browser it is the WASM
+build named below, which has been measured in a worklet rather than assumed.
 
 ```
 rubberband --time 1.8182 --pitch -1 --formant --fine in.wav out.wav
@@ -85,6 +85,59 @@ commercial. Calling the `rubberband` CLI as a subprocess is fine for a personal
 tool and keeps the boundary clean; linking a GPL WASM build into a page you
 publish is a decision to make deliberately. SoundTouch is LGPL and easier that
 way, at some quality cost. Note the choice in the repo; do not discover it later.
+
+## The browser build, and what it actually does at ratio 2.0
+
+Measured 2026-09-05 with `tools/rb-probe`, which is a real `AudioWorklet` driven
+by a real `AudioContext`, not a bench. Re-run it with
+`powershell -ExecutionPolicy Bypass -File .\run.ps1` from that directory; the
+recorded runs are in `tools/rb-probe/results/`.
+
+**The build is [`rubberband-wasm@3.3.0`](https://www.npmjs.com/package/rubberband-wasm)**
+(Rubber Band 3.3.0, from the official release tarball), and we use `dist/rubberband.wasm`
+— 265 101 bytes, sha256 `496d880b…f07c04dc` — **on its own, with no Emscripten JS
+glue.** It is a `STANDALONE_WASM` module exporting the whole `rubberband-c.h`
+surface and importing nine symbols that this path never reaches, so
+`new WebAssembly.Instance` runs synchronously in the processor's constructor with
+the `WebAssembly.Module` passed through `processorOptions`. Nothing is fetched
+inside the worklet and there is no async gap before the first quantum.
+
+The two rejected alternatives, so nobody re-evaluates them: `rubberband-web`
+ships a ready-made worklet but it is push-driven (see below) and so cannot hold
+any ratio but 1.0, and it has been untouched since 2022;
+`@echogarden/rubberband-wasm` is a live second source but minifies its imports
+down to `a.a`…`a.m`, so it needs its own JS glue and that glue is written for
+node.
+
+**Stereo R3 at ratio 2.0 costs about 17 % of one core** (Ryzen 9 6900HX, Chrome
+152, 44.1 kHz) and holds real time exactly: 30.190 s of stretched output arrived
+in 30.182 s of wall clock, with zero underruns across 10 402 quanta and no NaN.
+Ratio 2.5 with a −1 semitone shift costs 18 %. R2 is three times cheaper at 6 %,
+and we are still not taking it. Changing the ratio mid-stream — the speed slider
+being dragged — produced no discontinuity and no crash.
+
+Two numbers from that run belong in the code and not only in this paragraph:
+
+* **The worklet must own the source samples and pull.** A processor that takes a
+  quantum from an upstream node and returns a quantum cannot hold a ratio other
+  than 1.0: at 2.0 the stretcher emits two frames for every one consumed, so the
+  surplus accumulates in its buffer and latency grows without bound; below 1.0 it
+  starves. Feed `rb_get_samples_required()` frames from a source the worklet
+  holds, until `rb_available()` covers the quantum.
+* **The start delay is not zero.** R3 reports `preferredStartPad` 2048 and
+  `startDelay` 2048 frames — 46.4 ms at 44.1 kHz, 2170 with a pitch shift on; R2
+  reports 1024. Feed the pad, drop the delay, and put both into `clock.py`'s
+  source↔playback conversion. Discovering this later looks like every section
+  boundary being 46 ms late.
+
+Also: **`performance` does not exist in `AudioWorkletGlobalScope`.** Nothing in
+`web/` may call `performance.now()` inside a worklet.
+
+What the probe does *not* establish is that any of it sounds right. Every number
+there is throughput and arithmetic on a synthetic signal. That R3 holds up at
+1.4–2.5 where WSOLA flutters is a listening judgement, and per the prime
+directive this tool does not get to make it — play a real record through the
+speed slider at 50 % and listen.
 
 ## Trap 3: a real-time stretcher cannot loop seamlessly
 

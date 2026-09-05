@@ -1,0 +1,105 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>rb realtime probe</title>
+<pre id="out">running</pre>
+<script type="module">
+const out = document.getElementById('out');
+const results = { runs: [] };
+
+function makeSource(seconds, channels, SR) {
+  const n = Math.round(seconds * SR);
+  const chans = [];
+  let seed = 12345;
+  const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x3fffffff - 1; };
+  for (let c = 0; c < channels; c++) {
+    const a = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const t = i / SR;
+      a[i] = 0.30 * Math.sin(2 * Math.PI * 440 * t)
+           + 0.18 * Math.sin(2 * Math.PI * 554.365 * t)
+           + 0.18 * Math.sin(2 * Math.PI * 659.255 * t)
+           + 0.06 * Math.sin(2 * Math.PI * 110 * t)
+           + 0.02 * rnd();
+      const m = i % Math.round(SR * 0.5);
+      if (m < 40) a[i] += 0.5 * (1 - m / 40) * rnd();
+    }
+    chans.push(a);
+  }
+  return chans;
+}
+
+async function run(label, opts) {
+  const ctx = new AudioContext({ sampleRate: 44100, latencyHint: opts.latencyHint || 'interactive' });
+  await ctx.resume();
+  const SR = ctx.sampleRate;
+  await ctx.audioWorklet.addModule('rb-worklet.js');
+  const source = makeSource(opts.seconds, opts.channels, SR);
+
+  const node = new AudioWorkletNode(ctx, 'rb-probe', {
+    numberOfInputs: 0, numberOfOutputs: 1,
+    outputChannelCount: [opts.channels],
+    processorOptions: {
+      module: wasmModule, source, channels: opts.channels,
+      timeRatio: opts.timeRatio, pitchScale: opts.pitchScale ?? 1.0,
+      engine: opts.engine ?? 'finer', blockSize: opts.blockSize ?? 1024,
+      ratioSchedule: opts.ratioSchedule ?? [], timing: true,
+    },
+  });
+  // Keep it inaudible but still rendered: a zero gain still runs the worklet.
+  const g = ctx.createGain();
+  g.gain.value = 0.0001;
+  node.connect(g).connect(ctx.destination);
+
+  const t0 = performance.now();
+  const startCtx = ctx.currentTime;
+  const s = await new Promise((res, rej) => {
+    node.port.onmessage = e => res(e.data.stats);
+    setTimeout(() => rej(new Error('timeout waiting for stats')), opts.timeoutMs || 90000);
+  });
+  const wallMs = performance.now() - t0;
+  const ctxElapsed = ctx.currentTime - startCtx;
+  await ctx.close();
+
+  results.runs.push({
+    label, ratio: opts.timeRatio, engine: opts.engine ?? 'finer',
+    channels: opts.channels, blockSize: opts.blockSize ?? 1024,
+    sampleRate: SR,
+    baseLatency: ctx.baseLatency ?? null,
+    inputSeconds: opts.seconds,
+    outputSeconds: +(s.outFrames / SR).toFixed(3),
+    contextSecondsElapsed: +ctxElapsed.toFixed(3),
+    wallSeconds: +(wallMs / 1000).toFixed(3),
+    ranInRealTime: Math.abs(wallMs / 1000 - s.outFrames / SR) < 1.5,
+    quanta: s.quanta,
+    underrunQuanta: s.underrunQuanta,
+    maxShortfallFrames: s.maxRetrieveShortfall,
+    nanQuanta: s.nanQuanta,
+    silentQuantaAfterPrime: s.silentQuantaAfterPrime,
+    timing: s.timing || null,
+    maxSteadyMs: s.timing ? (s.timing.maxSteady ?? null) : null,
+    overBudgetSteady: s.timing ? (s.timing.overBudgetSteady ?? 0) : null,
+    overBudgetAt: s.timing ? (s.timing.overBudgetAt ?? []) : null,
+    startDelay: s.startDelay,
+    hasPerformanceNow: s.hasPerformanceNow,
+  });
+  out.textContent = JSON.stringify(results, null, 1);
+}
+
+let wasmModule;
+try {
+  const bytes = await (await fetch('rubberband.wasm')).arrayBuffer();
+  wasmModule = await WebAssembly.compile(bytes);
+  await run('REALTIME r3 stereo ratio 2.0, 30s, steady-state', { seconds: 15, channels: 2, timeRatio: 2.0, blockSize: 256, timeoutMs: 120000 });
+  await run('REALTIME r3 stereo ratio 2.5 + pitch -1, feed block 256', {
+    seconds: 8, channels: 2, timeRatio: 2.5, pitchScale: Math.pow(2, -1 / 12), blockSize: 256 });
+  await run('REALTIME r2 stereo ratio 2.0, feed block 256', {
+    seconds: 10, channels: 2, timeRatio: 2.0, engine: 'faster', blockSize: 256 });
+  results.ok = true;
+} catch (e) {
+  results.ok = false;
+  results.error = String((e && e.stack) || e);
+}
+out.textContent = JSON.stringify(results, null, 1);
+await fetch('/result-rt', { method: 'POST', body: JSON.stringify(results) });
+document.title = 'DONE';
+</script>

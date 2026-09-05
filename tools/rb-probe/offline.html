@@ -1,0 +1,158 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>rb probe</title>
+<pre id="out">running</pre>
+<script type="module">
+const SR = 44100;
+const out = document.getElementById('out');
+const results = { sampleRate: SR, runs: [] };
+
+function makeSource(seconds, channels) {
+  // A chord plus noise plus periodic clicks: broadband and transient-led, so R3's
+  // transient detection actually runs and the CPU number is not a pure-tone fiction.
+  const n = Math.round(seconds * SR);
+  const chans = [];
+  let seed = 12345;
+  const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x3fffffff - 1; };
+  for (let c = 0; c < channels; c++) {
+    const a = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const t = i / SR;
+      a[i] = 0.30 * Math.sin(2 * Math.PI * 440 * t)
+           + 0.18 * Math.sin(2 * Math.PI * 554.365 * t)
+           + 0.18 * Math.sin(2 * Math.PI * 659.255 * t)
+           + 0.06 * Math.sin(2 * Math.PI * 110 * t)
+           + 0.02 * rnd();
+      // a click every 500 ms
+      const m = i % Math.round(SR * 0.5);
+      if (m < 40) a[i] += 0.5 * (1 - m / 40) * rnd();
+    }
+    chans.push(a);
+  }
+  return chans;
+}
+
+// Goertzel magnitude at f, over the middle of the signal.
+function tone(buf, f, from, len) {
+  const w = 2 * Math.PI * f / SR, cw = Math.cos(w), coeff = 2 * cw;
+  let s1 = 0, s2 = 0;
+  for (let i = from; i < from + len; i++) {
+    const s = buf[i] + coeff * s1 - s2;
+    s2 = s1; s1 = s;
+  }
+  return Math.sqrt(s1 * s1 + s2 * s2 - coeff * s1 * s2) / len;
+}
+
+async function run(label, opts) {
+  const seconds = opts.seconds ?? 8;
+  const channels = opts.channels ?? 2;
+  const ratio = opts.timeRatio;
+  const source = makeSource(seconds, channels);
+  const outFrames = Math.ceil(seconds * SR * (opts.maxRatio ?? ratio)) + SR;
+  const ctx = new OfflineAudioContext(channels, outFrames, SR);
+  await ctx.audioWorklet.addModule('rb-worklet.js');
+
+  const node = new AudioWorkletNode(ctx, 'rb-probe', {
+    numberOfInputs: 0,
+    numberOfOutputs: 1,
+    outputChannelCount: [channels],
+    processorOptions: {
+      module: wasmModule,
+      source, channels,
+      timeRatio: ratio,
+      pitchScale: opts.pitchScale ?? 1.0,
+      engine: opts.engine ?? 'finer',
+      blockSize: opts.blockSize ?? 1024,
+      ratioSchedule: opts.ratioSchedule ?? [],
+      pitchHighQuality: !!opts.pitchHighQuality,
+    },
+  });
+  const stats = new Promise(res => { node.port.onmessage = e => res(e.data.stats); });
+  node.connect(ctx.destination);
+
+  const t0 = performance.now();
+  const rendered = await ctx.startRendering();
+  const wallMs = performance.now() - t0;
+  const s = await Promise.race([stats, new Promise(r => setTimeout(() => r(null), 100))]);
+
+  const ch0 = rendered.getChannelData(0);
+  // Analyse a window well inside the output, past the start delay.
+  // The 440 Hz component, moved by whatever pitch shift was asked for. The check
+  // that matters is that it is NOT an octave down: that is the resampling failure
+  // CLAUDE.md's invariant 8 names, and at these ratios it is what a wrong engine does.
+  const from = Math.round(SR * 2), len = Math.round(SR * 2);
+  const at = f => tone(ch0, f, from, len);
+  const f0 = 440 * (opts.pitchScale ?? 1);
+  const m0 = at(f0), mDown = at(f0 / 2), mUp = at(f0 * 2), mAt440 = at(440);
+
+  let peak = 0, nan = 0, lastNonZero = 0;
+  for (let i = 0; i < ch0.length; i++) {
+    const v = ch0[i];
+    if (!Number.isFinite(v)) nan++;
+    const a = Math.abs(v);
+    if (a > peak) peak = a;
+    if (a > 1e-5) lastNonZero = i;
+  }
+
+  const audioSeconds = (s ? s.outFrames : lastNonZero) / SR;
+  results.runs.push({
+    label, ratio, engine: opts.engine ?? 'finer', channels,
+    inputSeconds: seconds,
+    outputSeconds: +(audioSeconds).toFixed(3),
+    measuredRatio: s ? +(s.outFrames / Math.max(s.inFrames, 1)).toFixed(4) : null,
+    wallMs: +wallMs.toFixed(1),
+    realtimeFactor: +(wallMs / 1000 / audioSeconds).toFixed(4),
+    workMsInWorklet: s ? +s.timing.totalMs.toFixed(1) : null,
+    maxQuantumMs: s ? s.timing.max : null,
+    maxSteadyQuantumMs: s ? s.timing.maxSteady : null,
+    peak: +peak.toFixed(4),
+    nanSamples: nan,
+    underrunQuanta: s ? s.underrunQuanta : null,
+    maxShortfallFrames: s ? s.maxRetrieveShortfall : null,
+    silentQuantaAfterPrime: s ? s.silentQuantaAfterPrime : null,
+    quanta: s ? s.quanta : null,
+    preferredStartPad: s ? s.preferredStartPad : null,
+    startDelay: s ? s.startDelay : null,
+    latency: s ? s.latency : null,
+    ratioChanges: s ? s.ratioChanges : null,
+    tone: {
+      expectedHz: +f0.toFixed(2),
+      atExpected: +m0.toFixed(5), anOctaveDown: +mDown.toFixed(5),
+      anOctaveUp: +mUp.toFixed(5), atUnshifted440: +mAt440.toFixed(5),
+      pitchCorrect: m0 > 0.02 && m0 > 20 * mDown && m0 > 20 * mUp,
+    },
+  });
+  out.textContent = JSON.stringify(results, null, 1);
+}
+
+let wasmModule;
+window.addEventListener('error', e => { try { navigator.sendBeacon('/result', JSON.stringify({ok:false, windowError:String(e.message)})); } catch(_){} });
+try {
+  const bytes = await (await fetch('rubberband.wasm')).arrayBuffer();
+  wasmModule = await WebAssembly.compile(bytes);
+  results.wasmBytes = bytes.byteLength;
+
+  await run('r3 ratio 1.0', { timeRatio: 1.0 });
+  await run('r3 ratio 1.4', { timeRatio: 1.4 });
+  await run('r3 ratio 2.0', { timeRatio: 2.0 });
+  await run('r3 ratio 2.5', { timeRatio: 2.5 });
+  await run('r3 ratio 2.0 + pitch -1 semitone', { timeRatio: 2.0, pitchScale: Math.pow(2, -1 / 12) });
+  await run('r2 ratio 2.0', { timeRatio: 2.0, engine: 'faster' });
+  await run('r3 ratio 2.0 mono', { timeRatio: 2.0, channels: 1 });
+  await run('r3 slider drag 1.0->2.0->1.4', {
+    timeRatio: 1.0, maxRatio: 2.5,
+    ratioSchedule: [
+      { atOutputFrame: SR * 2, ratio: 2.0 },
+      { atOutputFrame: SR * 5, ratio: 1.4 },
+    ],
+  });
+  results.ok = true;
+} catch (e) {
+  results.ok = false;
+  results.error = String(e && e.stack || e);
+}
+out.textContent = JSON.stringify(results, null, 1);
+await fetch('/result', {method:'POST', body: JSON.stringify(results)});
+window.onerror = null;
+document.title = 'DONE';
+</script>
