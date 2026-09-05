@@ -26,3 +26,6 @@ tools/rb-probe/upstream-*
 tools/rb-probe/results.json
 tools/rb-probe/results-rt.json
 tools/rb-probe/.fetch/
+
+# Claude Code: the shared project config is tracked, per-machine overrides are not.
+.claude/settings.local.json
