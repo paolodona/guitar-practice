@@ -38,10 +38,10 @@ still run its core commands on a laptop with nothing installed:
 |---|---|---|
 | `library.py` | repo layout, slugs, song lookup | — |
 | `manifest.py` | `song.yaml` / `setlist.yaml` load, save, validate | pyyaml |
-| `sections.py` | section maths, snapping, overlap rules — **pure functions** | — |
+| `sections.py` | spans, snapping, containment, lane assignment, coverage — **pure functions** | — |
 | `ladder.py` | speed steps, rep counting, advance rules — **pure functions** | — |
 | `ledger.py` | append-only rep log, read and aggregate | — |
-| `practice.py` | readiness, cold list, next-up ranking | — |
+| `practice.py` | readiness over covered song time, cold list, next-up ranking | — |
 | `server.py` | the HTTP server, JSON endpoints, range-served media | stdlib |
 | `sources.py` | Spotify search/import, local folder scan, file binding | urllib |
 | `peaks.py` | multi-resolution waveform peaks | numpy |
@@ -100,7 +100,8 @@ thing testable without a browser.
 ```
 woodshed add <file> [--title --artist --spotify <id>]
 woodshed analyze <slug>              # tempo, grid offset, peaks
-woodshed section <slug> add "solo" 118.4 146.9
+woodshed section <slug> add "Full solo" 178.4 262.9
+woodshed section <slug> add "Solo — tapping" 178.4 201.15   # overlaps, deliberately
 woodshed setlist new <name> --tuning Eb
 woodshed capture --queue <setlist>     # arm loopback, split a playlist on the gaps
 woodshed render <slug> --section solo --speed 60 --semitones -1

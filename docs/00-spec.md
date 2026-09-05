@@ -20,8 +20,10 @@ foot or a single glance, it belongs on a setup screen, not in the practice view.
    are already in E♭ and must not be touched while others are in E and have to
    come down one. The band's tuning only supplies the default; a `−`/`+` stepper
    is one press away in the practice view and moves it whenever you want.
-4. **Cuts them into named sections** you draw on a waveform: "Can't Stop intro",
-   "solo, second half".
+4. **Cuts them into named sections** you draw on a waveform — *"Can't Stop
+   intro"*, *"Master of Puppets — full solo"*, *"…solo, first part, tapping"*.
+   Sections **overlap and nest freely**: the drill and the thing it lives inside
+   are both real practice targets.
 5. **Loops a section seamlessly**, with a lead-in so you arrive at the downbeat
    already playing.
 6. **Counts the reps and the speed**, automatically, and walks the speed up a
@@ -74,9 +76,15 @@ Above the rows, three things and no more:
 
 **Readiness is defined and shown, never a vibe.** For each section,
 `reached = best_speed_with_at_least_N_clean_reps / target_speed`, clamped to 1.
-The song's readiness is the length-weighted mean of its sections' `reached`.
+Because sections overlap, the song's number is measured **over song time**: every
+second any section covers contributes once and takes the `reached` of the
+**longest** section covering it, with covered time as the denominator. So
+subdividing a solo into three drills does not give that solo three votes, and a
+drill running ahead of the solo it sits inside does not move the song's number —
+which is the honest answer, because the gig asks for the solo, not the lick.
 Hovering a bar shows the components — same rule as `gx100`: *any report must show
-the component measurements, not just a total*.
+the component measurements, not just a total*. `docs/02-data-model.md` carries
+the full rule.
 
 ### 2. Song page
 
@@ -105,7 +113,7 @@ nothing else:
 
 | element | why |
 |---|---|
-| **Section name**, large | which thing am I doing |
+| **Section name**, large, with its containment under it (*inside Full solo · bars 1–8 of 30*) | which thing am I doing, and where it sits |
 | **Speed, huge** — `55%` with the resulting BPM under it (`50 bpm`) | the number that is the goal |
 | **Rep counter, huge** — `12` with `of 3 to advance` under it | the number that is the progress |
 | **A progress ring** filling once per loop pass | peripheral vision only; you never *look* at it |
@@ -194,7 +202,8 @@ bad one is three.
 
 * Boundaries are stored in **seconds** of the source file (see the data model for
   why that is the right exception to the bars rule), and **snap to the detected
-  beat grid** when one exists, with a millisecond nudge available. A solo loop
+  beat grid** when one exists, with a millisecond nudge available. Spans may
+  overlap and nest; only an exact duplicate span is refused. A solo loop
   that starts 40 ms late is unusable, and hand-dragging on a waveform is not
   accurate to 40 ms.
 * `pre_roll_beats` (default 4) plays the audio *before* the section so you enter
@@ -234,7 +243,7 @@ work done for the covers gig still counts for the band's.
 | `space` | play / pause |
 | `shift`+`space` | restart the section from the top |
 | `↑` / `↓` | speed up / down one ladder step |
-| `←` / `→` | previous / next section |
+| `←` / `→` | previous / next section — flat order, `(start, longest first)`, so a container comes immediately before its drills |
 | `[` / `]` | nudge the loop start / end by 10 ms |
 | `-` / `=` | transpose down / up a semitone |
 | `l` | loop on/off |

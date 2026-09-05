@@ -13,8 +13,12 @@ Read `docs/00-spec.md` before changing behaviour and `docs/03-audio-engine.md`
 before touching anything that makes sound. The engine doc is not preference; it
 is the part that is easy to get plausibly wrong and hard to notice.
 
+The repo is `paolodona/guitar-practice`; **Woodshed** is the working name of the
+tool itself and appears throughout the docs — change it in one pass if you want a
+different one, it is load-bearing nowhere.
+
 It is the third of three repos that work together: `gx100` (the sounds),
-`rambass-live` (the backing tracks), `woodshed` (the practising). Cross-reference
+`rambass-live` (the backing tracks), this one (the practising). Cross-reference
 by slug, never by copying content — the same rule the other two enforce.
 
 ## Shell
@@ -30,6 +34,16 @@ Woodshed section describes a position in an **immutable commercial recording**;
 there is nothing for a bar number to protect. It is the same exception that repo
 already grants to `lyrics.srt` and `practice/align.yaml`. Bars are *displayed*,
 derived from `tempo.bpm` + `grid_offset_s`. Do not "fix" this.
+
+**Sections overlap and nest; they are spans, not tiles.** "Full solo" and "solo,
+first part, tapping" are both practice targets and the second lives inside the
+first. Containment and lane assignment are **derived from the spans** — nothing
+about the nesting is stored, so a dragged boundary cannot leave a stale parent
+behind. Order and lanes are both `(start_s, -duration)`. Only an exact duplicate
+span is refused. And **readiness is measured over covered song time**, each second
+taking the `reached` of the longest section covering it — a length-weighted mean
+over sections double-counts a subdivided solo, and "longest" rather than "best"
+because playing the lick in isolation is not playing the solo.
 
 **Two clocks, and mixing them up is silent.** *Source time* is seconds in the
 original file (what `song.yaml` stores). *Playback time* is seconds in the
@@ -94,6 +108,20 @@ paths in code. Those live in `songs/`, `setlists/` and `config.yaml`.
   `main()` turns those into one line and exit code 2. Anything else is a
   traceback, which is a bug.
 * One action table shared by mouse, keyboard and MIDI. Never two.
+
+## Git workflow
+
+**Work directly on `main`.** Paolo is the only maintainer and the only user, so
+there is no reason for feature branches or pull requests here — commit to `main`
+and push. Don't create a branch unless explicitly asked to. Same rule as
+`rambass-live`.
+
+History note: the repo was created empty and the first push landed on
+`claude/guitar-practice-tool-spec-8e7y5s`, which GitHub then made the default
+branch. `main` was created from that history, so the two are identical up to the
+commit that added this note. If GitHub's default branch is still the `claude/…`
+one, switch it to `main` in the repository settings and the old branch can be
+deleted.
 
 ## Testing
 

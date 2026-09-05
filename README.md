@@ -1,5 +1,7 @@
 # Woodshed
 
+*The repo is `guitar-practice`; Woodshed is the tool's working name.*
+
 A practice tool for one guitarist. Load a song, slow it down without changing its
 pitch, drop it a half step where the record needs it, carve it into named sections, and loop the hard one until it is not hard any more — counting every
 pass and every speed step, hands never leaving the guitar.
@@ -10,7 +12,7 @@ It is the third of three:
 |---|---|
 | [`gx100`](../gx100) | makes the **sound** — tone matching, patch library, GX-100 protocol |
 | [`rambass-live`](../rambass-live) | makes the **backing track** — drums, click, video, Reaper |
-| **`woodshed`** | makes the **player** — practice the parts, track the progress |
+| **`guitar-practice`** | makes the **player** — practice the parts, track the progress |
 
 They share a house style (Python + uv, YAML on disk, a local web console, the repo
 *is* the database) and two of them share real data with this one: a setlist here

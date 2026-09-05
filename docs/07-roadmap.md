@@ -11,7 +11,9 @@ layers, and the gig is a year out.
 * The local server: JSON endpoints + range-served audio, lifted from
   `rambass-live/src/rambass/console.py`.
 * Waveform peaks (`peaks.py`, numpy) and a canvas that draws them.
-* Draw, name and save sections by dragging on the waveform.
+* Draw, name and save sections by dragging on the waveform — overlapping and
+  nested from the start, with derived lanes. Retrofitting overlap onto a tiling
+  model would touch the lanes, the ordering and the readiness maths at once.
 * **Real-time playback with a speed slider** — WASM stretcher in an
   `AudioWorklet`. No transpose yet, no cache, no ladder.
 * Loop a section. Count passes. `practice/reps.jsonl`.

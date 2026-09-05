@@ -89,17 +89,22 @@ The workbench, used sitting down before practice.
 
 * **Full-width waveform** of the whole song, with a faint beat grid over it and a
   bar-number ruler above.
-* Directly beneath, perfectly aligned to the same horizontal scale, a **sections
-  lane**: contiguous coloured strips, each named ("Intro riff", "Solo",
-  "Outro"). Draggable edges, drag on empty space to create one, click to select.
-  The alignment between waveform and sections must read as exact — that is the
-  whole credibility of the screen.
+* Directly beneath, perfectly aligned to the same horizontal scale, the
+  **section lanes**. **Sections overlap and nest** — "Full solo" and, inside it,
+  "Solo — first part, tapping" — so this is not a single strip of tiles but a
+  small stack of rows: longest spans on the top lane, the drills that sit inside
+  them on the rows below, and gaps where nothing is mapped. Draggable edges, drag
+  on empty space to create one, click to select. The alignment between waveform
+  and lanes must read as exact — that is the whole credibility of the screen, and
+  a nested span must obviously start and end *inside* its parent.
+  Show at least one nested pair and one bare stretch of song with no section on it.
 * **Transport bar**: play/pause, loop toggle, a speed control, a transpose
   readout (a *tuning name*, not a number: "E♭ standard", with "−1 semitone"
   small beneath), and a metronome toggle.
 * **Selected-section inspector** (a right rail or a bottom sheet): name, start
   and end (as `bar.beat` and as seconds), target speed, ladder step, lead-in
-  bars, free-text notes, and a "Practise this" button.
+  bars, free-text notes, its containment ("inside Full solo"), and a "Practise
+  this" button.
 
 Show one **section chip in a selected state** and one being dragged.
 
@@ -107,8 +112,10 @@ Show one **section chip in a selected state** and one being dragged.
 
 Full screen, no browser chrome, no navigation, no sidebar. Six elements:
 
-1. **Section name** — top, medium-large, plus the song title smaller above it:
-   `Can't Stop` / **`Solo`**
+1. **Section name** — top, medium-large, with the song title smaller above it
+   and, where the section sits inside another, a quiet line beneath saying so:
+   `Master of Puppets` / **`Solo — first part, tapping`** / `inside Full solo ·
+   bars 1–8 of 30`
 2. **The speed** — the single largest thing on the screen. `55%`, with the
    resulting tempo small beneath it (`50 bpm`).
 3. **The rep counter** — the second largest. `12`, with `of 3 to advance` beneath.
@@ -224,11 +231,12 @@ motivating.
 
 Real-feeling content, not lorem:
 
-* Songs: *Can't Stop* — Red Hot Chili Peppers · *Plush* — Stone Temple Pilots ·
+* Songs: *Master of Puppets* — Metallica · *Can't Stop* — Red Hot Chili Peppers · *Plush* — Stone Temple Pilots ·
   *Sultans of Swing* — Dire Straits · *Manlio* — Ramba S.S. (his own band, and
   already recorded in E♭, so its shift is 0) · *Whole Lotta Love* — Led Zeppelin
-* Sections: "Intro riff", "Verse", "Chorus", "Solo — first half", "Solo — second
-  half", "Outro jam"
+* Sections, including a deliberately nested set: "Intro riff", "Verse",
+  "Chorus", "Full solo", "Solo — first part, tapping" (inside it), "Solo — the
+  descending run" (also inside it), "Outro jam"
 * Setlists: "Ramba S.S. — the set" (E♭ standard, 23 songs), "Covers duo"
   (E standard, 14 songs), "Technique"
 * The line that started the whole project, and should be legible somewhere:

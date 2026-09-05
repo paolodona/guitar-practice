@@ -56,14 +56,89 @@ sections:
     target_speed: 100
     notes: "16ths, muted. The right hand never stops."
     patch: rhythm                 # optional: a patch id in gx100 songs/<slug>/song.yaml
-  - id: solo
-    name: Solo
-    start_s: 118.402
-    end_s: 146.930
+
+  # Sections may overlap and nest. These three describe the same music
+  # at three grains, and all three are real practice targets.
+  - id: solo-full
+    name: Full solo
+    start_s: 178.400
+    end_s: 262.900
     snapped: bar
-    target_speed: 95              # you are allowed to decide 95 is enough
+    target_speed: 100
+  - id: solo-tapping
+    name: Solo — first part, tapping
+    start_s: 178.400
+    end_s: 201.150
+    snapped: bar
+    target_speed: 100
     ladder_step: 2.5              # per-section override of the song default
+    notes: "Right hand from the 12th. Start at 45%, this is the whole problem."
+  - id: solo-run
+    name: Solo — the descending run
+    start_s: 236.700
+    end_s: 248.300
+    snapped: beat
+    target_speed: 95
 ```
+
+### Sections may overlap, and nest, and that is the point
+
+*"Master of Puppets — full solo"* and *"Master of Puppets — solo, first part,
+tapping"* are both things to practise, and the second lives inside the first. So
+a section is **an arbitrary span, not a tile**: sections are free to overlap, to
+nest to any depth, and to leave parts of the song covered by nothing at all.
+
+Nothing about containment is stored. It is computed from the spans, which means
+dragging a boundary can never leave a stale parent pointer behind:
+
+```
+contains(a, b)  ==  a.start <= b.start and b.end <= a.end and a is not b
+```
+
+Four consequences, each of which had to be decided rather than assumed:
+
+**Lanes are derived, never stored.** Sort by `(start_s, -duration)` and assign
+each section to the first lane with no conflict. Longest-first puts the
+containing section on lane 0 with its drills stacked underneath, which is the
+reading a human expects, and a re-sort after an edit is deterministic — the same
+spans always draw the same way.
+
+**Order is `(start_s, -duration)` too**, so `next section` walks a flat list in
+which a container comes immediately before the drills inside it. Not a tree walk:
+descending into a nesting level would need a seventh foot action, and six is the
+limit for a reason. The practice view instead prints the containment under the
+section name — *inside Full solo · bars 1–8 of 30* — so where you are is a fact
+on screen rather than a thing to remember.
+
+**Readiness is measured over song time, not over sections.** The old rule (a
+length-weighted mean of the sections' `reached`) silently double-counts the
+moment a solo is subdivided: three overlapping views of one solo would give that
+solo three votes and swamp the rest of the song. Instead:
+
+> Every second of the song that **any** section covers contributes exactly once.
+> A second covered by several sections takes the `reached` of the **longest**
+> section covering it. The denominator is covered time, not the song's length.
+
+Longest, not best, and the reason is musical: nailing the tapping lick at 100 %
+in isolation does not mean you can play the solo through, and the section that
+most nearly means "played in context" is the widest one. So a drill that runs
+ahead of its container does **not** move the song's number — it shows as *ahead*
+beside the parent, and the parent is what the gig will ask for. That is the tool
+telling the truth rather than flattering you.
+
+Seconds no section covers are outside the denominator entirely: they are not
+part of what you set out to learn, and counting them would make a song you have
+deliberately only half-mapped look unfinished forever.
+
+`counts_toward_readiness: false` is the escape hatch for a section that is pure
+exercise — a chromatic warm-up carved out of a verse — and it is the only stored
+thing about a section's role. Everything else is derived.
+
+**The invariants that remain.** `start < end`; both inside the file; `id` unique
+within the song. Two sections with the *identical* span are refused — that is a
+duplicate, not an overlap, and it makes lanes and ordering ambiguous for no
+gain. Nothing else about the arrangement of spans is checked, because there is
+nothing left that would be wrong.
 
 ### Why sections are in seconds
 
