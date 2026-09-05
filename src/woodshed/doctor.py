@@ -78,6 +78,44 @@ def _tool_checks() -> list[Check]:
     return checks
 
 
+def _loopback_check() -> Check:
+    """H3, docs/04-sources.md's "What will bite": exclusive-mode apps bypass
+    the shared mix and produce silence -- "doctor checks the loopback opens
+    and reports it." Degrades (not a failure) when pyaudiowpatch itself is
+    absent -- there is nothing to open yet, which is `pyaudiowpatch`'s own
+    check's job above, not this one's to repeat."""
+    if not _module("pyaudiowpatch"):
+        return Check(
+            "loopback", True, "skipped -- pyaudiowpatch not installed",
+            "capture.py's device half (Phase 1)",
+        )
+    try:
+        import pyaudiowpatch
+
+        p = pyaudiowpatch.PyAudio()
+        try:
+            info = p.get_default_wasapi_loopback()
+            stream = p.open(
+                format=pyaudiowpatch.paFloat32,
+                channels=int(info["maxInputChannels"]),
+                rate=int(info["defaultSampleRate"]),
+                input=True,
+                input_device_index=info["index"],
+            )
+            stream.close()
+        finally:
+            p.terminate()
+    except Exception as exc:  # noqa: BLE001 -- any device-open failure is "MISS", not a crash
+        return Check(
+            "loopback", False, f"could not open the default loopback device: {exc}",
+            "capturing what the machine plays (Phase 1)",
+            "an exclusive-mode app (some ASIO paths, a DAW holding the device) "
+            "may be bypassing the shared mix -- close it and retry",
+        )
+    return Check("loopback", True, f"opened {info['name']!r} and closed it",
+                  "capturing what the machine plays (Phase 1)")
+
+
 def _module_checks() -> list[Check]:
     checks: list[Check] = []
     for module, name, needed in (
@@ -123,6 +161,7 @@ def run_checks(repo: Repo) -> list[Check]:
 
     checks.extend(_tool_checks())
     checks.extend(_module_checks())
+    checks.append(_loopback_check())
 
     config = load_config(repo)
     used_bytes = _cache_usage_bytes(repo)

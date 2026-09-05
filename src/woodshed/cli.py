@@ -56,8 +56,6 @@ or check the toolchain first:
 #: name -> the phase that will build it (docs/07-roadmap.md), for the honest
 #: "not built yet" refusal on a command this unit does not implement.
 _NOT_YET_IMPLEMENTED = {
-    "setlist": "Phase 1 -- setlists and per-song transpose",
-    "capture": "Phase 1 -- loopback recording",
     "render": "Phase 2 -- the offline render cache",
     "status": "Phase 2 -- the progress dashboard",
     "scan": "Phase 3 -- library scan and file binding",
@@ -275,6 +273,64 @@ def cmd_section_rm(args: argparse.Namespace) -> int:
     return 0
 
 
+# ── commands: setlists (Phase 1, F1's CLI surface -- setlist.py itself
+#    landed with the server routes, but the command line was left unwired) ──
+def cmd_setlist_list(args: argparse.Namespace) -> int:  # noqa: ARG001 -- fixed signature
+    from woodshed.setlist import list_setlists
+
+    repo = _repo()
+    slugs = repo.list_setlists()
+    if not slugs:
+        _say("no setlists yet -- `woodshed setlist create <slug> --name ... --tuning ...`")
+        return 0
+    for slug, setlist in zip(slugs, list_setlists(repo), strict=True):
+        _say(f"{slug}: {setlist.name!r} ({setlist.tuning}, {len(setlist.songs)} songs)")
+    return 0
+
+
+def cmd_setlist_create(args: argparse.Namespace) -> int:
+    from woodshed.manifest import Setlist
+    from woodshed.setlist import create
+
+    create(_repo(), args.slug, Setlist(
+        name=args.name, tuning=args.tuning, date=args.date, venue=args.venue or "",
+    ))
+    _say(f"created setlist {args.slug!r}: {args.name!r} ({args.tuning})")
+    return 0
+
+
+def cmd_setlist_add_song(args: argparse.Namespace) -> int:
+    from woodshed.setlist import add_song, load, save
+
+    repo = _repo()
+    setlist = add_song(load(repo, args.setlist), args.song, shift=args.shift)
+    save(repo, args.setlist, setlist)
+    _say(f"{args.setlist}: added {args.song!r}" +
+         (f" (shift {args.shift:+d})" if args.shift is not None else " (shift: derived)"))
+    return 0
+
+
+def cmd_setlist_rm_song(args: argparse.Namespace) -> int:
+    from woodshed.setlist import load, remove_song, save
+
+    repo = _repo()
+    setlist = remove_song(load(repo, args.setlist), args.song)
+    save(repo, args.setlist, setlist)
+    _say(f"{args.setlist}: removed {args.song!r}")
+    return 0
+
+
+def cmd_setlist_shift(args: argparse.Namespace) -> int:
+    from woodshed.setlist import set_shift
+
+    shift = None if args.shift.lower() == "none" else int(args.shift)
+    updated = set_shift(_repo(), args.setlist, args.song, shift)
+    entry = next(e for e in updated.songs if e.slug == args.song)
+    _say(f"{args.setlist}/{args.song}: shift set to "
+         f"{'derived' if entry.shift is None else f'{entry.shift:+d}'}")
+    return 0
+
+
 # ── commands: the ledger ─────────────────────────────────────────────────
 def cmd_log(args: argparse.Namespace) -> int:
     repo = _repo()
@@ -393,6 +449,104 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     text, ok = report(_repo())
     _say(text)
     return 0 if ok else 1
+
+
+# ── commands: capture (Phase 1, H2) ─────────────────────────────────────
+def cmd_capture(args: argparse.Namespace) -> int:
+    # capture.py's own top-level import needs no pyaudiowpatch (require_module
+    # is only called inside the device functions) -- same lazy-import
+    # reasoning as cmd_analyze's librosa-gated branch.
+    from woodshed.capture import capture as run_capture
+    from woodshed.capture import default_device, list_devices
+
+    if args.list_devices:
+        for device in list_devices():
+            _say(f"[{device.index}] {device.name}  ({device.sample_rate} Hz, "
+                 f"{device.channels}ch)")
+        return 0
+
+    if args.queue:
+        raise WoodshedError(
+            "--queue needs an imported tracklist (title/artist/duration per "
+            "track) to bind captured segments against -- that's Phase 3's M1 "
+            "(Spotify import), not built yet. Capture one song at a time for "
+            'now: `woodshed capture "Song title" --artist ...`.'
+        )
+
+    if not args.title:
+        raise WoodshedError('a title is required: `woodshed capture "Song title" --artist ...` '
+                             "(or --list-devices to see what's available)")
+
+    repo = _repo()
+    title = args.title
+    slug = args.slug or slugify(title)
+    if not slug:
+        raise WoodshedError(f"{title!r} does not slugify to anything usable; pass --slug")
+    if slug in repo.list_songs():
+        raise WoodshedError(
+            f"songs/{slug}/song.yaml already exists. Pass --slug to capture this "
+            "as a different song."
+        )
+
+    if args.device:
+        needle = args.device.lower()
+        device = next((d for d in list_devices() if needle in d.name.lower()), None)
+        if device is None:
+            raise WoodshedError(
+                f"no loopback device matching {args.device!r} -- "
+                "`woodshed capture --list-devices` lists what's available"
+            )
+    else:
+        device = default_device()
+
+    _say(f"arming {device.name!r} ({device.sample_rate} Hz) -- press play over "
+         "there now (one track only); recording stops after "
+         f"{args.gap_s:g}s of silence, or ctrl-c")
+    out_dir = repo.song_dir(slug) / "audio"
+    segments = list(run_capture(
+        device, out_dir, floor_db=args.floor_db, gap_s=args.gap_s,
+    ))
+
+    if not segments:
+        raise WoodshedError("nothing captured -- no sound crossed the noise floor")
+    if len(segments) > 1:
+        raise WoodshedError(
+            f"captured {len(segments)} segments but expected exactly one -- "
+            "either more than one track played, or noise crossed the floor "
+            "mid-silence. The WAV files are still under "
+            f"{out_dir} for inspection; re-run once only the intended track "
+            "will play."
+        )
+    segment = segments[0]
+    if segment.overflowed:
+        raise WoodshedError(
+            "this capture reported an audio callback overflow -- a dropout is "
+            "silent, so it is not safe to bind; re-capture it"
+        )
+
+    dest = out_dir / "segment-001.wav"
+    song = Song(
+        slug=slug,
+        title=title,
+        artist=args.artist,
+        album=args.album,
+        recording=Recording(
+            file=f"audio/{dest.name}",
+            sha256=hash_file(dest),
+            duration_s=segment.duration_s,
+            tuning=args.tuning,
+            source="capture",
+        ),
+        tempo=Tempo(
+            bpm=args.bpm, source="manual",
+            grid_offset_s=args.grid_offset, time_signature=args.time_signature,
+        ),
+    )
+    path = repo.song_dir(slug) / "song.yaml"
+    save_song(song, path)
+    _say(f"captured {segment.duration_s:.1f}s -> {slug!r}: {path}")
+    _say(f"  run `woodshed analyze {slug}` to detect the real tempo")
+    return 0
 
 
 # ── commands: not yet implemented ────────────────────────────────────────
@@ -539,11 +693,68 @@ def build_parser() -> argparse.ArgumentParser:
                    help="only used with --bpm/--tap; detection always assumes 4/4")
     p.set_defaults(func=cmd_analyze)
 
+    # -- setlist --
+    p = sub.add_parser("setlist", help="create or edit a setlist")
+    setlist_sub = p.add_subparsers(dest="setlist_command", metavar="<subcommand>")
+
+    sp = setlist_sub.add_parser("list", help="list every setlist")
+    sp.set_defaults(func=cmd_setlist_list)
+
+    sp = setlist_sub.add_parser("create", help="create a new setlist")
+    sp.add_argument("slug", help="the setlist's file name (setlists/<slug>.yaml)")
+    sp.add_argument("--name", required=True)
+    sp.add_argument("--tuning", required=True, help="the BAND's tuning -- what makes the transpose")
+    sp.add_argument("--date", default=None, help="YYYY-MM-DD, optional; drives the countdown")
+    sp.add_argument("--venue", default=None)
+    sp.set_defaults(func=cmd_setlist_create)
+
+    sp = setlist_sub.add_parser("add-song", help="add a song to a setlist's running order")
+    sp.add_argument("setlist", help="the setlist's slug")
+    sp.add_argument("song", help="the song's slug")
+    sp.add_argument("--shift", type=int, default=None,
+                     help="explicit override; omit to derive from the setlist's tuning")
+    sp.set_defaults(func=cmd_setlist_add_song)
+
+    sp = setlist_sub.add_parser("rm-song", help="remove a song from a setlist")
+    sp.add_argument("setlist", help="the setlist's slug")
+    sp.add_argument("song", help="the song's slug")
+    sp.set_defaults(func=cmd_setlist_rm_song)
+
+    sp = setlist_sub.add_parser("shift", help="set (or clear) a song's shift override")
+    sp.add_argument("setlist", help="the setlist's slug")
+    sp.add_argument("song", help="the song's slug")
+    sp.add_argument("shift", help="an integer, or 'none' to derive from the setlist's tuning")
+    sp.set_defaults(func=cmd_setlist_shift)
+
+    # -- capture --
+    p = sub.add_parser("capture", help="arm loopback, split a playlist on the gaps")
+    p.add_argument("title", nargs="?", default=None,
+                    help="song title for a single-song capture (omit with --list-devices)")
+    p.add_argument("--artist", default="")
+    p.add_argument("--album", default=None)
+    p.add_argument("--tuning", default="E standard",
+                    help="what the RECORDING is in -- not what you play it in")
+    p.add_argument("--slug", default=None, help="override the derived slug")
+    p.add_argument("--bpm", type=float, default=120.0,
+                    help="placeholder tempo -- `woodshed analyze` will refine it")
+    p.add_argument("--grid-offset", dest="grid_offset", type=float, default=0.0)
+    p.add_argument("--time-signature", dest="time_signature", default="4/4")
+    p.add_argument("--device", default=None, help="substring match on the device name "
+                                                    "(default: the system's default render device)")
+    p.add_argument("--floor-db", dest="floor_db", type=float, default=-50.0,
+                    help="the noise floor, in dBFS (default: -50)")
+    p.add_argument("--gap-s", dest="gap_s", type=float, default=1.2,
+                    help="silence, in seconds, that ends a segment (default: 1.2)")
+    p.add_argument("--list-devices", action="store_true",
+                    help="list loopback-capable devices and exit")
+    p.add_argument("--queue", default=None, metavar="SETLIST",
+                    help="capture a whole setlist's tracklist in one pass "
+                         "(needs Phase 3's Spotify import; not yet available)")
+    p.set_defaults(func=cmd_capture)
+
     # -- not yet implemented, registered so `--help` is honest about the
     #    tool's eventual shape (docs/01-architecture.md's full command list) --
     stub_help = {
-        "setlist": "create or edit a setlist (not yet implemented)",
-        "capture": "arm loopback, split a playlist on the gaps (not yet implemented)",
         "render": "render a section into the offline cache (not yet implemented)",
         "status": "the dashboard, as text (not yet implemented)",
         "scan": "scan config.yaml's library_paths for audio to bind (not yet implemented)",

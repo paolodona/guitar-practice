@@ -14,7 +14,7 @@ from woodshed.library import Repo
 _EVERY_CHECKED_NAME = (
     "python", "uv", "ffmpeg", "ffprobe", "rubberband",
     "pyyaml", "pydantic", "numpy", "librosa", "pyaudiowpatch",
-    "cache", "midi",
+    "cache", "midi", "loopback",
 )
 
 
@@ -59,6 +59,17 @@ def test_cache_check_is_report_only_and_never_fails(repo: Repo) -> None:
 def test_midi_check_is_an_honest_placeholder(repo: Repo) -> None:
     by_name = {c.name: c for c in doctor.run_checks(repo)}
     assert "not yet checked" in by_name["midi"].detail.lower()
+
+
+def test_loopback_check_skips_gracefully_with_no_pyaudiowpatch(repo: Repo) -> None:
+    # This dev venv has no pyaudiowpatch installed (same real-absence
+    # reasoning as test_run_checks_does_not_crash_with_optional_tools_absent)
+    # -- H3's loopback-open check must degrade, not fail, when there is
+    # nothing to open yet.
+    by_name = {c.name: c for c in doctor.run_checks(repo)}
+    assert by_name["loopback"].ok is True
+    assert "pyaudiowpatch not installed" in by_name["loopback"].detail
+    assert "loopback" not in doctor._CORE_CHECKS  # never gates core_ok
 
 
 def test_report_prints_the_browser_note_unconditionally(repo: Repo) -> None:

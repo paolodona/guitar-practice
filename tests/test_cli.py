@@ -70,7 +70,7 @@ def test_no_subcommand_prints_help_and_returns_1(capsys: pytest.CaptureFixture) 
 
 
 @pytest.mark.parametrize(
-    "name", ["setlist", "capture", "render", "status", "scan"]
+    "name", ["render", "status", "scan"]
 )
 def test_not_yet_implemented_commands_refuse_cleanly(
     name: str, capsys: pytest.CaptureFixture
@@ -81,6 +81,76 @@ def test_not_yet_implemented_commands_refuse_cleanly(
     assert err.startswith("woodshed: ")
     assert err.count("\n") == 1  # exactly one line
     assert "not built yet" in err
+
+
+# ── setlist (Phase 1, F1's CLI surface) ─────────────────────────────────
+
+
+def test_setlist_create_then_list(repo: Repo, capsys: pytest.CaptureFixture) -> None:
+    rc = cli.main(["setlist", "create", "gig", "--name", "The Gig", "--tuning", "Eb standard"])
+    assert rc == 0
+    capsys.readouterr()
+    rc = cli.main(["setlist", "list"])
+    assert rc == 0
+    assert "The Gig" in capsys.readouterr().out
+
+
+def test_setlist_add_song_derives_shift_by_default(repo: Repo) -> None:
+    cli.main(["setlist", "create", "gig", "--name", "Gig", "--tuning", "Eb standard"])
+    rc = cli.main(["setlist", "add-song", "gig", "cant-stop"])
+    assert rc == 0
+    from woodshed.setlist import load
+    assert load(repo, "gig").songs[0].shift is None
+
+
+def test_setlist_shift_sets_then_clears(repo: Repo) -> None:
+    cli.main(["setlist", "create", "gig", "--name", "Gig", "--tuning", "Eb standard"])
+    cli.main(["setlist", "add-song", "gig", "cant-stop"])
+    rc = cli.main(["setlist", "shift", "gig", "cant-stop", "-2"])
+    assert rc == 0
+    from woodshed.setlist import load
+    assert load(repo, "gig").songs[0].shift == -2
+    cli.main(["setlist", "shift", "gig", "cant-stop", "none"])
+    assert load(repo, "gig").songs[0].shift is None
+
+
+def test_setlist_rm_song(repo: Repo) -> None:
+    cli.main(["setlist", "create", "gig", "--name", "Gig", "--tuning", "E standard"])
+    cli.main(["setlist", "add-song", "gig", "cant-stop"])
+    rc = cli.main(["setlist", "rm-song", "gig", "cant-stop"])
+    assert rc == 0
+    from woodshed.setlist import load
+    assert load(repo, "gig").songs == []
+
+
+# ── capture (Phase 1, H2) -- the device half needs real hardware; only the
+#    argument-parsing / degrade paths are exercised here. ──────────────────
+
+
+def test_capture_with_no_title_refuses_cleanly(repo: Repo, capsys: pytest.CaptureFixture) -> None:
+    rc = cli.main(["capture"])
+    assert rc == 2
+    assert "a title is required" in capsys.readouterr().err
+
+
+def test_capture_queue_names_the_missing_prerequisite(
+    repo: Repo, capsys: pytest.CaptureFixture
+) -> None:
+    rc = cli.main(["capture", "--queue", "gig"])
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "Spotify import" in err
+
+
+def test_capture_list_devices_reports_the_missing_extra_cleanly(
+    repo: Repo, capsys: pytest.CaptureFixture
+) -> None:
+    # This dev venv has no pyaudiowpatch installed -- exercises the real
+    # require_module degrade path, not a mocked stand-in.
+    rc = cli.main(["capture", "--list-devices"])
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "pyaudiowpatch" in err
 
 
 # ── WoodshedError -> one line on stderr, exit 2 ──────────────────────────
