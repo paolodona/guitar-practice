@@ -3,6 +3,28 @@
 Out-of-scope items discovered while planning or implementing. Format:
 `- [ ] **[Plan <NNN>]** <description>`
 
+## Requested live during Phase 0 manual testing, 2026-09-06
+- [ ] **[Plan 001]** Paolo requested a default, non-editable section spanning the
+      whole song, always present on the song page even before any section is drawn.
+      Not in `docs/00-spec.md` or `docs/02-data-model.md` today -- a real design
+      decision, not a bug fix: does it get synthesized read-only in `_song()`'s
+      response (never written to `song.yaml`, never POST-able), or is it a real
+      persisted `Section` the UI merely refuses to edit? The former fits invariant 2
+      ("nothing about nesting is stored") better and avoids a `song.yaml` full of a
+      redundant span for every song; the latter needs a migration answer for existing
+      songs that don't have one. Also touches `sections.coverage_readiness` (a
+      full-song span would become the "longest covering section" for any uncovered
+      stretch of the recording, changing what "readiness" means). Needs a decision,
+      not a guess -- ask before building.
+- [ ] **[Plan 001]** Paolo requested the GX-100 patch field (song page inspector) be
+      a searchable dropdown of the user's actual patches, not free text. This is
+      Phase 3's Group N (`N1`): resolving a section's `patch:` id against
+      `gx100/songs/<slug>/song.yaml`'s `patches:` block, read by path from
+      `config.library_paths` (not present in `config.yaml` yet), degrading to "not
+      shown" if that sibling repo isn't configured/present. Doing this now would mean
+      building N1's cross-repo read a full two phases early, with no config plumbing
+      for where the gx100 checkout even lives. Left as free text for now.
+
 ## High
 - [x] **[Plan 001]** The nine `.dc.html` design artboards exist only inside the published
       artifact — `.gitignore:19` excludes `design/*.html` and they were never committed.
