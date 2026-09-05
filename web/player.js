@@ -67,6 +67,11 @@
  * @property {number} endS - source seconds, section end (Render.end_s)
  * @property {number} preRollS - source seconds of lead-in rendered ahead
  *   of startS (Render.pre_roll_s)
+ * @property {boolean} [preRollEveryPass] - Phase 1, G2
+ *   (clock.Render.pre_roll_every_pass, mirrored). false (default): the
+ *   lead-in plays once, on load/restart, and every natural wrap loops from
+ *   AFTER it (loopStartFrame = preRollS in sample frames). true: every
+ *   wrap loops from sample 0 instead, replaying the lead-in each pass.
  */
 
 // tuning.MAX_SHIFT (Python, src/woodshed/tuning.py) mirrored here — this
@@ -223,6 +228,12 @@ export class RealtimeEngine extends EventTarget {
       // silently moving the section's start to compensate.
       loopStartFrame += rawStartFrame; // rawStartFrame is negative here
       rawStartFrame = 0;
+    }
+    if (section.preRollEveryPass) {
+      // G2: every wrap replays the lead-in, so it always loops from the
+      // very start of what was sliced -- overrides whatever the "skip the
+      // pre-roll" computation above landed on, clamped or not.
+      loopStartFrame = 0;
     }
     const endFrame = Math.min(Math.round(section.endS * sr), decoded.length);
     if (endFrame <= rawStartFrame) {

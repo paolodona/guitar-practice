@@ -90,6 +90,23 @@
  *    (`timeline.computeGrid`), replacing the fixed-pixel CSS gradient
  *    Phase 0 copied from the artboard's own static mockup — same as
  *    song.js's decision 4, which has the fuller explanation.
+ *
+ * 6. Phase 1, G2: the click is audible now, through its OWN AudioContext
+ *    and GainNode (never the engine's — RealtimeEngine has no public
+ *    getter for its own context, and "gain independent of the music" is
+ *    render_click's own documented requirement). Sync between the two
+ *    independent contexts is PERCEPTUAL only — good enough to judge the
+ *    downbeat by ear (the manual gate this exists for), not a sample-
+ *    locked guarantee. `pre_roll_every_pass` is honoured on the click's
+ *    own loop points too, so an "always" click never drifts out of step
+ *    with whether the music itself replays its lead-in each pass. See
+ *    playClick()'s doc for the rest.
+ *
+ * FOUND LIVE 2026-09-07, fixed in this unit: a second, orphaned copy of
+ * the eager engine-load-at-mount-time bug `ensureEngine()` was already
+ * written to fix (see that function's own "FOUND LIVE 2026-09-06" note)
+ * had survived alongside it, creating a competing, never-resumed
+ * AudioContext on every mount. Removed; see the comment where it was.
  */
 import { currentSetlist, get, post } from '../app.js';
 import { drawWave, PRACTICE_WAVE_OPTS } from '../wave.js';
@@ -282,9 +299,70 @@ export function mount(el, payload) {
     }, 400);
   }
 
-  function preRollPlaybackSeconds() {
-    return (payload.practice.pre_roll_beats * secPerBeat(payload.tempo)) / (speedPct / 100);
+  // Mirrors clock.pre_roll_seconds + manifest.effective_pre_roll_beats
+  // (Phase 1, G2): SOURCE seconds, 0 with no tempo (never a divide-by-
+  // zero -- secPerBeat(payload.tempo) alone would be Infinity/NaN at
+  // bpm<=0), section.lead_in_beats overriding the song's pre_roll_beats
+  // when set.
+  function preRollSourceSeconds() {
+    const beats = section.lead_in_beats ?? payload.practice.pre_roll_beats;
+    if (!(payload.tempo.bpm > 0)) return 0;
+    return beats * secPerBeat(payload.tempo);
   }
+  function preRollPlaybackSeconds() {
+    return preRollSourceSeconds() / (speedPct / 100);
+  }
+
+  function stopClick() {
+    if (!clickSource) return;
+    try { clickSource.stop(); } catch { /* already stopped, or never started */ }
+    clickSource.disconnect();
+    clickSource = null;
+  }
+
+  /** (Re)fetch and (re)start the click for the CURRENT speedPct/section,
+   * per payload.practice.click ('off' | 'lead-in' | 'always'). Server-side
+   * mixing (server.py's `_click` -- render_click's own docstring assigns
+   * "gain independent of the music" to G2, satisfied here by a dedicated
+   * GainNode this function owns entirely, never shared with the engine's
+   * own gain). Fire-and-forget: a failed fetch/decode leaves practice
+   * silent, not broken -- the click is a rehearsal aid, not the pass-
+   * counting path. */
+  async function playClick() {
+    stopClick();
+    if (payload.practice.click === 'off') return;
+    const always = payload.practice.click === 'always';
+    const mode = always ? 'full' : 'lead_in';
+    const url = `/api/click/${encodeURIComponent(payload.slug)}/${encodeURIComponent(section.id)}` +
+      `?speed=${encodeURIComponent(speedPct / 100)}&mode=${mode}`;
+    try {
+      if (!clickCtx) clickCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (clickCtx.state === 'suspended') await clickCtx.resume();
+      const res = await fetch(url);
+      if (!res.ok) return;
+      const decoded = await clickCtx.decodeAudioData(await res.arrayBuffer());
+      const source = clickCtx.createBufferSource();
+      source.buffer = decoded;
+      if (always) {
+        // Match the MUSIC engine's own pre_roll_every_pass: loop the whole
+        // buffer from 0 if the lead-in repeats every pass, else skip past
+        // it on every wrap after the first -- an unconditional loopStart:0
+        // here would replay the lead-in every lap even when the music
+        // itself does not, an audible desync between the two.
+        source.loop = true;
+        source.loopStart = payload.practice.pre_roll_every_pass ? 0 : preRollPlaybackSeconds();
+        source.loopEnd = decoded.duration;
+      }
+      const gain = clickCtx.createGain();
+      gain.gain.value = 0.85;
+      source.connect(gain).connect(clickCtx.destination);
+      source.start();
+      clickSource = source;
+    } catch (err) {
+      console.warn(`practice.js: click unavailable (${err && err.message})`);
+    }
+  }
+
   function loopDurationPlayback() {
     return (section.end_s - section.start_s) / (speedPct / 100);
   }
@@ -624,6 +702,14 @@ export function mount(el, payload) {
   let engine = null;
   let engineReady = false;
   let engineInitPromise = null;
+  // ---- click (Phase 1, G2) -- a SEPARATE AudioContext from the engine's,
+  // since RealtimeEngine has no public getter for its own. Perceptual sync
+  // only ("starts within a few ms of the lead-in", not sample-locked
+  // across the two contexts) -- good enough for the manual gate this
+  // exists for ("check the bar ruler lands on the downbeat by ear with
+  // the click on"), not a guarantee this file claims further.
+  let clickCtx = null;
+  let clickSource = null;
 
   /**
    * Create the RealtimeEngine and load this section -- but only once, and
@@ -654,12 +740,14 @@ export function mount(el, payload) {
           audioUrl: `/api/audio/${encodeURIComponent(payload.slug)}`,
           startS: section.start_s,
           endS: section.end_s,
-          preRollS: payload.practice.pre_roll_beats * secPerBeat(payload.tempo),
+          preRollS: preRollSourceSeconds(),
+          preRollEveryPass: payload.practice.pre_roll_every_pass,
         });
         e.setSpeedPct(speedPct);
         e.setSemitones(shift);
         engine = e;
         engineReady = true;
+        playClick();
       })().catch((err) => {
         // player.js/D4's engine may simply not exist yet, or the browser
         // may refuse AudioWorklet -- degrade to local-only state rather
@@ -712,31 +800,27 @@ export function mount(el, payload) {
     // possibly just bumped by the ladder advance above) -- freeze the
     // cosmetic estimate for it. See beginLap()'s doc.
     beginLap();
+    // click === 'always' is already a native loop (playClick set it up once
+    // and it repeats on its own); click === 'lead-in' is single-shot and
+    // only needs re-triggering here when the music ALSO replays its
+    // lead-in every pass -- otherwise the lead-in click already finished
+    // and stayed silent for the rest of the lap, correctly.
+    if (payload.practice.click === 'lead-in' && payload.practice.pre_roll_every_pass) {
+      playClick();
+    }
     renderDiscrete();
   }
 
-  (async () => {
-    try {
-      engine = createEngine();
-      engine.addEventListener('pass', onPass);
-      engine.addEventListener('error', (e) => console.error('practice.js: engine error', e.detail?.error));
-      await engine.loadSection({
-        sectionId: section.id,
-        audioUrl: `/api/audio/${encodeURIComponent(payload.slug)}`,
-        startS: section.start_s,
-        endS: section.end_s,
-        preRollS: payload.practice.pre_roll_beats * secPerBeat(payload.tempo),
-      });
-      engine.setSpeedPct(speedPct);
-      engine.setSemitones(shift);
-      engineReady = true;
-    } catch (err) {
-      // player.js/D4's engine may simply not exist yet at the time this
-      // screen is exercised (parallel Phase 0 units) — degrade to local-
-      // only state rather than fail the whole screen. See module doc.
-      console.warn(`practice.js: RealtimeEngine unavailable (${err && err.message}) — controls update local state only, no audio.`);
-    }
-  })();
+  // FOUND LIVE 2026-09-07 (Phase 1, G2): a second, orphaned copy of the
+  // exact eager-IIFE-at-mount-time engine load that ensureEngine() (above)
+  // was already written to replace -- it ran unconditionally, outside any
+  // user gesture, creating a SECOND AudioContext that never gets resumed
+  // (browsers suspend a context created outside a gesture callback) and
+  // assigning the same `engine`/`engineReady` variables ensureEngine()
+  // uses, racing with it. Removed rather than left duplicated further:
+  // ensureEngine() is the one real load path (called lazily from
+  // play_pause below), and was already doing everything this dead copy
+  // attempted, correctly.
 
   // ---- local wall-clock progress estimate (module doc, decision 3) ----
   let rafId = null;
@@ -815,6 +899,7 @@ export function mount(el, payload) {
     },
     restart_section() {
       if (engineReady) engine.restartSection();
+      playClick();
       beginLap();
       elapsed = -cosmeticPreRoll;
       advancing = false;
@@ -861,6 +946,10 @@ export function mount(el, payload) {
     for (const unsub of unsubs) unsub();
     if (engine) {
       try { engine.destroy(); } catch (err) { /* already torn down or never finished loading */ }
+    }
+    stopClick();
+    if (clickCtx) {
+      clickCtx.close().catch(() => { /* already closed */ });
     }
   };
 }

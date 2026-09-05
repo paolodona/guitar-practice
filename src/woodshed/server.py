@@ -28,6 +28,8 @@ now:
     GET  /api/peaks/<slug>              -> cached peaks json, 404 if
                                             not built                     (C2)
     GET  /api/audio/<slug>              -> the source file, RANGE-SERVED  (C2)
+    GET  /api/click/<slug>/<section>?speed=&mode=lead_in|full
+                                        -> a generated click WAV, own gain (G2)
     POST /api/rep                       -> appends ONE ledger line        (C2)
     POST /api/section                   -> create/update/delete a span    (C2)
     POST /api/shift                     -> writes setlist.songs[].shift   (F1)
@@ -48,24 +50,29 @@ lock (not needed here -- this unit renders nothing) dropped.
 
 from __future__ import annotations
 
+import io
 import json
 import mimetypes
 import os
 import threading
 import uuid
+import wave as wave_module
 from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlsplit
 
+import numpy as np
 from pydantic import ValidationError
 
 from woodshed import ledger, practice, sections
+from woodshed.click import render_click
+from woodshed.clock import pre_roll_seconds
 from woodshed.config import load_config
 from woodshed.errors import WoodshedError
 from woodshed.ledger import Rep
 from woodshed.library import Repo
-from woodshed.manifest import Section, load_song, save_song
+from woodshed.manifest import Section, effective_pre_roll_beats, load_song, save_song
 from woodshed.setlist import effective_shift, set_shift
 from woodshed.setlist import load as load_setlist
 
@@ -236,6 +243,8 @@ class WoodshedHandler(BaseHTTPRequestHandler):
                 self._peaks(path.removeprefix("/api/peaks/"), parsed.query)
             elif path.startswith("/api/audio/"):
                 self._audio(path.removeprefix("/api/audio/"))
+            elif path.startswith("/api/click/"):
+                self._click(path.removeprefix("/api/click/"), parsed.query)
             else:
                 self._error(404, f"no such page: {path}")
         except (WoodshedError, ValidationError) as exc:
@@ -476,6 +485,81 @@ class WoodshedHandler(BaseHTTPRequestHandler):
             return
         content_type = mimetypes.guess_type(str(candidate))[0] or "application/octet-stream"
         self._send_file(candidate, content_type)
+
+    def _click(self, rest: str, query: str) -> None:
+        """A generated click WAV, in PLAYBACK seconds at the requested
+        *speed* -- `click.render_click`'s own docstring assigns "mixing it
+        in" to this unit (G2); this is that mixing.
+
+        `mode=lead_in` (the default) covers just the lead-in
+        (`effective_pre_roll_beats` converted to seconds via
+        `clock.pre_roll_seconds`, then divided by *speed* the same way
+        every other playback-seconds quantity is -- CLAUDE.md invariant 3).
+        `mode=full` covers the lead-in PLUS one full loop, meant to be
+        played with `loop=true` for the practice.click:"always" setting --
+        a plain click buffer looped natively is already the sample-exact
+        loop invariant 9 asks for, unlike the stretched music itself.
+
+        Generated FRESH at `bpm * speed` with `grid_offset_s=0` (beat 1 at
+        the window's own t=0), not sliced from a whole-song click -- this
+        assumes the section's own boundary already lands on a downbeat
+        (a grid-snapped section, G1). A `snapped: 'free'` section's click
+        will not agree with the music's actual beats; that is an inherent
+        limit of generating the click relative to the window rather than
+        the whole song's `grid_offset_s`, named here rather than silently
+        wrong.
+
+        `bpm <= 0` (no tempo yet) answers a near-silent single-sample WAV
+        rather than 404ing -- CLAUDE.md's degrade rule: no tempo means no
+        click, not an error the caller has to special-case.
+        """
+        raw_slug, _, raw_section = rest.partition("/")
+        slug = self._resolve_slug(raw_slug)
+        if slug is None:
+            self._error(404, f"no such song: {raw_slug!r}")
+            return
+        song = load_song(self.repo.song_dir(slug) / "song.yaml")
+        section = next((s for s in song.sections if s.id == raw_section), None)
+        if section is None:
+            self._error(404, f"no such section: {raw_section!r}")
+            return
+
+        params = parse_qs(query)
+        try:
+            speed = float(params.get("speed", ["1.0"])[0])
+        except ValueError:
+            speed = 1.0
+        speed = max(0.1, speed)
+        mode = params.get("mode", ["lead_in"])[0]
+
+        bpm = song.tempo.bpm
+        if bpm <= 0:
+            self._send(200, self._encode_wav_mono(np.zeros(1, dtype=np.float32)), "audio/wav")
+            return
+
+        pre_roll_s = pre_roll_seconds(effective_pre_roll_beats(song, section), bpm) / speed
+        if mode == "full":
+            duration_s = pre_roll_s + (section.end_s - section.start_s) / speed
+        else:
+            duration_s = pre_roll_s
+
+        pcm = render_click(bpm * speed, 0.0, song.tempo.time_signature, duration_s)
+        self._send(200, self._encode_wav_mono(pcm), "audio/wav")
+
+    @staticmethod
+    def _encode_wav_mono(pcm: np.ndarray, sample_rate: int = 48000) -> bytes:
+        """*pcm* (float32, [-1, 1]) as a 16-bit mono PCM WAV, stdlib only --
+        no soundfile/scipy, matching CLAUDE.md's "numpy and nothing else"
+        for this call site."""
+        clamped = np.clip(pcm, -1.0, 1.0)
+        pcm16 = (clamped * 32767.0).astype("<i2")
+        buffer = io.BytesIO()
+        with wave_module.open(buffer, "wb") as writer:
+            writer.setnchannels(1)
+            writer.setsampwidth(2)
+            writer.setframerate(sample_rate)
+            writer.writeframes(pcm16.tobytes())
+        return buffer.getvalue()
 
     # ── POST ────────────────────────────────────────────────────────────────
     def do_POST(self) -> None:  # noqa: N802 -- stdlib naming

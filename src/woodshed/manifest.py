@@ -51,6 +51,7 @@ __all__ = [
     "save_setlist",
     "hash_file",
     "check_binding",
+    "effective_pre_roll_beats",
 ]
 
 
@@ -127,6 +128,11 @@ class Section(BaseModel):
     notes: str | None = None
     patch: str | None = None  # optional: a patch id in gx100 songs/<slug>/song.yaml
     counts_toward_readiness: bool = True
+    # Phase 1, G2: docs/00-spec.md:98 lists this as a per-section field; an
+    # earlier draft of the model omitted it. None means "use the song's
+    # own practice.pre_roll_beats" -- see effective_pre_roll_beats below,
+    # the one place that precedence is resolved.
+    lead_in_beats: int | None = None
 
     @property
     def duration(self) -> float:
@@ -290,3 +296,17 @@ def check_binding(song: Song, repo: Repo) -> str | None:
             f"longer line up; re-detect the grid"
         )
     return None
+
+
+def effective_pre_roll_beats(song: Song, section: Section) -> float:
+    """The lead-in, in BEATS: *section*'s own `lead_in_beats` if it declares
+    one, else *song*'s `practice.pre_roll_beats` default.
+
+    Precedence only -- turning the result into seconds is
+    `clock.pre_roll_seconds`'s separate job. That split keeps this function
+    ignorant of `bpm`/tempo entirely: it only ever decides WHICH beats
+    count wins, never what a beat is worth in seconds.
+    """
+    if section.lead_in_beats is not None:
+        return section.lead_in_beats
+    return song.practice.pre_roll_beats

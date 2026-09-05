@@ -23,10 +23,12 @@ from __future__ import annotations
 
 import hashlib
 import http.client
+import io
 import json
 import threading
 import urllib.error
 import urllib.request
+import wave as wave_module
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -356,6 +358,52 @@ def test_audio_traversal_is_404(served):
     base, _, _ = served
     with pytest.raises(urllib.error.HTTPError) as caught:
         _get(base, "/api/audio/..%2f..%2fconfig.yaml")
+    assert caught.value.code == 404
+
+
+# ── GET /api/click/<slug>/<section> ─────────────────────────────────────────
+
+
+def _wav_duration_s(body: bytes) -> float:
+    with wave_module.open(io.BytesIO(body), "rb") as reader:
+        return reader.getnframes() / reader.getframerate()
+
+
+def test_click_lead_in_covers_the_pre_roll(served):
+    # _make_song's tempo is 120bpm; PracticeDefaults.pre_roll_beats
+    # defaults to 4.0 -- 4 beats at 120bpm is 2.0s at speed 1.0.
+    base, _, slug = served
+    status, body = _get(base, f"/api/click/{slug}/solo-full")
+    assert status == 200
+    assert _wav_duration_s(body) == pytest.approx(2.0, abs=0.05)
+
+
+def test_click_speed_scales_the_duration(served):
+    base, _, slug = served
+    status, body = _get(base, f"/api/click/{slug}/solo-full?speed=0.5")
+    assert status == 200
+    assert _wav_duration_s(body) == pytest.approx(4.0, abs=0.05)  # half speed, twice as long
+
+
+def test_click_full_mode_covers_lead_in_plus_the_whole_loop(served):
+    base, _, slug = served
+    status, body = _get(base, f"/api/click/{slug}/solo-full?mode=full")
+    assert status == 200
+    # solo-full is 0.0-60.0s -- 2.0s lead-in + 60.0s loop at speed 1.0.
+    assert _wav_duration_s(body) == pytest.approx(62.0, abs=0.05)
+
+
+def test_click_unknown_section_is_404(served):
+    base, _, slug = served
+    with pytest.raises(urllib.error.HTTPError) as caught:
+        _get(base, f"/api/click/{slug}/no-such-section")
+    assert caught.value.code == 404
+
+
+def test_click_unknown_song_is_404(served):
+    base, _, _ = served
+    with pytest.raises(urllib.error.HTTPError) as caught:
+        _get(base, "/api/click/no-such-song/solo-full")
     assert caught.value.code == 404
 
 
@@ -709,6 +757,7 @@ def test_server_writes_nothing_else(served):
     # every GET this unit implements -- harmless, but exercised so a stray
     # write in a read path would be caught too
     _get(base, "/api/setlist/gig")
+    _get(base, f"/api/click/{slug}/solo-full")
     _get(base, "/")
     _get(base, "/web/app.js")
     _get(base, "/api/config")

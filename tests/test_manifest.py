@@ -29,6 +29,7 @@ from woodshed.manifest import (
     Song,
     Tempo,
     check_binding,
+    effective_pre_roll_beats,
     hash_file,
     load_setlist,
     load_song,
@@ -225,6 +226,50 @@ def test_section_valid_span_does_not_raise() -> None:
         target_speed=100,
     )
     assert section.end_s > section.start_s
+
+
+# --- lead_in_beats (Phase 1, G2) -- docs/00-spec.md:98 ----------------------
+
+
+def test_section_lead_in_beats_defaults_none() -> None:
+    section = Section(
+        id="ok", name="Ok", start_s=0.0, end_s=10.0, snapped="free", target_speed=100,
+    )
+    assert section.lead_in_beats is None
+
+
+def test_section_lead_in_beats_round_trips() -> None:
+    section = Section(
+        id="ok", name="Ok", start_s=0.0, end_s=10.0, snapped="free", target_speed=100,
+        lead_in_beats=8,
+    )
+    assert section.lead_in_beats == 8
+
+
+def _song_with_section(section: Section, pre_roll_beats: float = 4.0) -> Song:
+    return Song(
+        slug="s", title="T", artist="A",
+        recording=Recording(file="a.flac", sha256="a" * 64, duration_s=10.0, tuning="E standard"),
+        practice=PracticeDefaults(pre_roll_beats=pre_roll_beats),
+        sections=[section],
+    )
+
+
+def test_effective_pre_roll_beats_uses_song_default_when_section_has_none() -> None:
+    section = Section(
+        id="ok", name="Ok", start_s=0.0, end_s=10.0, snapped="free", target_speed=100,
+    )
+    song = _song_with_section(section, pre_roll_beats=4.0)
+    assert effective_pre_roll_beats(song, section) == 4.0
+
+
+def test_effective_pre_roll_beats_section_override_wins() -> None:
+    section = Section(
+        id="ok", name="Ok", start_s=0.0, end_s=10.0, snapped="free", target_speed=100,
+        lead_in_beats=8,
+    )
+    song = _song_with_section(section, pre_roll_beats=4.0)
+    assert effective_pre_roll_beats(song, section) == 8
 
 
 # --- round trip: byte-stable for an app-written file ------------------------

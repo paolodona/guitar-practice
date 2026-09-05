@@ -12,7 +12,7 @@ import itertools
 
 import pytest
 
-from woodshed.clock import Render, grid_to_playback, to_playback, to_source
+from woodshed.clock import Render, grid_to_playback, pre_roll_seconds, to_playback, to_source
 
 
 def make_render(
@@ -197,3 +197,58 @@ def test_render_is_frozen() -> None:
 def test_render_default_crossfade_ms() -> None:
     r = Render(start_s=0.0, end_s=10.0, pre_roll_s=0.0, speed=1.0)
     assert r.crossfade_ms == 10.0
+
+
+# ---------------------------------------------------------------------------
+# pre_roll_every_pass (Phase 1, G2) -- docs/02-data-model.md:47.
+# ---------------------------------------------------------------------------
+
+
+def test_render_pre_roll_every_pass_defaults_false() -> None:
+    r = Render(start_s=0.0, end_s=10.0, pre_roll_s=2.0, speed=1.0)
+    assert r.pre_roll_every_pass is False
+
+
+def test_pre_roll_every_pass_false_puts_loop_start_after_the_pre_roll() -> None:
+    r = Render(start_s=0.0, end_s=10.0, pre_roll_s=2.0, speed=0.5, pre_roll_every_pass=False)
+    assert r.loop_start == 4.0  # pre_roll_s / speed, unchanged from before this field existed
+
+
+def test_pre_roll_every_pass_true_puts_loop_start_at_zero() -> None:
+    r = Render(start_s=0.0, end_s=10.0, pre_roll_s=2.0, speed=0.5, pre_roll_every_pass=True)
+    assert r.loop_start == 0.0
+
+
+def test_pre_roll_every_pass_true_leaves_lap_duration_and_total_unchanged() -> None:
+    # Only WHERE the loop starts moves; loop_end shifts by exactly the same
+    # amount as loop_start (it's defined relative to it), so the LAP's own
+    # duration and the whole render's total length do not change -- the
+    # lead-in still plays every pass, it just isn't skipped afterwards.
+    always = Render(start_s=0.0, end_s=10.0, pre_roll_s=2.0, speed=0.5, pre_roll_every_pass=True)
+    once = Render(start_s=0.0, end_s=10.0, pre_roll_s=2.0, speed=0.5, pre_roll_every_pass=False)
+    assert always.loop_end - always.loop_start == pytest.approx(once.loop_end - once.loop_start)
+    assert always.total == once.total
+
+
+# ---------------------------------------------------------------------------
+# pre_roll_seconds() -- the beats -> seconds half of the lead-in conversion.
+# render_section(pre_roll_s=...) (Phase 2) is in seconds; lead_in_beats and
+# pre_roll_beats are both in beats. Precedence between the two (a section's
+# lead_in_beats overriding the song's pre_roll_beats) is
+# manifest.effective_pre_roll_beats' job, one tier up -- this function only
+# ever does beats * 60 / bpm.
+# ---------------------------------------------------------------------------
+
+
+def test_pre_roll_seconds_formula() -> None:
+    assert pre_roll_seconds(4.0, 120.0) == pytest.approx(2.0)  # 4 beats at 120bpm = 2s
+
+
+def test_pre_roll_seconds_zero_when_bpm_absent() -> None:
+    # Named test for the degrade docs/02-data-model.md:160 requires: bpm 0
+    # or absent must never divide-by-zero.
+    assert pre_roll_seconds(4.0, 0.0) == 0.0
+
+
+def test_pre_roll_seconds_zero_when_bpm_negative() -> None:
+    assert pre_roll_seconds(4.0, -10.0) == 0.0
