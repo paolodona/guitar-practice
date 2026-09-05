@@ -32,6 +32,8 @@
  * until a later phase's unit adds the endpoint AND updates the route here.
  */
 
+import { attach } from './keys.js';
+
 const SCREEN_ROOT_ID = 'screen-root';
 
 /**
@@ -181,6 +183,7 @@ export async function route() {
  * @returns {void}
  */
 export function start() {
+  attach(window);
   window.addEventListener('hashchange', () => {
     route();
   });
