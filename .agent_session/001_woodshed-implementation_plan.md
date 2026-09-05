@@ -348,6 +348,62 @@ directly rather than trusting the remembered count.
         its prerequisites close to hand: F3's stepper is done, G1's bar
         ruler is still outstanding.
 
+- [x] Group G — grid and snapping, done directly, test-first, one unit per
+      commit. **Before starting**, re-checked `web/timeline.js` against
+      what Phase 0 shipped: `drawGrid` already existed, built ahead of a
+      grid-computing function that didn't — G1 supplied the missing half
+      rather than duplicating the drawing.
+      - **G1** (`5f92263`) `timeline.computeGrid(tempo, durationS)` (bars/
+        beats in source seconds, `{[], []}` with no tempo) and
+        `snapToGrid` (a client-side mirror of `woodshed.sections.snap` —
+        a network round trip per pointermove isn't an option). `song.js`
+        and `practice.js` replace their Phase 0 placeholder grids (a
+        fixed-pixel CSS gradient copied from the static artboard, which
+        has no tempo to be accurate to) with a real canvas layer;
+        `song.js`'s bar ruler now positions real bar numbers with `viewX`
+        against `grid.bars` instead of evenly-spacing `barOf()` at
+        arbitrary time marks. `sections.js`'s `attachDragHandlers` snaps a
+        dragged edge live while `section.snapped` is `'beat'`/`'bar'`, and
+        commits with `snapped: section.snapped` instead of a hardcoded
+        `'free'` — `renderSections`/`attachDragHandlers` both gained a
+        `grid` parameter (a documented signature change). `song.js`'s
+        inspector gained a Snap (free/beat/bar) selector — the only way to
+        ever set `snapped` away from `'free'` before this unit — and
+        keys.js's new `[`/`]` (nudge_start/nudge_end) widen the selected
+        section's boundary by a fixed 10ms, debounced like F3's shift.
+      - **G2** (`12e10fd`) `Section.lead_in_beats` (docs/00-spec.md:98,
+        missing from the model until now) + `manifest.
+        effective_pre_roll_beats` (precedence only, in beats) +
+        `clock.pre_roll_seconds` (beats -> source seconds, 0.0 with no
+        tempo) + `clock.Render.pre_roll_every_pass` (`loop_start` moves to
+        0; `loop_end`/`total` stay defined relative to it, so lap duration
+        and total length are unaffected). Server gains `GET
+        /api/click/<slug>/<section>?speed=&mode=lead_in|full` — the
+        "mixing it in" `render_click`'s own docstring assigns to this unit
+        — generated fresh at `bpm*speed` assuming the section boundary is
+        grid-snapped (an unsnapped section's click won't agree with the
+        music, named rather than silently wrong). `player.js`'s
+        `loopStartFrame` honours `preRollEveryPass`; `practice.js` gains
+        `playClick()`/`stopClick()` (a dedicated AudioContext + GainNode,
+        started on engine load and section restart, honouring
+        `preRollEveryPass` on the click's own loop points too) and fixes
+        the pre-roll conversion's live divide-by-zero at `bpm 0`.
+        **Found live while wiring this in**: a second, orphaned copy of
+        the eager engine-load-at-mount-time bug `ensureEngine()` had
+        already been written to fix (its own "FOUND LIVE 2026-09-06"
+        note) had survived alongside it — a competing, never-resumed
+        `AudioContext` created on every mount, racing the real lazy-loaded
+        one. Removed.
+      - **Automated gate**: `uv run pytest` green (739, up from 723 at the
+        end of Group F); `uv run ruff check .` clean; the
+        librosa-uninstalled gate still green. `node --check` on every
+        touched `web/*.js` file (no JS test framework in this repo).
+      - **Not yet done**: Phase 1's manual gate — now has all three of its
+        prerequisites (G1's bar ruler, F3's transpose stepper, G2's
+        audible click) in place, still deferred to the end of the phase
+        per Paolo's own instruction (a human, once, at the actual
+        machine).
+
 ---
 
 ## Context
