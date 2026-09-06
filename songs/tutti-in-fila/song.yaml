@@ -1,0 +1,47 @@
+slug: tutti-in-fila
+title: Tutti in Fila
+artist: ''
+recording:
+  file: audio/03 Tutti In Fila.mp3
+  sha256: 461544d66a7d334e8735af59106056112fed9371c5469bb100d1f76a6290abbe
+  duration_s: 346.914063
+  tuning: Eb standard
+tempo:
+  bpm: 116.04
+  source: refined
+  grid_offset_s: 0.417
+  time_signature: 4/4
+  confidence: 0.276
+practice:
+  start_speed: 50.0
+  ladder_step: 5.0
+  reps_to_advance: 3
+  pre_roll_beats: 4.0
+  pre_roll_every_pass: false
+  click: 'off'
+  loop_crossfade_ms: 10.0
+sections:
+- id: tapping
+  name: Tapping
+  start_s: 201.5093816078167
+  end_s: 216.9381741671159
+  snapped: free
+  target_speed: 100.0
+  counts_toward_readiness: true
+  full_song: false
+- id: full-solo
+  name: Full solo
+  start_s: 150.0
+  end_s: 262.38120587658227
+  snapped: beat
+  target_speed: 100.0
+  counts_toward_readiness: true
+  full_song: false
+- id: whole-song
+  name: Whole song
+  start_s: 0.0
+  end_s: 346.914063
+  snapped: free
+  target_speed: 100.0
+  counts_toward_readiness: true
+  full_song: true

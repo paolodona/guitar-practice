@@ -1,0 +1,39 @@
+slug: no-farts-in-the-car
+title: No Farts in the Car
+artist: Evan
+recording:
+  file: audio/No farts in the car.mp3
+  sha256: 2fbc6193b620d13d8900e84dd209dcf1bd33ae714a293b8b7f34f958eb1caf09
+  duration_s: 194.784921
+  tuning: Eb standard
+tempo:
+  bpm: 89.97
+  source: refined
+  grid_offset_s: 0.34
+  time_signature: 4/4
+  confidence: 0.363
+practice:
+  start_speed: 50.0
+  ladder_step: 5.0
+  reps_to_advance: 3
+  pre_roll_beats: 4.0
+  pre_roll_every_pass: false
+  click: 'off'
+  loop_crossfade_ms: 10.0
+sections:
+- id: whole-song
+  name: Whole song
+  start_s: 0.0
+  end_s: 123.12278303384278
+  snapped: free
+  target_speed: 100.0
+  counts_toward_readiness: true
+  full_song: true
+- id: cba6288b
+  name: New section
+  start_s: 41.678869558951966
+  end_s: 71.44949067248909
+  snapped: free
+  target_speed: 100.0
+  counts_toward_readiness: true
+  full_song: false

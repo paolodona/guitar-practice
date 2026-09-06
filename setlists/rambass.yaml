@@ -1,0 +1,8 @@
+name: RambaSS
+tuning: Eb standard
+venue: ''
+songs:
+- slug: tutti-in-fila
+  shift: -1
+- slug: no-farts-in-the-car
+  shift: 0
