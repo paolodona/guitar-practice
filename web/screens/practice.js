@@ -139,9 +139,11 @@ function ensureStyle() {
       border:none;cursor:pointer }
     .ws-practice .stepper-btn:hover { background:var(--accent-tint,#2A2118);color:var(--on-tint,#F0C48A) }
     .ws-practice .chip { flex:1;background:var(--surface,#131B19);border:1px solid var(--hairline,#1C2523);
-      border-radius:4px;padding:12px 16px;display:flex;flex-direction:column;gap:3px;cursor:pointer;
-      text-align:left;font-family:inherit;color:inherit }
+      border-radius:4px;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;
+      gap:10px;cursor:pointer;text-align:left;font-family:inherit;color:inherit }
     .ws-practice .chip:hover { border-color:var(--accent-dim,#8A5C29) }
+    .ws-practice .chip__text { display:flex;flex-direction:column;gap:3px }
+    .ws-practice .chip__icon { flex-shrink:0;display:flex;align-items:center }
     .ws-practice .pill { width:64px;height:6px;border-radius:3px }
     .ws-practice .ws-song-link:hover { color:var(--ink,#E8EEEB);text-decoration:underline }
   `;
@@ -174,6 +176,46 @@ function orderSections(sections) {
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
+
+// ---- Group Q, Q1: self-hosted inline SVG icons for the six foot actions ----
+// No icon font, no CDN — this repo's own "no network at runtime" rule, the
+// same reason the fonts are vendored (see docs/00-spec.md). Lifted VERBATIM
+// from design/Main.dc.html's own six chip icons, not re-derived: play/skip-
+// forward/skip-back triangles for CC80-82, stacked chevron-up/down for
+// faster/slower (CC83/84), and a distinct undo-arc for retract (CC85) —
+// deliberately unlike the skip-back triangle, so the two are never confused
+// from normal sitting distance (the artboard's own reasoning, restated at
+// the manual gate in this phase's own checklist).
+const PLAY_ICON = '<svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true"><path d="M7 5.2v11.6l10-5.8z" fill="#9CAAA4"/></svg>';
+// Swapped in live on the engine's actual playing state (never a static play
+// glyph) — see play_pause()'s own handler below, which is the one place
+// `playing` actually changes.
+const PAUSE_ICON = '<svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true"><rect x="5" y="4.5" width="4" height="13" rx="1" fill="#9CAAA4"/><rect x="13" y="4.5" width="4" height="13" rx="1" fill="#9CAAA4"/></svg>';
+
+/**
+ * One icon per foot action (`ACTIONS` entries with a real `cc`) — a
+ * completeness test (web/tests/test_foot_icons.mjs) asserts every such
+ * entry has a matching key here, same "one action table" discipline
+ * actions.js's own module doc already applies to CCs: an icon silently
+ * missing for a real foot action is the same class of bug as a missing
+ * one. `play_pause`'s own entry is `PLAY_ICON` (the paused default);
+ * `renderFootIcon` below is what actually swaps it live.
+ * @type {Record<string, string>}
+ */
+export const FOOT_ICONS = {
+  play_pause: PLAY_ICON,
+  next_section: '<svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true"><path d="M4.5 5v12l8.5-6z" fill="#9CAAA4"/><rect x="14.5" y="5" width="2.6" height="12" rx="1" fill="#9CAAA4"/></svg>',
+  prev_section: '<svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true"><rect x="4.9" y="5" width="2.6" height="12" rx="1" fill="#9CAAA4"/><path d="M17.5 5v12l-8.5-6z" fill="#9CAAA4"/></svg>',
+  speed_up: '<svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true">'
+    + '<path d="M5 10l6-5 6 5" fill="none" stroke="#9CAAA4" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>'
+    + '<path d="M5 15l6-5 6 5" fill="none" stroke="#9CAAA4" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  speed_down: '<svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true">'
+    + '<path d="M5 7l6 5 6-5" fill="none" stroke="#9CAAA4" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>'
+    + '<path d="M5 12l6 5 6-5" fill="none" stroke="#9CAAA4" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  retract_rep: '<svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true">'
+    + '<path d="M15.5 15.5A7 7 0 1 0 15 6" fill="none" stroke="#9CAAA4" stroke-width="1.8" stroke-linecap="round"/>'
+    + '<path d="M15 2.5v4.2h4.2" fill="none" stroke="#9CAAA4" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+};
 
 /** Slice a whole-song peaks payload down to [startS, endS] — wave.js's own
  *  doc is explicit that this is the caller's job, not its. */
@@ -537,16 +579,31 @@ export function mount(el, payload) {
   helpOverlay.addEventListener('click', (e) => { if (e.target === helpOverlay) toggleHelp(); });
 
   // ---- foot strip: exactly the six CC actions, in ACTIONS' own table
-  // order (never hand-reordered — see CLAUDE.md's "one action table"). ----
+  // order (never hand-reordered — see CLAUDE.md's "one action table").
+  // Group Q, Q1: each chip's icon (FOOT_ICONS, above) sits right-aligned
+  // and vertically centred against the label, per design/Main.dc.html. ----
   const footActions = Object.entries(ACTIONS).filter(([, spec]) => spec.cc != null);
   footEl.innerHTML = footActions.map(([name, spec]) => `
     <button class="chip" data-chip="${name}">
-      <div class="mono" style="font-size:12px;color:var(--accent-dim,#8A5C29);letter-spacing:.14em">CC ${spec.cc}</div>
-      <div style="font-size:17px;font-weight:500">${escapeHtml(spec.label)}</div>
+      <div class="chip__text">
+        <div class="mono" style="font-size:12px;color:var(--accent-dim,#8A5C29);letter-spacing:.14em">CC ${spec.cc}</div>
+        <div style="font-size:17px;font-weight:500">${escapeHtml(spec.label)}</div>
+      </div>
+      <div class="chip__icon" data-chip-icon="${name}">${FOOT_ICONS[name] ?? ''}</div>
     </button>`).join('');
   footEl.querySelectorAll('[data-chip]').forEach((btn) => {
     btn.addEventListener('click', () => dispatch(btn.dataset.chip, 'ui'));
   });
+  const playChipIconEl = footEl.querySelector('[data-chip-icon="play_pause"]');
+  /** Swaps the play_pause chip's icon on the engine's ACTUAL playing state
+   *  (never a static play glyph, per FOOT_ICONS' own doc) — called once at
+   *  mount to set the initial paused icon, and again every time `playing`
+   *  actually changes (play_pause's own handler, below). Cheap enough to
+   *  call from a discrete event; never called per-frame. */
+  function renderFootIcon() {
+    if (playChipIconEl) playChipIconEl.innerHTML = playing ? PAUSE_ICON : PLAY_ICON;
+  }
+  renderFootIcon();
 
   // ---- transpose stepper ----
   root.querySelector('[data-shift-minus]').addEventListener('click', () => dispatch('transpose_down', 'ui'));
@@ -857,6 +914,7 @@ export function mount(el, payload) {
     play_pause() {
       playing = !playing;
       renderCheap();
+      renderFootIcon(); // Q1: the chip's icon swaps live on the ACTUAL playing state
       if (playing) {
         // Called synchronously, same call stack as the click/keydown that
         // reached here -- ensureEngine()'s AudioContext gets created and

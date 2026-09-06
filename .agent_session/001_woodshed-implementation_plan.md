@@ -1778,6 +1778,23 @@ expose both** — two more real bugs:
   belongs beside `actions.js`'s existing "one action table" discipline: an icon silently
   missing for a real foot action is the same class of bug as a missing CC.
   *Test contract*: `node --check`; the icon-completeness assertion above.
+  - **Done, 2026-09-06.** Six inline SVGs (`FOOT_ICONS`, exported for the completeness
+    test) lifted VERBATIM from `design/Main.dc.html`'s own chip icons, not re-derived —
+    play/skip-forward/skip-back triangles, stacked chevrons for faster/slower, the
+    undo-arc for retract. `.chip`'s CSS switched from a column to a row (`align-items:
+    center;justify-content:space-between`), with the existing CC-label/action-label pair
+    wrapped in a new `.chip__text` so the icon sits in its own `.chip__icon` slot, right-
+    aligned and vertically centred, per the artboard. `play_pause`'s icon swaps live via
+    a small `renderFootIcon()` called once at mount and again from the `play_pause`
+    handler itself (the one place `playing` actually changes) — deliberately NOT folded
+    into `renderCheap()` (the per-frame render), since an icon that only changes on a
+    discrete toggle has no business being touched every frame. `web/tests/
+    test_foot_icons.mjs`: 2 assertions, cross-checking `actions.js`'s real `ACTIONS`
+    against `practice.js`'s real `FOOT_ICONS` in both directions (no icon missing for a
+    real foot action; no stale icon for a renamed/removed one) — no hand-typed action
+    list to drift out of sync with either file. `node --check` clean on both touched
+    files. `uv run pytest` (906, unaffected — JS-only unit) and the no-extras gate (903,
+    unaffected) still green.
 
 **Group R — the song page gets a real preview**
 - **R1 — done, 2026-09-06.** Took the `loop: false` option (not a second player):
