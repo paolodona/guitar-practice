@@ -1987,6 +1987,15 @@ done there rather than duplicated here.
   A new pytest marker, `needs_demucs`, joins `needs_rubberband`/`needs_librosa`/
   `needs_device` in `pyproject.toml`; the one real end-to-end isolation test is marked
   with it and excluded from the no-extras gate, same as the other three.
+  - **Done, 2026-09-06.** `_demucs_check` — installed reports the CPU-cost note
+    verbatim; missing names `uv sync --extra separate`, the same install-hint shape
+    every other optional module check already uses. `evict()`'s own "walk
+    `cache/stems/`" half landed already, in Group I's pulled-forward commit (both
+    were built in the same session, and `evict` walking the whole `cache/` tree from
+    its first version made a later "extension" pass pointless) — this unit's only
+    remaining scope was the doctor check itself. `needs_demucs` was already
+    registered in `pyproject.toml` from S1; no new marker needed. 4 new tests in
+    `test_doctor.py`. Full suite 962 passed (was 960); ruff clean.
 
 **Group T — add a song for real (∥ with S)**
 - **T1** `POST /api/song/upload` (multipart) — the file-binding half of `cli.py`'s

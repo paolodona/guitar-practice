@@ -13,7 +13,7 @@ from woodshed.library import Repo
 
 _EVERY_CHECKED_NAME = (
     "python", "uv", "ffmpeg", "ffprobe", "rubberband",
-    "pyyaml", "pydantic", "numpy", "librosa", "pyaudiowpatch",
+    "pyyaml", "pydantic", "numpy", "librosa", "pyaudiowpatch", "demucs",
     "cache", "midi", "loopback",
 )
 
@@ -39,9 +39,29 @@ def test_run_checks_does_not_crash_with_optional_tools_absent(repo: Repo) -> Non
     # capture`) -- either way, run_checks must report a bool, never raise.
     checks = doctor.run_checks(repo)
     by_name = {c.name: c for c in checks}
-    for optional in ("librosa", "pyaudiowpatch"):
+    for optional in ("librosa", "pyaudiowpatch", "demucs"):
         assert optional in by_name
         assert isinstance(by_name[optional].ok, bool)  # reported, not raised
+
+
+def test_demucs_check_names_the_cpu_cost_when_installed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """S4 (Phase 1.5, Group S): Demucs on CPU is genuinely slow -- the
+    first isolation of a section should read as slow-but-working, not as
+    a hang."""
+    monkeypatch.setattr(doctor, "_module", lambda name: True)
+    check = doctor._demucs_check()
+    assert check.ok is True
+    assert "CPU" in check.detail
+    assert "htdemucs_ft" in check.detail
+
+
+def test_demucs_check_names_the_separate_extra_when_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(doctor, "_module", lambda name: False)
+    check = doctor._demucs_check()
+    assert check.ok is False
+    assert check.fix == "uv sync --extra separate"
 
 
 def test_core_deps_are_present_in_this_dev_env(repo: Repo) -> None:

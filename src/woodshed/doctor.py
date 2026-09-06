@@ -137,7 +137,30 @@ def _module_checks() -> list[Check]:
             name, present, "installed" if present else "missing (optional)", needed,
             "" if present else f"uv sync --extra {extra}",
         ))
+    checks.append(_demucs_check())
     return checks
+
+
+def _demucs_check() -> Check:
+    """S4 (Phase 1.5, Group S): guitar-only isolation's own dependency.
+    Reported like the other optional extras above, but ALSO names Demucs's
+    own CPU cost when it IS installed -- `rambass-live`'s own docs already
+    measure `htdemucs_ft` at roughly 4x `htdemucs`'s own time on CPU, and
+    the first isolation of a section is exactly where that would otherwise
+    read as a hang rather than as slow-but-working."""
+    present = _module("demucs")
+    if present:
+        detail = (
+            "installed (CPU is genuinely slow -- htdemucs_ft runs roughly "
+            "4x htdemucs's own time; the first isolation of a section can "
+            "take a while, that is not a hang)"
+        )
+    else:
+        detail = "missing (optional)"
+    return Check(
+        "demucs", present, detail, "guitar-only isolation (Phase 1.5, Group S)",
+        "" if present else "uv sync --extra separate",
+    )
 
 
 def run_checks(repo: Repo) -> list[Check]:
@@ -206,7 +229,7 @@ def report(repo: Repo) -> tuple[str, bool]:
         "core commands (add, section, log, serve) work with the base install.",
         "analyze needs [analyze] (librosa); capture needs [capture] "
         "(pyaudiowpatch); render and reading non-wav audio need ffmpeg and "
-        "rubberband.",
+        "rubberband; guitar-only isolation needs [separate] (demucs).",
         "",
         _BROWSER_NOTE,
     ]
