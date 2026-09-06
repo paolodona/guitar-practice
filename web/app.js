@@ -26,11 +26,10 @@
  * against `'/song/x'`). `loadModule` is a dynamic import() so the initial
  * page load does not pull in every screen; `loadPayload` resolves to
  * exactly what `mount`'s payload becomes (before params are merged in).
- * capture/library have no GET endpoint yet in this phase (only
- * /api/song, /api/peaks, /api/audio, /api/setlists and /api/setlist/<slug>
- * exist server-side, per server.py's module docstring) — their loadPayload
- * is `async () => ({})` until a later phase's unit adds the endpoint AND
- * updates the route here. `#/`'s loadPayload (Phase 1, F2) resolves the
+ * `#/capture` has no GET endpoint of its own for the router to fetch (it
+ * fetches its own state after mounting, since that state changes while you
+ * watch it) — its loadPayload is `async () => ({})`. Every other route
+ * resolves a real endpoint. `#/`'s loadPayload (Phase 1, F2) resolves the
  * "current setlist" — a per-viewer preference, not itself a route, see
  * dashboard.js's decision 1 — from localStorage, falling back to the first
  * setlist GET /api/setlists returns; `{setlists: []}` when there are none
@@ -125,7 +124,10 @@ export const ROUTES = [
   {
     pattern: /^\/library$/,
     loadModule: () => import('./screens/library.js'),
-    loadPayload: async () => ({}),
+    // Phase 3, M3: every song, which of them still need audio, and the
+    // state of the two ways in that are not capture (library_paths,
+    // Spotify).
+    loadPayload: async () => get('/api/library'),
   },
   {
     pattern: /^\/progress\/(?<slug>[^/]+)$/,

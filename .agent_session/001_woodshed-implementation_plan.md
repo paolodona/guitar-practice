@@ -2986,6 +2986,36 @@ touches the network, ever, in a test.
 - **M2** library scan over `config.library_paths`, tags first then filename, candidates
   shown, **never bind automatically on a fuzzy match**
 - **M3** `web/screens/library.js`
+  - **Done, 2026-09-06**, together with the CLI and endpoints it needs — M3 as
+    written is a screen with nothing behind it, so this covers both.
+  - **CLI**: `woodshed scan [song] [--bind N]` (the second of the three
+    `_NOT_YET_IMPLEMENTED` stubs to become real this run) and `woodshed import`.
+    `--bind` is 1-based and explicit; a bare `scan` lists candidates for every
+    unbound song and says how to bind one. `import --connect` does the PKCE
+    round trip as a **paste** rather than a local callback server: Spotify
+    redirects to a URL that never has to resolve, the human pastes it back, and
+    the code comes out of the query string — fewer moving parts than a listening
+    socket, and it works the same over SSH. With no `spotify.client_id` in
+    `config.yaml` it says so and explains there is no secret to add.
+    `cli.bind_audio_to_song` is the other half of `bind_song_file`: a file for a
+    song that already exists, keeping its title, `spotify_id` and any sections
+    already drawn on it.
+  - **Endpoints**: `GET /api/library`, `POST /api/library/scan`,
+    `POST /api/library/bind`, `POST /api/library/import`. The bind route checks
+    the browser-supplied path against the configured `library_paths` before
+    opening anything — without it, any page open in the same browser could ask
+    the server to copy an arbitrary file into the repo; the same class of thing
+    the existing Host/Origin check guards, applied to a path.
+  - **Screen**: the artboard's three ways in plus a table whose Audio column is
+    the point of it. A needs-audio row gets a Scan button (expanding its own
+    candidate list, each with its score and *why* it matched) and a Capture link
+    — the two real next steps, rather than a badge and no way forward. Scanning
+    is per row on demand: `POST /api/library/scan` walks the disk, and doing that
+    for every song on mount would make opening the screen cost a full library
+    walk per song. With no token stored, the Spotify card degrades to the one
+    line naming what to run once in a terminal, rather than a button that fails.
+  - 7 new tests in `test_cli.py`, 5 in `test_server.py`, 2 node tests. Full suite
+    1077 passed (was 1066); ruff clean; no-extras 1074 passed, 3 deselected.
 
 **Group N — the gx100 cross-reference (∥)**
 - **N1** a section's `patch:` id resolved against `gx100/songs/<slug>/song.yaml`'s

@@ -2028,3 +2028,90 @@ def test_render_then_evict_never_loses_the_render_to_a_failed_sweep(monkeypatch,
 
     monkeypatch.setattr(server_module.render_module, "evict", boom)
     assert server_module.render_then_evict(repo, lambda: "path", 20.0) == "path"
+
+
+# ── GET /api/library, POST /api/library/* (Phase 3, Group M3) ─────────────
+
+
+def test_library_payload_lists_songs_and_says_which_need_audio(served):
+    base, repo, slug = served
+    from woodshed.sources import Track, import_tracks
+
+    import_tracks(repo, [Track(spotify_id="s1", title="Whole Lotta Love",
+                               artist="Led Zeppelin", album="II", duration_s=334.0)])
+    status, data = _get_json(base, "/api/library")
+    assert status == 200
+    by_slug = {row["slug"]: row for row in data["songs"]}
+    assert by_slug[slug]["needs_audio"] is False
+    assert by_slug["whole-lotta-love"]["needs_audio"] is True
+    assert by_slug["whole-lotta-love"]["spotify_id"] == "s1"
+
+
+def test_library_payload_reports_configured_paths_and_whether_they_exist(served, tmp_path):
+    base, repo, _slug = served
+    real = tmp_path / "music"
+    real.mkdir()
+    repo.config_path.write_text(
+        f"library_paths:\n  - {real.as_posix()}\n  - {(tmp_path / 'gone').as_posix()}\n",
+        encoding="utf-8",
+    )
+    _status, data = _get_json(base, "/api/library")
+    assert [p["exists"] for p in data["library_paths"]] == [True, False]
+    # Never connected in a test environment, and saying so is the point:
+    # the screen shows what to do about it rather than a dead button.
+    assert data["spotify"]["connected"] is False
+
+
+def test_library_scan_returns_candidates_and_binds_nothing(served, tmp_path):
+    base, repo, _slug = served
+    from woodshed.sources import Track, import_tracks
+
+    library = tmp_path / "music"
+    library.mkdir()
+    (library / "Led Zeppelin - Whole Lotta Love.wav").write_bytes(AUDIO_BYTES)
+    repo.config_path.write_text(
+        f"library_paths:\n  - {library.as_posix()}\n", encoding="utf-8"
+    )
+    import_tracks(repo, [Track(spotify_id="s1", title="Whole Lotta Love",
+                               artist="Led Zeppelin", album=None, duration_s=334.0)])
+
+    status, data = _post(base, "/api/library/scan", {"song": "whole-lotta-love"})
+    assert status == 200
+    assert data["candidates"][0]["path"].endswith("Whole Lotta Love.wav")
+    assert data["candidates"][0]["why"] in ("tags", "filename")
+    song = load_song(repo.song_dir("whole-lotta-love") / "song.yaml")
+    assert not (repo.song_dir("whole-lotta-love") / song.recording.file).is_file()
+
+
+def test_library_bind_refuses_a_path_outside_the_configured_library(served, tmp_path):
+    """The browser sends a path here. Only paths under a configured
+    library_path may be bound -- otherwise any page open in the same
+    browser could ask the server to copy an arbitrary file into the repo."""
+    base, repo, _slug = served
+    from woodshed.sources import Track, import_tracks
+
+    library = tmp_path / "music"
+    library.mkdir()
+    repo.config_path.write_text(
+        f"library_paths:\n  - {library.as_posix()}\n", encoding="utf-8"
+    )
+    import_tracks(repo, [Track(spotify_id="s1", title="Whole Lotta Love",
+                               artist="Led Zeppelin", album=None, duration_s=334.0)])
+    outside = tmp_path / "secrets.wav"
+    outside.write_bytes(AUDIO_BYTES)
+
+    with pytest.raises(urllib.error.HTTPError) as excinfo:
+        _post(base, "/api/library/bind",
+              {"song": "whole-lotta-love", "path": str(outside)})
+    assert excinfo.value.code == 400
+
+
+def test_library_import_without_credentials_says_how_to_connect(served, tmp_path, monkeypatch):
+    base, _repo, _slug = served
+    monkeypatch.setenv("WOODSHED_HOME", str(tmp_path / "home"))
+    with pytest.raises(urllib.error.HTTPError) as excinfo:
+        _post(base, "/api/library/import",
+              {"ref": "https://open.spotify.com/track/3n3Ppam7vgaVa1iaRUc9Lp"})
+    body = json.loads(excinfo.value.read().decode("utf-8"))
+    assert excinfo.value.code == 400
+    assert "connect" in body["error"].lower()

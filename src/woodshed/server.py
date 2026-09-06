@@ -394,6 +394,8 @@ class WoodshedHandler(BaseHTTPRequestHandler):
                 self._stem(path.removeprefix("/api/stem/"))
             elif path.startswith("/api/click/"):
                 self._click(path.removeprefix("/api/click/"), parsed.query)
+            elif path == "/api/library":
+                self._library()
             elif path.startswith("/api/progress/"):
                 self._progress(path.removeprefix("/api/progress/"), parsed.query)
             elif path.startswith("/api/render/"):
@@ -610,6 +612,160 @@ class WoodshedHandler(BaseHTTPRequestHandler):
             return practice.PROGRESS_WEEKS
         days = (datetime.now(UTC) - datetime.fromisoformat(oldest.replace("Z", "+00:00"))).days
         return max(1, math.ceil(days / 7))
+
+    # ── the library screen (Phase 3, Group M3) ──────────────────────────
+
+    def _library(self) -> None:
+        """`GET /api/library` -- every song, whether its audio is bound, and
+        the state of the two ways in that are not capture: the configured
+        `library_paths` (and whether each still exists -- an unplugged drive
+        is the ordinary case, not an error) and whether Spotify is connected.
+
+        docs/04-sources.md: needs-audio is a first-class state and must be
+        VISIBLE. This payload's whole job is to make it so; "silence about a
+        gap is how a setlist quietly turns out to be half practisable the
+        week before the gig".
+        """
+        from woodshed import sources
+
+        config = load_config(self.repo)
+        songs = []
+        for slug in self.repo.list_songs():
+            song_path = self.repo.song_dir(slug) / "song.yaml"
+            if not song_path.is_file():
+                continue
+            song = load_song(song_path)
+            bound = (self.repo.song_dir(slug) / song.recording.file).is_file()
+            songs.append({
+                "slug": slug,
+                "title": song.title,
+                "artist": song.artist,
+                "album": song.album,
+                "duration_s": song.recording.duration_s,
+                "needs_audio": not bound,
+                "file": song.recording.file if bound else None,
+                "spotify_id": song.recording.spotify_id,
+                "section_count": len(song.sections),
+            })
+        creds = sources.load_credentials()
+        self._json({
+            "songs": songs,
+            "library_paths": [
+                {"path": p, "exists": Path(p).expanduser().is_dir()}
+                for p in config.library_paths
+            ],
+            "spotify": {
+                "client_id_configured": bool(config.spotify.client_id),
+                # Never the token itself, obviously -- only whether there is
+                # one, so the screen can show what to do rather than a dead
+                # button.
+                "connected": creds is not None,
+            },
+        })
+
+    def _post_library_scan(self, body: dict) -> None:
+        """`POST /api/library/scan {song}` -- candidates, and nothing else.
+
+        A POST because it walks the disk (potentially thousands of files),
+        not because it changes anything: it writes nothing, and a test says
+        so. Binding is `/api/library/bind`, always a separate, explicit act
+        -- docs/04-sources.md's "never bind automatically on a fuzzy match".
+        """
+        from woodshed.sources import scan_library
+
+        slug = self._resolve_slug(str(body.get("song", "")))
+        if slug is None:
+            self._error(404, f"no such song: {body.get('song')!r}")
+            return
+        song = load_song(self.repo.song_dir(slug) / "song.yaml")
+        paths = load_config(self.repo).library_paths
+        candidates = scan_library(paths, title=song.title, artist=song.artist)
+        self._json({
+            "song": slug,
+            "library_paths": paths,
+            "candidates": [
+                {"path": str(c.path), "score": c.score, "why": c.why, "tags": c.tags}
+                for c in candidates
+            ],
+        })
+
+    def _post_library_bind(self, body: dict) -> None:
+        """`POST /api/library/bind {song, path}` -- bind one scanned file.
+
+        The path comes from the browser, so it is checked against the
+        configured `library_paths` before anything is opened: only a file
+        under one of them may be bound. Without that, any page open in the
+        same browser could ask this server to copy an arbitrary file into
+        the repo -- the same class of thing the Host/Origin check on POST
+        already guards, applied to a path instead of an origin.
+        """
+        from woodshed.cli import bind_audio_to_song
+
+        slug = self._resolve_slug(str(body.get("song", "")))
+        if slug is None:
+            self._error(404, f"no such song: {body.get('song')!r}")
+            return
+        raw = str(body.get("path", ""))
+        if not raw:
+            self._error(400, "no path given")
+            return
+        candidate = Path(raw).expanduser().resolve()
+        allowed = [Path(p).expanduser().resolve() for p in load_config(self.repo).library_paths]
+        if not any(candidate.is_relative_to(root) for root in allowed):
+            self._error(
+                400,
+                f"{raw} is not under any configured library_path -- "
+                "only files the scan itself could have found may be bound",
+            )
+            return
+        song = bind_audio_to_song(self.repo, slug, candidate)
+        self._json({
+            "slug": slug,
+            "file": song.recording.file,
+            "duration_s": song.recording.duration_s,
+        })
+
+    def _post_library_import(self, body: dict) -> None:
+        """`POST /api/library/import {ref, setlist, tuning}` -- Spotify's
+        list, as needs-audio songs.
+
+        Refuses with a next step rather than a dead end when this machine
+        has never been connected: the token lives outside the repo
+        (`~/.woodshed/credentials.json`) and the one-time PKCE flow is
+        `woodshed import --connect`, which is a terminal paste rather than a
+        callback listener.
+        """
+        from woodshed import sources
+
+        creds = sources.load_credentials()
+        if creds is None:
+            self._error(
+                400,
+                "not connected to Spotify -- run `woodshed import --connect` "
+                "once in a terminal (the token is stored outside this repo)",
+            )
+            return
+        if not creds.is_fresh():
+            creds = sources.refresh_credentials(creds)
+            sources.save_credentials(creds)
+
+        ref = str(body.get("ref", "")).strip()
+        if not ref:
+            self._error(400, "no ref given")
+            return
+        kind, spotify_id = sources.parse_ref(ref)
+        name, tracks = sources.fetch_ref(kind, spotify_id, creds)
+        result = sources.import_tracks(
+            self.repo, tracks,
+            tuning=str(body.get("tuning") or "E standard"),
+            setlist_slug=body.get("setlist") or None,
+        )
+        self._json({
+            "name": name,
+            "created": result.created,
+            "already_present": result.already_present,
+            "setlist": result.setlist,
+        })
 
     def _setlists(self) -> None:
         result = []
@@ -1031,6 +1187,12 @@ class WoodshedHandler(BaseHTTPRequestHandler):
             elif path.startswith("/api/setlist/") and path.endswith("/songs"):
                 setlist_slug = path.removeprefix("/api/setlist/").removesuffix("/songs")
                 self._post_setlist_songs(setlist_slug, body)
+            elif path == "/api/library/scan":
+                self._post_library_scan(body)
+            elif path == "/api/library/bind":
+                self._post_library_bind(body)
+            elif path == "/api/library/import":
+                self._post_library_import(body)
             elif path == "/api/capture/bind":
                 self._post_capture_bind(body)
             elif path == "/api/capture/discard":
