@@ -529,19 +529,491 @@ export class RealtimeEngine extends EventTarget {
 }
 
 /**
- * Phase 2's cache-backed engine (CLAUDE.md invariant 9: "a loop plays from
- * a pre-rendered, decoded AudioBuffer with a native sample-exact loop —
- * never from a real-time stretcher, which cannot put the seam in the same
- * place twice"). Deliberately not built this phase. Shares RealtimeEngine's
- * EventTarget shape (constructor, loadSection/setSpeedPct/setSemitones/
- * play/pause/restartSection/destroy, a 'pass' event) so a caller holding
- * whichever engine createEngine() handed it never needs to branch on which.
+ * The clock for one rendered section, in PLAYBACK seconds — the exact
+ * mirror of `clock.Render`'s three properties (src/woodshed/clock.py),
+ * which is the module CLAUDE.md invariant 3 owns. Mirrored rather than
+ * fetched for the same reason screens/practice.js mirrors ladder.py's
+ * rung maths: this file cannot import a Python module, and the arithmetic
+ * is four lines that a round trip would only make later, not safer. If
+ * clock.py changes, this changes with it — tests/test_clock.py and
+ * web/tests/test_buffer_engine.mjs assert the same numbers from the two
+ * sides.
+ *
+ * `loopEnd` is measured from the SECTION's own end, never from `loopStart`
+ * — see clock.py's own note: a lap that replays the lead-in begins earlier
+ * and therefore lasts longer; the section does not end any sooner for it.
+ *
+ * @param {SectionLoad & {crossfadeMs?: number}} section
+ * @param {number} speedPct - percent (55 means 55%)
+ */
+export function renderClock(section, speedPct) {
+  const speed = speedPct / 100;
+  const crossfadeS = (section.crossfadeMs ?? 10) / 1000;
+  const loopStart = section.preRollEveryPass ? 0 : section.preRollS / speed;
+  const total = (section.preRollS + (section.endS - section.startS)) / speed;
+  const loopEnd = total - crossfadeS;
+  return { speed, loopStart, loopEnd, total, lap: loopEnd - loopStart, crossfadeS };
+}
+
+/**
+ * `GET /api/render/<slug>/<section>?speed=&semitones=&source=` — server.py's
+ * `_render`, which either serves the cache file (range-served FLAC) or
+ * answers 202 `{"rendering": true}` while it is still being built.
+ * @param {SectionLoad & {slug: string, source?: string}} section
+ * @param {number} speedPct
+ * @param {number} semitones
+ */
+export function renderUrl(section, speedPct, semitones) {
+  const q = new URLSearchParams({
+    speed: String(speedPct),
+    semitones: String(semitones),
+    source: section.source ?? 'mix',
+  });
+  return `/api/render/${encodeURIComponent(section.slug)}`
+    + `/${encodeURIComponent(section.sectionId)}?${q}`;
+}
+
+/**
+ * J3's arithmetic, exposed so it can be asserted directly. With a NATIVE
+ * loop there is no boundary event to listen for — the browser splices in
+ * the audio thread and tells nobody — so the *n*th seam is computed:
+ *
+ *     startTime + (loopEnd - offset) + n * (loopEnd - loopStart)
+ *
+ * `offset` is where in the buffer the current node was started, which is 0
+ * for a first pass (the lead-in is part of the buffer), `loopStart` for a
+ * node that joined at a swap, and anything at all after a seek. Everything
+ * else is a property of the render, not of when anyone looked.
+ * @param {{startTime: number, offset: number, clock: ReturnType<typeof renderClock>}} anchor
+ * @param {number} n
+ */
+export function seamTimeAt(anchor, n) {
+  return anchor.startTime + (anchor.clock.loopEnd - anchor.offset) + n * anchor.clock.lap;
+}
+
+/**
+ * Where in the buffer a node started at `anchor` has reached by
+ * AudioContext time `t`, accounting for however many native wraps have
+ * happened since. PLAYBACK seconds.
+ */
+export function playbackPositionAt(anchor, t) {
+  const { clock } = anchor;
+  const raw = anchor.offset + (t - anchor.startTime);
+  if (raw < clock.loopEnd || clock.lap <= 0) return raw;
+  return clock.loopStart + ((raw - clock.loopEnd) % clock.lap);
+}
+
+/**
+ * One half of an equal-power crossfade, sampled at `points` values:
+ * `sin(theta)` rising, `cos(theta)` falling, over the same theta 0..pi/2 —
+ * so the two squares sum to 1 at every point and perceived loudness holds
+ * through the middle of the fade (a linear pair dips there). The same
+ * curve `render._bake_crossfade` bakes into the file, applied here to the
+ * two source nodes that overlap across a rung change.
+ * @param {number} points
+ * @param {"in" | "out"} direction
+ * @returns {Float32Array}
+ */
+export function equalPowerCurve(points, direction) {
+  const curve = new Float32Array(points);
+  for (let i = 0; i < points; i++) {
+    const theta = (i / (points - 1)) * (Math.PI / 2);
+    curve[i] = direction === 'in' ? Math.sin(theta) : Math.cos(theta);
+  }
+  return curve;
+}
+
+/** How many points the crossfade curves are sampled at — 128 over 10ms is
+ *  far finer than the ear or the sample rate needs, and costs nothing. */
+const CROSSFADE_POINTS = 128;
+
+/** How far ahead of `currentTime` a swap must be scheduled to be reliable.
+ *  Web Audio schedules on the audio thread, but a seam already inside the
+ *  current render quantum cannot be honoured, so a swap that close waits
+ *  for the next seam instead. */
+const SWAP_MIN_LEAD_S = 0.05;
+
+/** Slack when comparing a polled `currentTime` against a computed seam.
+ *  The tick interval is coarser than this by two orders of magnitude; the
+ *  epsilon only guards float equality at the exact boundary. */
+const SEAM_EPS = 1e-6;
+
+/** How often the seam clock is polled. Nothing audible depends on it — the
+ *  loop and the swap are both scheduled on the audio thread — so this only
+ *  bounds how late a rep is COUNTED, and 50ms is imperceptible for that. */
+const TICK_MS = 50;
+
+/**
+ * Phase 2's cache-backed engine, and CLAUDE.md invariant 9 made real: "a
+ * loop plays from a pre-rendered, decoded AudioBuffer with a native
+ * sample-exact loop — never from a real-time stretcher, which cannot put
+ * the seam in the same place twice". docs/03-audio-engine.md's Trap 3 is
+ * the whole argument; this class is the answer to it.
+ *
+ * Shares RealtimeEngine's shape (constructor, loadSection/setSpeedPct/
+ * setSemitones/play/pause/restartSection/seek/destroy, 'pass'/'error'
+ * events) so a caller holding whichever engine createEngine() handed it
+ * never branches on which. Two differences are real and deliberate:
+ *
+ *  - `setSpeedPct`/`setSemitones` are ASYNC here and take effect at the
+ *    next loop boundary, never mid-loop (docs/03-audio-engine.md: "Speed
+ *    changes at the boundary, never mid-loop"). They resolve once the new
+ *    buffer is decoded and its node is scheduled — not once it is audible.
+ *  - A speed the cache has not rendered yet costs a fetch and a render
+ *    (the endpoint answers 202 while rubberband works), which is why the
+ *    server pre-renders the next rung. That is a property of the
+ *    architecture, not a bug to smooth over with `playbackRate`: NEVER
+ *    `playbackRate` a stretched buffer (trap 1 on top of a correct
+ *    render), and a lint test in tests/test_web_lint.py greps this whole
+ *    directory to keep it that way.
+ *
+ * The 'pass' contract is unchanged from RealtimeEngine's — only the clock
+ * it reads. A native loop fires no boundary event, so the seam is computed
+ * (`seamTimeAt`) and polled; pause() and seek() disqualify the lap in
+ * flight, and the next natural wrap re-arms the one after it.
  * @extends EventTarget
  */
 export class BufferEngine extends EventTarget {
-  constructor() {
+  /** @param {AudioContext} [audioContext] - reused if supplied, else created */
+  constructor(audioContext) {
     super();
-    throw new Error('not implemented — Phase 2, not this phase');
+    this._ownsContext = !audioContext;
+    this.ctx = audioContext || new AudioContext();
+    /** @type {(SectionLoad & {slug: string, crossfadeMs?: number}) | null} */
+    this._section = null;
+    /** @type {AudioBuffer | null} */
+    this._buffer = null;
+    /** decoded buffers by render URL — returning to a rung never refetches. */
+    this._buffers = new Map();
+    /** @type {{source: AudioBufferSourceNode, gain: GainNode, anchor: any} | null} */
+    this._active = null;
+    /** @type {any} */
+    this._pendingSwap = null;
+    this._speedPct = 100;
+    this._semitones = 0;
+    this._playing = false;
+    this._position = 0; // playback seconds, where a play() would resume from
+    this._qualified = false;
+    this._nextSeam = null;
+    this._timer = null;
+    this._destroyed = false;
+    /** Poll interval while the server answers 202. Overridden in tests. */
+    this.pollMs = 400;
+    /** Give up after this many polls — long enough for a Demucs separation
+     *  (minutes) rather than only a render (seconds), since `source:
+     *  "guitar"` renders behind one. */
+    this.maxPolls = 900;
+  }
+
+  /** The rung currently loaded, as a percent. */
+  get speedPct() { return this._speedPct; }
+  /** The shift currently loaded, in semitones. */
+  get semitones() { return this._semitones; }
+
+  /**
+   * Fetch the render for *section* at the current speed/semitones, decode
+   * it, and be ready to play. Does not start playback.
+   * @param {SectionLoad & {slug: string, crossfadeMs?: number, source?: string}} section
+   */
+  async loadSection(section) {
+    if (this._destroyed) {
+      throw new Error('BufferEngine.loadSection: engine already destroyed');
+    }
+    this._stopEverything();
+    this._section = section;
+    this._buffer = await this._render(this._speedPct, this._semitones);
+    this._position = 0;
+    this._qualified = true;
+  }
+
+  /** Start (or resume) playback. */
+  play() {
+    this._require('play');
+    if (this._playing) return;
+    if (this.ctx.state === 'suspended') this.ctx.resume();
+    this._startAt(this._position);
+    this._playing = true;
+    this._startTimer();
+  }
+
+  /** Pause. Per the pass-detection contract, this disqualifies the lap in
+   *  flight — it will resume mid-section, not at the section's beginning. */
+  pause() {
+    if (!this._playing || !this._active) return;
+    this._position = playbackPositionAt(this._active.anchor, this.ctx.currentTime);
+    this._stopEverything();
+    this._playing = false;
+    this._qualified = false;
+  }
+
+  /** Back to sample 0 of the buffer (the lead-in included) and a fresh
+   *  pass-detection window. */
+  restartSection() {
+    this._require('restartSection');
+    const wasPlaying = this._playing;
+    this._stopEverything();
+    this._position = 0;
+    this._qualified = true;
+    if (wasPlaying) {
+      this._startAt(0);
+      this._playing = true;
+    }
+  }
+
+  /**
+   * Jump to *sourceSeconds* (CLAUDE.md's SourceSeconds — absolute position
+   * in the original recording) and disqualify the lap in flight, exactly
+   * as pause() does and for the same reason. This is `clock.to_playback`,
+   * the one conversion between the two clocks on this side of the wire.
+   * @param {number} sourceSeconds
+   */
+  seek(sourceSeconds) {
+    this._require('seek');
+    const clock = this._clock();
+    const section = this._section;
+    const playback = (sourceSeconds - (section.startS - section.preRollS)) / clock.speed;
+    const clamped = Math.min(clock.loopEnd, Math.max(0, playback));
+    const wasPlaying = this._playing;
+    this._stopEverything();
+    this._position = clamped;
+    this._qualified = false;
+    if (wasPlaying) {
+      this._startAt(clamped);
+      this._playing = true;
+    }
+  }
+
+  /**
+   * Move to a different rung. Takes effect at the next loop boundary when
+   * playing (queueing the newly decoded buffer and starting it at the exact
+   * `currentTime` the current loop ends, the two overlapping for one
+   * crossfade); immediately, with nothing to swap at, when stopped.
+   * @param {number} pct - percent, 50 means 50%
+   * @returns {Promise<void>} resolves once the new buffer is scheduled
+   */
+  setSpeedPct(pct) {
+    const clamped = Math.min(MAX_SPEED_PCT, Math.max(MIN_SPEED_PCT, pct));
+    return this._changeRender(clamped, this._semitones);
+  }
+
+  /**
+   * Move to a different shift. Same boundary discipline as setSpeedPct —
+   * a shift change is a different rendered FILE here, not a live parameter.
+   * @param {number} n - semitones, clamped to ±6 (tuning.MAX_SHIFT)
+   * @returns {Promise<void>}
+   */
+  setSemitones(n) {
+    const clamped = Math.min(MAX_SHIFT, Math.max(-MAX_SHIFT, Math.round(n)));
+    return this._changeRender(this._speedPct, clamped);
+  }
+
+  /** Tear down the audio graph. No further events fire after this. */
+  destroy() {
+    if (this._destroyed) return;
+    this._destroyed = true;
+    this._stopEverything();
+    this._stopTimer();
+    this._buffers.clear();
+    if (this._ownsContext) {
+      this.ctx.close().catch(() => {
+        // already closed or never resumed -- nothing left to clean up
+      });
+    }
+  }
+
+  // ── internals ─────────────────────────────────────────────────────────
+
+  _clock(speedPct = this._speedPct) {
+    return renderClock(this._section, speedPct);
+  }
+
+  /** Fetch + decode the render for one (speed, semitones), polling while
+   *  the server answers 202 because rubberband (or Demucs before it) is
+   *  still working. Cached by URL. */
+  async _render(speedPct, semitones) {
+    const url = renderUrl(this._section, speedPct, semitones);
+    const cached = this._buffers.get(url);
+    if (cached) return cached;
+    for (let poll = 0; poll < this.maxPolls; poll++) {
+      const res = await fetch(url);
+      if (res.status === 202) {
+        await new Promise((resolve) => setTimeout(resolve, this.pollMs));
+        continue;
+      }
+      if (!res.ok) {
+        throw new Error(`BufferEngine: fetch ${url}: ${res.status} ${res.statusText}`);
+      }
+      const bytes = await res.arrayBuffer();
+      const buffer = await this.ctx.decodeAudioData(bytes);
+      this._buffers.set(url, buffer);
+      return buffer;
+    }
+    throw new Error(`BufferEngine: gave up waiting for the render at ${url}`);
+  }
+
+  async _changeRender(speedPct, semitones) {
+    if (speedPct === this._speedPct && semitones === this._semitones) return;
+    if (!this._section) {
+      this._speedPct = speedPct;
+      this._semitones = semitones;
+      return;
+    }
+    let buffer;
+    try {
+      buffer = await this._render(speedPct, semitones);
+    } catch (error) {
+      // A rung whose render will not build must not take practice down
+      // with it: keep playing what is already loaded and say so once.
+      this.dispatchEvent(new CustomEvent('error', { detail: { error } }));
+      return;
+    }
+    if (this._destroyed) return;
+
+    if (!this._playing || !this._active) {
+      this._speedPct = speedPct;
+      this._semitones = semitones;
+      this._buffer = buffer;
+      return;
+    }
+    this._scheduleSwap(buffer, speedPct, semitones);
+  }
+
+  /** J2: queue the next buffer and start it at the exact AudioContext time
+   *  the current loop ends, the two overlapping for one crossfade. */
+  _scheduleSwap(buffer, speedPct, semitones) {
+    this._cancelPendingSwap();
+    const anchor = this._active.anchor;
+    const now = this.ctx.currentTime;
+    let n = 0;
+    while (seamTimeAt(anchor, n) < now + SWAP_MIN_LEAD_S) n++;
+    const seamTime = seamTimeAt(anchor, n);
+
+    const clock = this._clock(speedPct);
+    const crossfadeS = clock.crossfadeS;
+    const gain = this.ctx.createGain();
+    const source = this.ctx.createBufferSource();
+    source.buffer = buffer;
+    source.loop = true;
+    source.loopStart = clock.loopStart;
+    source.loopEnd = clock.loopEnd;
+    source.connect(gain).connect(this.ctx.destination);
+    gain.gain.value = 0;
+    gain.gain.setValueCurveAtTime(equalPowerCurve(CROSSFADE_POINTS, 'in'), seamTime, crossfadeS);
+    // The new node joins at its own loop start: a rung change mid-practice
+    // is not a restart, so the lead-in does not replay for it.
+    source.start(seamTime, clock.loopStart);
+
+    this._active.gain.gain.setValueCurveAtTime(
+      equalPowerCurve(CROSSFADE_POINTS, 'out'), seamTime, crossfadeS,
+    );
+    // The old node keeps looping into its own (already crossfaded) head for
+    // the length of the fade, and stops there — two nodes overlap for
+    // exactly one crossfade, never longer.
+    this._active.source.stop(seamTime + crossfadeS);
+
+    this._pendingSwap = { seamTime, source, gain, clock, buffer, speedPct, semitones };
+  }
+
+  _cancelPendingSwap() {
+    if (!this._pendingSwap) return;
+    const { source, gain } = this._pendingSwap;
+    try { source.stop(); } catch { /* never started, or already stopped */ }
+    source.disconnect();
+    gain.disconnect();
+    this._pendingSwap = null;
+  }
+
+  /** The scheduled swap's seam has arrived: the new node is already
+   *  playing (the audio thread started it), so this is bookkeeping only. */
+  _adoptSwap() {
+    const swap = this._pendingSwap;
+    this._pendingSwap = null;
+    this._active.source.disconnect();
+    this._active.gain.disconnect();
+    this._speedPct = swap.speedPct;
+    this._semitones = swap.semitones;
+    this._buffer = swap.buffer;
+    this._active = {
+      source: swap.source,
+      gain: swap.gain,
+      anchor: { startTime: swap.seamTime, offset: swap.clock.loopStart, clock: swap.clock },
+    };
+    this._nextSeam = seamTimeAt(this._active.anchor, 0);
+  }
+
+  _startAt(offset) {
+    const clock = this._clock();
+    const gain = this.ctx.createGain();
+    const source = this.ctx.createBufferSource();
+    source.buffer = this._buffer;
+    source.loop = true;
+    source.loopStart = clock.loopStart;
+    source.loopEnd = clock.loopEnd;
+    source.connect(gain).connect(this.ctx.destination);
+    const startTime = this.ctx.currentTime;
+    source.start(startTime, offset);
+    this._active = { source, gain, anchor: { startTime, offset, clock } };
+    this._nextSeam = seamTimeAt(this._active.anchor, 0);
+  }
+
+  _stopEverything() {
+    this._cancelPendingSwap();
+    if (this._active) {
+      const { source, gain } = this._active;
+      try { source.stop(); } catch { /* not started */ }
+      source.disconnect();
+      gain.disconnect();
+      this._active = null;
+    }
+    this._nextSeam = null;
+  }
+
+  _startTimer() {
+    if (this._timer) return;
+    this._timer = setInterval(() => this._tick(), TICK_MS);
+    // Node (the tests) hands back a Timeout, not a number; an unref'd one
+    // does not hold the process open. No-op in a browser.
+    if (this._timer && typeof this._timer.unref === 'function') this._timer.unref();
+  }
+
+  _stopTimer() {
+    if (!this._timer) return;
+    clearInterval(this._timer);
+    this._timer = null;
+  }
+
+  /**
+   * J3: count the seams the computed clock says have passed. Exposed
+   * (rather than closed over inside the interval) so a test can drive it
+   * against a synthetic AudioContext — the whole reason the seam is
+   * arithmetic and not an event is that there IS no event to wait for.
+   */
+  _tick() {
+    if (!this._playing || !this._active || this._nextSeam === null) return;
+    const now = this.ctx.currentTime;
+    let guard = 0;
+    while (this._nextSeam !== null && now >= this._nextSeam - SEAM_EPS && guard++ < 1000) {
+      const seam = this._nextSeam;
+      if (this._qualified) {
+        this.dispatchEvent(
+          new CustomEvent('pass', { detail: { sectionId: this._section.sectionId } }),
+        );
+      }
+      // Whatever disqualified the last lap, the one starting now begins at
+      // loopStart by construction of a native loop — so it is eligible.
+      this._qualified = true;
+      if (this._pendingSwap && this._pendingSwap.seamTime <= seam + SEAM_EPS) {
+        this._adoptSwap();
+      } else {
+        this._nextSeam = seam + this._active.anchor.clock.lap;
+      }
+    }
+  }
+
+  _require(method) {
+    if (!this._section || !this._buffer) {
+      throw new Error(`BufferEngine.${method}: call loadSection() first`);
+    }
   }
 }
 

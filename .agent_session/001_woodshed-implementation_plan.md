@@ -2728,6 +2728,65 @@ included — not a partial one. Nothing about the repo changed to achieve it.
   `startTime + loop_start + n * (loop_end - loop_start)` computed from `clock.Render`,
   not sampled from `currentTime`. D7's contract is unchanged — only the clock it reads.
 
+**Done, 2026-09-06 — J1/J2/J3 in one commit, deliberately.** They are one class
+(`BufferEngine` in `web/player.js`) and one test file; splitting them would have
+meant committing an engine that plays but cannot count a rep, then one that
+counts but cannot change rung. The unit boundaries survive as named tests
+instead.
+- **J1**: `renderClock(section, speedPct)` mirrors `clock.Render`'s three
+  properties client-side (mirrored, not fetched — this file cannot import a
+  Python module, and the same numbers are asserted from both sides:
+  `tests/test_clock.py` and `web/tests/test_buffer_engine.mjs`).
+  `renderUrl(...)` names `GET /api/render/<slug>/<section>?speed=&semitones=&source=`,
+  and a **202 is polled** rather than treated as a failure — the endpoint answers
+  it while rubberband (or Demucs before it) is still working, so the engine keeps
+  asking, `pollMs` 400 with a `maxPolls` budget long enough for a separation
+  (minutes), not just a render (seconds). `play()` is one
+  `AudioBufferSourceNode`, `loop = true`, `loopStart` at the end of the pre-roll,
+  `loopEnd` at the section end, first pass from sample 0 so the lead-in is part
+  of the buffer rather than a second scheduled source.
+- **J2**: the boundary swap. A speed or semitone change while playing decodes the
+  new render, computes the next seam ≥ `currentTime + 50 ms`, and schedules the
+  new node to `start(seamTime, newClock.loopStart)` while the old one fades out
+  over one crossfade and stops at `seamTime + crossfade` — two nodes overlapping
+  for exactly the crossfade, never longer. Both sides ramp with
+  `equalPowerCurve()` (`sin`/`cos` of one angle, the same shape
+  `render._bake_crossfade` bakes into the file), asserted as `sin²+cos²=1`
+  point-by-point rather than eyeballed. Stopped, a change just reloads: there is
+  no boundary to wait for. The new node joins at its own `loopStart` — a rung
+  change mid-practice is not a restart, so the lead-in does not replay for it.
+- **J3**: pass detection re-based onto arithmetic. A native loop fires no
+  boundary event — the browser splices in the audio thread and tells nobody — so
+  the *n*th seam is `startTime + (loopEnd - offset) + n * lap`, exported as
+  `seamTimeAt()` and polled every 50 ms. `offset` carries the three cases that
+  differ (0 for a first pass, `loopStart` for a node that joined at a swap,
+  anything at all after a seek), which is why it is a parameter rather than
+  assumed. A late tick counts every seam it crossed rather than one, so a stalled
+  main thread loses no reps. D7's contract is otherwise unchanged: `pause()` and
+  `seek()` disqualify the lap in flight, the next natural wrap re-arms the one
+  after it.
+- **The `playbackRate` lint test**, named in this bullet list as cheap and worth
+  having, is `tests/test_web_lint.py` — Python, so it runs under `uv run pytest`
+  with the rest of the gate rather than being a thing to remember. It strips
+  comments and string literals before scanning, so player.js's own quoted warning
+  does not trip the check that enforces it (a grep failing on its own warning has
+  exactly the wrong incentive), and a second test proves the scan would still
+  catch a real `s.playbackRate.value = 0.5`. `web/tests/` is the one excluded
+  directory, and only because a test asserting a node never gets one has to be
+  allowed to write the word.
+- **Also landed here**: the same file now runs `web/tests/*.mjs` under pytest
+  (skipped if `node` is absent). Those node scripts existed since Phase 1.5 but
+  nothing ran them — `uv run pytest` is now the one command that says whether the
+  repo is green. 17 new node tests in `test_buffer_engine.mjs`, 9 new pytest
+  tests (2 lint + 7 parametrised node scripts, one already-existing script per
+  case). Full suite 1005 passed (was 996); ruff clean; no-extras gate 1002
+  passed, 3 deselected.
+- **Still open, and it is the honest half**: nothing here has been *heard*.
+  Phase 2's gate ("loop a real solo at 55% for twenty passes and listen for a
+  tick at the seam") needs a room, a record and a human, and this run had none of
+  the three. Every number the seam depends on is asserted; whether the seam is
+  inaudible is not something an unattended run can claim.
+
 **Group K — the ladder in the UI (∥)**
 - **K1** `ladder.js` wiring `ladder.py`'s rules to the loop boundary; auto-confirm default
   on; `c` confirms, `x` retracts
