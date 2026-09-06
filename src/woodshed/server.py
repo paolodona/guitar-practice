@@ -513,6 +513,7 @@ class WoodshedHandler(BaseHTTPRequestHandler):
         # or a setlist this song isn't a member of, degrades to 0 rather
         # than 404ing the whole song page over a stale query param.
         shift = 0
+        setlist_payload = None
         setlist_slug = parse_qs(query).get("setlist", [None])[0]
         if setlist_slug:
             try:
@@ -523,6 +524,12 @@ class WoodshedHandler(BaseHTTPRequestHandler):
                 entry = next((e for e in setlist.songs if e.slug == slug), None)
                 if entry is not None:
                     shift = effective_shift(setlist, entry, song)
+                    # Named, not just implied: the practice screen shows the
+                    # setlist this session belongs to and links back to it.
+                    # Only when the song is actually IN it -- a stale
+                    # `?setlist=` from a song that has since been removed
+                    # should say nothing rather than name a set it is not in.
+                    setlist_payload = {"slug": setlist_slug, "name": setlist.name}
 
         reps = list(ledger.read(self.repo))
         readiness = practice.song_readiness(song, reps, song.practice)
@@ -545,6 +552,7 @@ class WoodshedHandler(BaseHTTPRequestHandler):
             "tempo": song.tempo.model_dump(mode="json"),
             "practice": song.practice.model_dump(mode="json"),
             "shift": shift,
+            "setlist": setlist_payload,
             "peaks_url": f"/api/peaks/{slug}",
             # Phase 1.5, S3: screens/practice.js's "Guitar only" toggle
             # disables itself (with a message naming the fix) when this is

@@ -40,6 +40,16 @@
  *    mirrored rather than fetched because this file cannot import a Python
  *    module.
  *
+ * 2b. The header names the setlist this session belongs to and links back
+ *    to it (`#/`, the dashboard — which opens on whichever setlist is
+ *    current, and this route only ever carries a setlist because that same
+ *    preference put it in the query string). Shown only when the song is
+ *    actually in that setlist: `payload.setlist` is null otherwise, so a
+ *    stale `?setlist=` names nothing rather than a set the song has been
+ *    removed from. design/Main.dc.html fixes the setlist name in this
+ *    header; it took until Phase 1's F1 for a real setlist to exist to
+ *    name, and until now for the payload to carry its name.
+ *
  * 2. The transpose stepper is fully interactive and drives the engine live
  *    (`engine.setSemitones`). Persistence (Phase 1, F3) is conditional on
  *    setlist context existing at all: with no "current setlist" (see
@@ -617,7 +627,14 @@ export function mount(el, payload) {
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:48px">
         <div style="display:flex;flex-direction:column;gap:8px">
           <div class="lbl" data-eyebrow style="font-size:13px"></div>
-          <a class="ws-song-link" href="#/song/${encodeURIComponent(payload.slug)}" style="font-size:23px;color:var(--ink-2,#9CAAA4);letter-spacing:.01em;text-decoration:none">${escapeHtml(payload.title)} &middot; ${escapeHtml(payload.artist)}</a>
+          <div style="display:flex;align-items:baseline;gap:10px">
+            ${payload.setlist ? `<a class="ws-song-link" href="#/"
+               title="Back to ${escapeHtml(payload.setlist.name)}"
+               style="font-size:23px;color:var(--accent,#E0913F);text-decoration:none"
+               >${escapeHtml(payload.setlist.name)}</a>
+             <span style="font-size:23px;color:var(--ink-4,#5B6A64)">&middot;</span>` : ''}
+            <a class="ws-song-link" href="#/song/${encodeURIComponent(payload.slug)}" style="font-size:23px;color:var(--ink-2,#9CAAA4);letter-spacing:.01em;text-decoration:none">${escapeHtml(payload.title)} &middot; ${escapeHtml(payload.artist)}</a>
+          </div>
           <div style="font-size:68px;font-weight:600;letter-spacing:-.025em;line-height:1.04;margin-top:2px">${escapeHtml(section.name)}</div>
           <div class="mono" style="font-size:17px;color:var(--ink-3,#6A7873);letter-spacing:.05em;margin-top:4px" data-breadcrumb></div>
         </div>

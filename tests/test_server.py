@@ -2225,3 +2225,28 @@ def test_song_payload_lists_no_patches_when_there_is_no_sibling_repo(served):
     base, _repo, slug = served
     _status, data = _get_json(base, f"/api/song/{slug}")
     assert data["gx100_patches"] == []
+
+
+def test_song_payload_names_the_setlist_it_was_opened_from(served):
+    base, repo, slug = served
+    from woodshed.manifest import Setlist, SetlistEntry
+    from woodshed.setlist import save as save_setlist_
+
+    save_setlist_(repo, "gig", Setlist(name="The Gig", tuning="E standard",
+                                       songs=[SetlistEntry(slug=slug)]))
+    _status, data = _get_json(base, f"/api/song/{slug}?setlist=gig")
+    assert data["setlist"] == {"slug": "gig", "name": "The Gig"}
+
+
+def test_song_payload_names_no_setlist_when_the_song_is_not_in_it(served):
+    """A stale ?setlist= (the song was removed from that set since) should
+    say nothing rather than name a set this song is not in."""
+    base, repo, slug = served
+    from woodshed.manifest import Setlist
+    from woodshed.setlist import save as save_setlist_
+
+    save_setlist_(repo, "gig", Setlist(name="The Gig", tuning="E standard", songs=[]))
+    _status, data = _get_json(base, f"/api/song/{slug}?setlist=gig")
+    assert data["setlist"] is None
+    _status, data = _get_json(base, f"/api/song/{slug}")
+    assert data["setlist"] is None
