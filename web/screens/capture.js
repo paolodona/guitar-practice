@@ -60,6 +60,17 @@ import { createEngine } from '../player.js';
 
 const POLL_MS = 300;
 
+// Found live 2026-09-06 ("stuck at 'Stopping...' forever, no sign of
+// progress"): a genuinely wedged capture thread (capture_runner.py's own
+// force-close is the server-side fix) can still, in principle, outlast
+// even that -- settleStop() below polled unconditionally until `running`
+// read false, which is honest about the state but indistinguishable from
+// this screen having silently broken if that never happens. Past this
+// many ms of polling, stop telling the user nothing and say so plainly
+// instead: comfortably longer than stop()'s own two ~2s joins server-side,
+// so an ordinary stop (even the force-close path) never trips it.
+const STOP_TIMEOUT_MS = 8000;
+
 // tuning.KNOWN_TUNINGS (Python, src/woodshed/tuning.py) mirrored here --
 // this file has no way to import a Python module, and there is no shared
 // JS module for it yet. Same duplication (and the same reasoning)
@@ -184,9 +195,10 @@ async function mountLiveCapture(container, cancelled, onStopped) {
       // enough once something else could still blow the whole view away.
       if (timer !== null) { clearTimeout(timer); timer = null; }
       renderStopping();
+      const stopDeadline = Date.now() + STOP_TIMEOUT_MS;
       try {
         const result = await post('/api/capture/stop', {});
-        await settleStop(result);
+        await settleStop(result, stopDeadline);
       } catch (err) {
         await tick();
       }
@@ -200,6 +212,26 @@ async function mountLiveCapture(container, cancelled, onStopped) {
       </div>`;
   }
 
+  /** Past STOP_TIMEOUT_MS with no confirmed stop -- tell the truth (a real
+   * device-level hang, not a UI freeze) instead of polling in silence
+   * forever. The audio recorded so far is already safe on disk (capture()
+   * writes it as it arrives, never buffered in memory) regardless of
+   * whether the thread itself ever unwedges -- this screen just cannot
+   * SEE that from here, so it says what it actually knows. */
+  function renderStuck() {
+    container.innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:8px;max-width:360px;text-align:center">
+        <div style="font-size:14px;color:var(--warn,#C9805E)">
+          Still stopping after ${Math.round(STOP_TIMEOUT_MS / 1000)}s — the capture
+          thread may be stuck.
+        </div>
+        <div style="font-size:12.5px;color:var(--ink-3,#6A7873);line-height:1.4">
+          Whatever was already recorded is safe on disk. Restarting
+          <code>woodshed serve</code> should clear it; reload this page afterwards.
+        </div>
+      </div>`;
+  }
+
   /** *result* is either POST /api/capture/stop's own response, or a later
    * GET /api/capture/status poll -- both carry {running, segment_count}.
    * server.py's own stop() only waits BRIEFLY for the capture thread to
@@ -209,9 +241,13 @@ async function mountLiveCapture(container, cancelled, onStopped) {
    * broken one) -- `running: true` here means "signalled, not confirmed
    * yet", so this keeps polling status until it genuinely is false rather
    * than trusting one response. */
-  async function settleStop(result) {
+  async function settleStop(result, stopDeadline) {
     if (stopped) return; // unmounted mid-settle -- see mountLiveCapture's own cancelled/stopped doc
     if (result.running) {
+      if (Date.now() >= stopDeadline) {
+        renderStuck();
+        return;
+      }
       timer = setTimeout(async () => {
         timer = null;
         if (stopped) return;
@@ -222,7 +258,7 @@ async function mountLiveCapture(container, cancelled, onStopped) {
           await tick();
           return;
         }
-        await settleStop(status);
+        await settleStop(status, stopDeadline);
       }, POLL_MS);
       return;
     }
@@ -919,7 +955,10 @@ export function mount(el, payload) {
   el.innerHTML = `
     <div style="min-height:100vh;background:var(--ground,#0C1211);color:var(--ink,#E8EEEB);
                 font-family:Archivo,'Helvetica Neue',Arial,sans-serif;padding:34px 48px">
-      <div style="font-size:26px;font-weight:600;letter-spacing:-.015em">Capture</div>
+      <div style="display:flex;align-items:center;gap:16px">
+        <div data-back title="Back to dashboard" style="cursor:pointer;color:var(--ink-3,#6A7873);font-size:20px;line-height:1;padding:2px 6px">&#8249;</div>
+        <div style="font-size:26px;font-weight:600;letter-spacing:-.015em">Capture</div>
+      </div>
       <div style="font-size:15px;color:var(--ink-2,#9CAAA4);margin-top:6px;max-width:640px;line-height:1.5">
         Record this machine's own output, notifications included — mute them first.
       </div>
@@ -932,6 +971,7 @@ export function mount(el, payload) {
   const body = el.querySelector('[data-body]');
   const liveEl = el.querySelector('[data-live]');
   const reviewEl = el.querySelector('[data-review]');
+  el.querySelector('[data-back]').addEventListener('click', () => { location.hash = '#/'; });
   let liveCleanup = null;
   let reviewCleanup = null;
   const liveCancelled = { current: false };

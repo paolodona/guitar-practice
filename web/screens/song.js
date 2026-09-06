@@ -493,9 +493,15 @@ export function mount(el, payload) {
   unsubs.push(on('nudge_start', () => nudgeBoundary('start', -NUDGE_S)));
   unsubs.push(on('nudge_end', () => nudgeBoundary('end', NUDGE_S)));
 
-  transportPlayBtn.addEventListener('click', () => {
-    // Phase 1.5, R1: a real, non-looping preview — see module doc, decision
-    // 2. Never counts a rep; practice.js's engine is the only one that does.
+  /** Toggle the preview transport's own play/pause state -- shared by the
+   * button's click and Space (ACTIONS.play_pause, keys.js's KEY_MAP entry
+   * for it; found live 2026-09-06, this screen never actually subscribed
+   * to the action despite the map already naming Space "the universal
+   * transport key"), so the two never drift into two copies of the same
+   * toggle. Phase 1.5, R1: a real, non-looping preview -- see module doc,
+   * decision 2. Never counts a rep; practice.js's engine is the only one
+   * that does. */
+  function togglePreviewPlaying() {
     transportPlaying = !transportPlaying;
     setTransportIcon(transportPlaying);
     if (transportPlaying) {
@@ -511,7 +517,9 @@ export function mount(el, payload) {
       try { engine.pause(); } catch { /* no node between loads -- see above */ }
       pausePlayhead();
     }
-  });
+  }
+  transportPlayBtn.addEventListener('click', togglePreviewPlaying);
+  unsubs.push(on('play_pause', togglePreviewPlaying));
 
   rungsHost.innerHTML = RUNGS.map((r) => `<button class="rung${r === previewSpeed ? ' sel' : ''}" data-rung="${r}">${r}</button>`).join('');
   rungsHost.querySelectorAll('[data-rung]').forEach((btn) => {
