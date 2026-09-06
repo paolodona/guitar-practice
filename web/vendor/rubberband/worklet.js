@@ -81,8 +81,25 @@
  * ---- Message protocol (AudioWorkletNode.port) ----
  * Main -> worklet: {type:'play'} {type:'pause'} {type:'restart'}
  *   {type:'setRatio', ratio} {type:'setPitch', scale} {type:'destroy'}
+ *   {type:'seek', frame} (Phase 1.5, P1 -- see below)
  * Worklet -> main: {type:'ready'} (once, after construction succeeds)
  *   {type:'boundary', contextTime} (once per completed lap)
+ *
+ * ---- seek (Phase 1.5, P1) ----
+ * player.js converts the clicked position from absolute source seconds to
+ * a frame offset *within this processor's own `source` slice* (the only
+ * place that conversion can happen, since it needs rawStartFrame/sr from
+ * loadSection) and sends that frame here -- this processor owns the
+ * source samples and the frame-accurate clock, so the actual jump (and
+ * the authoritative clamp against sourceLen) happens here, not in
+ * player.js. Handled like `restart` (rb_reset, re-feed the warm-up pad)
+ * because the jump is just as much a discontinuity for the phase
+ * vocoder's analysis history as a restart is -- the difference is only
+ * which frame `readPos` lands on afterwards, and that seek does not
+ * force `playing` true (a seek while paused stays paused). Does not post
+ * a `boundary` itself -- a seek is not a completed lap, and player.js's
+ * RealtimeEngine.seek() disqualifies the in-flight lap on its own side of
+ * the port, per the pass-detection contract in player.js's module doc.
  */
 
 const OPT = {
@@ -216,6 +233,18 @@ class RubberBandLooper extends AudioWorkletProcessor {
         this._feedSilence(this.preferredStartPad);
         this.playing = true;
         break;
+      case 'seek': {
+        // Authoritative clamp -- player.js clamps too (against the section's
+        // own bounds), but this processor is the one that actually knows
+        // sourceLen, so a bad frame from a stale/future caller still lands
+        // somewhere real rather than corrupting readPos.
+        const clamped = Math.max(0, Math.min(this.sourceLen - 1, msg.frame | 0));
+        this.x.rb_reset(this.rb);
+        this.readPos = clamped;
+        this.toDrop = this.startDelay;
+        this._feedSilence(this.preferredStartPad);
+        break;
+      }
       case 'setRatio':
         this.x.rb_set_time_ratio(this.rb, msg.ratio);
         break;

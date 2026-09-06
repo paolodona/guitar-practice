@@ -21,24 +21,30 @@
  * must not quietly duplicate or disagree about who owns it. `pass` fires
  * once per satisfying loop boundary, never once per raw timeupdate.
  *
- * How that boundary is actually observed this phase: this engine has no
- * arbitrary seek/scrub method on its public surface (see the class below
- * — only play/pause/restartSection), so every lap this engine ever plays
- * starts at exactly one of two positions: sample 0 of the loaded section
- * (pre-roll included, on load or restart) or `loopStartFrame` (every
- * natural loop wrap, produced by web/vendor/rubberband/worklet.js, which
- * owns the source samples and reports each wrap with the worklet's own
- * `currentTime` — not `performance.now()`, which does not exist inside
- * AudioWorkletGlobalScope). Both of those starting positions are exactly
- * the section's beginning, not merely close to it, so "started within
- * 250ms" is structurally satisfied rather than measured against a
- * tolerance window — there is nowhere else this engine could have
- * started. What genuinely needs tracking is "no pause... in between":
- * pause() disqualifies whatever lap is in flight, and a fresh natural
- * wrap re-qualifies the next one. See _onBoundary() below.
- * PASS_START_TOLERANCE_S is kept as a named constant purely so a future
- * scrub/seek feature has an obvious place to wire in the check this
- * engine does not currently need.
+ * How that boundary was observed through Phase 1: this engine had no
+ * arbitrary seek/scrub method on its public surface (only play/pause/
+ * restartSection), so every lap it played started at exactly one of two
+ * positions: sample 0 of the loaded section (pre-roll included, on load
+ * or restart) or `loopStartFrame` (every natural loop wrap, produced by
+ * web/vendor/rubberband/worklet.js, which owns the source samples and
+ * reports each wrap with the worklet's own `currentTime` — not
+ * `performance.now()`, which does not exist inside AudioWorkletGlobalScope).
+ * Both of those starting positions were exactly the section's beginning,
+ * not merely close to it, so "started within 250ms" was structurally
+ * satisfied rather than measured against a tolerance window.
+ *
+ * Phase 1.5's P1 adds seek(sourceSeconds) (waveform click-to-seek,
+ * screens/practice.js) and that is no longer true — a seek can land
+ * anywhere in the loaded slice, not only at the two qualifying positions.
+ * seek() therefore disqualifies the in-flight lap exactly like pause()
+ * does (this is PASS_START_TOLERANCE_S's reserved purpose, now live: see
+ * the constant below), and relies on the SAME re-qualification _onBoundary()
+ * already does for a post-pause resume — a fresh natural wrap re-arms the
+ * next lap regardless of why the previous one was disqualified. No change
+ * to _onBoundary() itself was needed for this; the state machine already
+ * generalizes. What genuinely needs tracking, unchanged: pause() and now
+ * seek() disqualify whatever lap is in flight; a fresh natural wrap
+ * re-qualifies the next one. See _onBoundary() below.
  *
  * ---- Units ----
  * setSpeedPct takes a PERCENT (50.0 = 50%) — CLAUDE.md: "speed is a
@@ -95,9 +101,17 @@ const MIN_SPEED_PCT = 40;
 // only widens how far a MANUAL speed_up press can go.
 const MAX_SPEED_PCT = 110;
 
-// See the module doc above: kept for a future scrub/seek feature: this
-// engine has no seek method yet, so every lap it plays already starts
-// exactly at the section's beginning and never merely "close to" it.
+// Phase 1.5, P1: seek() exists now, and the module doc's pass-detection
+// contract requires "no seek ... in between" independently of where the
+// seek landed — the opening docstring's "and" is deliberate, not "or".
+// So this constant is STILL not read in a numeric comparison anywhere:
+// disqualifying every seek, unconditionally, is a simpler and correct
+// reading of that contract than re-qualifying a seek that happens to land
+// within tolerance of the true beginning would be — a click a few pixels
+// into the section is still a seek, not a restart. Left defined (not
+// deleted) because it is still the number the contract's prose names, and
+// because a future "a seek onto exactly loopStartFrame behaves like
+// restartSection" refinement — not asked for here — would want it.
 const PASS_START_TOLERANCE_S = 0.25;
 
 /**
@@ -242,6 +256,17 @@ export class RealtimeEngine extends EventTarget {
       );
     }
 
+    // seek()'s coordinate conversion (Phase 1.5, P1): sourceSeconds is
+    // absolute — position in the original file, CLAUDE.md's SourceSeconds
+    // — and this is the only place that knows the mapping from that to a
+    // frame offset within the worklet's own slice (rawStartFrame/sr,
+    // fixed above, including the pre-roll-ran-off-the-start clamp). Store
+    // the slice's own bounds in source seconds so seek() can clamp against
+    // what is actually loaded, not the section's nominal, unclamped span.
+    this._sampleRate = sr;
+    this._sliceStartS = rawStartFrame / sr;
+    this._sliceEndS = endFrame / sr;
+
     const channels = decoded.numberOfChannels;
     const source = [];
     for (let c = 0; c < channels; c++) {
@@ -342,6 +367,25 @@ export class RealtimeEngine extends EventTarget {
     this._requireNode('restartSection');
     this._node.port.postMessage({ type: 'restart' });
     this._qualified = true; // back at the true beginning -- a fresh window starts now
+  }
+
+  /**
+   * Jump to *sourceSeconds* (CLAUDE.md's SourceSeconds — absolute position
+   * in the original file, the same clock section.startS/endS are in), and
+   * disqualify the in-flight lap: see the module doc's pass-detection
+   * contract and PASS_START_TOLERANCE_S's comment above for why this is
+   * unconditional rather than tolerance-gated. Clamps to the loaded
+   * slice's own bounds rather than throwing on an out-of-range value —
+   * screens/practice.js's click math is expected to stay in range, but a
+   * stray click just past either edge should still do something sane.
+   * @param {number} sourceSeconds
+   */
+  seek(sourceSeconds) {
+    this._requireNode('seek');
+    const clampedS = Math.min(this._sliceEndS, Math.max(this._sliceStartS, sourceSeconds));
+    const frame = Math.round((clampedS - this._sliceStartS) * this._sampleRate);
+    this._node.port.postMessage({ type: 'seek', frame });
+    this._qualified = false;
   }
 
   /** Tear down the audio graph and worklet. No further events fire after this. */

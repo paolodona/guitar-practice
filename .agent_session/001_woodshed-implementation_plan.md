@@ -1532,22 +1532,40 @@ S: it already names the destination ("an isolated guitar track... is what `demuc
     engine/server halves may proceed against the contracts already fixed in this plan.
 
 **Group P — waveform click-to-seek**
-- **P1** `player.js`'s `RealtimeEngine` gains `seek(sourceSeconds)`. This engine
-  currently has **no seek method on purpose** (see its own module doc: "kept for a
-  future scrub/seek feature... this engine has no seek method yet") — every lap today
-  starts at exactly sample 0 or `loopStartFrame`, which is why "started within 250ms of
-  the section's beginning" needed no tolerance check. `seek` breaks that invariant on
-  purpose, so it must **disqualify the in-flight lap** the same way `pause()` already
-  does (`_onBoundary()`'s existing qualify/disqualify bookkeeping), and
-  `PASS_START_TOLERANCE_S` — reserved in the source for exactly this — becomes live: a
-  natural wrap after a seek re-qualifies the next lap, same as after a pause. Needs a new
-  message type in the worklet's protocol (`web/vendor/rubberband/worklet.js`) to jump the
-  read position within the currently loaded section; the worklet owns the source samples
-  and the frame-accurate clock, so the jump happens there, not in `player.js`.
-  *Test contract*: a synthetic-worklet test asserting a lap that was seeked into never
-  fires `pass`; a lap that reaches the end via a natural wrap **after** a seek does fire
-  it (re-qualification); seeking outside `[0, sectionDuration]` clamps rather than
-  throwing.
+- **P1 — done, 2026-09-06 (engine half only; P2's UI wiring stays blocked on
+  Group O's sign-off).** `worklet.js` gains a `{type:'seek', frame}` message,
+  handled like `restart` (`rb_reset`, re-feed the warm-up pad) but without
+  forcing `playing` true and without posting a `boundary` itself; the frame
+  is clamped authoritatively against `sourceLen` there, since the worklet
+  is the one thing that actually knows it. `player.js`'s `RealtimeEngine`
+  gains `seek(sourceSeconds)` — takes an absolute `SourceSeconds` (position
+  in the original file, same clock `section.startS`/`endS` are in),
+  converts it to a frame offset within the loaded slice using the
+  `rawStartFrame`/sample-rate bookkeeping `loadSection` already computes
+  (now stored as `_sliceStartS`/`_sliceEndS`/`_sampleRate`), clamps to the
+  loaded slice's own bounds (documented judgement call: the plan's "[0,
+  sectionDuration]" is read as the loaded slice's span, since "source
+  seconds" is unambiguously absolute per CLAUDE.md's clock invariant and a
+  literal `[0, ...]` range would contradict that), and disqualifies the
+  in-flight lap exactly like `pause()` — **unconditionally**, regardless of
+  how close the seek lands to the true beginning, per the module doc's
+  pass-detection contract reading "no seek ... in between" as independent
+  of the "started within 250ms" clause. No change was needed to
+  `_onBoundary()` itself — the existing disqualify/requalify state machine
+  already generalizes from "after a pause" to "after any disqualifying
+  event," so re-qualification on the next natural wrap falls out for free.
+  `PASS_START_TOLERANCE_S` is still not read in a numeric comparison
+  anywhere; its comment now explains why, rather than staying stale.
+  Test-first, in `web/tests/test_seek.mjs` — a synthetic-worklet test (a
+  fake `_node` standing in for the real `AudioWorkletNode`, since the thing
+  actually at risk lives entirely in `RealtimeEngine`'s own bookkeeping, not
+  the WASM DSP), run as a plain `node` script rather than via a framework.
+  This is a deliberate, narrow, one-unit exception to the "no JS test
+  framework" choice Group D made and CLAUDE.md's Testing section documents
+  — made because the plan itself flags this unit's interaction as one of
+  the two highest-risk in the phase. 8 assertions, all passing; `node
+  --check` clean on both touched files; `uv run pytest` (789) and the
+  no-extras gate (786) unaffected.
 - **P2** `screens/practice.js` wires a pointerdown/click handler on the section
   waveform's container: click position → fraction of the visible window (same view math
   the ring/playhead already use) → source seconds → `engine.seek(...)`. The local
