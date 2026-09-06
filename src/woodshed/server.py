@@ -99,6 +99,7 @@ from __future__ import annotations
 import importlib.util
 import io
 import json
+import math
 import mimetypes
 import os
 import re
@@ -230,6 +231,12 @@ def parse_multipart(
         else:
             fields[name] = content.decode("utf-8", errors="replace")
     return fields, files
+
+
+def _totals_json(totals) -> dict:
+    """`ledger.Totals` as JSON -- three keys, named as the dataclass names
+    them, so nothing downstream has to guess whether "reps" means passes."""
+    return {"passes": totals.passes, "cleans": totals.cleans, "minutes": totals.minutes}
 
 
 class WoodshedHandler(BaseHTTPRequestHandler):
@@ -366,6 +373,8 @@ class WoodshedHandler(BaseHTTPRequestHandler):
                 self._stem(path.removeprefix("/api/stem/"))
             elif path.startswith("/api/click/"):
                 self._click(path.removeprefix("/api/click/"), parsed.query)
+            elif path.startswith("/api/progress/"):
+                self._progress(path.removeprefix("/api/progress/"), parsed.query)
             elif path.startswith("/api/render/"):
                 self._render(path.removeprefix("/api/render/"), parsed.query)
             elif path == "/api/capture/segments":
@@ -507,6 +516,79 @@ class WoodshedHandler(BaseHTTPRequestHandler):
                 for section in song.sections
             ],
         })
+
+    def _progress(self, raw_slug: str, query: str = "") -> None:
+        """`GET /api/progress/<slug>?weeks=` -- per-section series from the
+        ledger (Phase 2, K2). Everything here is derived per request: there
+        is no progress cache and there must not be one (CLAUDE.md invariant
+        6 -- the moment a count lives in two files they can disagree and
+        nothing says which is right).
+
+        `?weeks=` is the readiness chart's window; `weeks=all` (or any
+        value <= 0) spans back to the first rep in the ledger, floored at
+        one week so an empty ledger still has an axis to draw.
+        """
+        slug = self._resolve_slug(raw_slug)
+        if slug is None:
+            self._error(404, f"no such song: {raw_slug!r}")
+            return
+        song = load_song(self.repo.song_dir(slug) / "song.yaml")
+        reps = list(ledger.read(self.repo))
+        result = practice.progress(song, reps, weeks=self._progress_weeks(query, reps))
+        self._json(
+            {
+                "slug": result.slug,
+                "title": result.title,
+                "artist": result.artist,
+                "weeks": result.weeks,
+                "readiness_series": [
+                    [day.isoformat(), value] for day, value in result.readiness_series
+                ],
+                "totals": _totals_json(result.totals),
+                "week": _totals_json(result.week),
+                "rungs_gained": result.rungs_gained,
+                "sections": [
+                    {
+                        "id": row.id,
+                        "name": row.name,
+                        "target_speed": row.target_speed,
+                        "reps": row.reps,
+                        "cleans": row.cleans,
+                        "minutes": row.minutes,
+                        "best_sustained": row.best_sustained,
+                        "reached": row.reached,
+                        "last_speed": row.last_speed,
+                        "last_practised": (
+                            None if row.last_practised is None
+                            else row.last_practised.isoformat()
+                        ),
+                        "days_since": row.days_since,
+                        "cold": row.cold,
+                        "series": [[day.isoformat(), speed] for day, speed in row.series],
+                    }
+                    for row in result.sections
+                ],
+            }
+        )
+
+    @staticmethod
+    def _progress_weeks(query: str, reps: list) -> int:
+        """The readiness window in weeks. An unparseable value falls back to
+        the default rather than 400ing a read-only screen over a query
+        string; "all" measures back to the oldest rep actually on disk,
+        which is the only honest reading of "all"."""
+        raw = parse_qs(query).get("weeks", [""])[0]
+        try:
+            weeks = int(float(raw))
+        except ValueError:
+            weeks = 0 if raw.strip().lower() == "all" else practice.PROGRESS_WEEKS
+        if weeks > 0:
+            return weeks
+        oldest = min((r.t for r in reps), default=None)
+        if oldest is None:
+            return practice.PROGRESS_WEEKS
+        days = (datetime.now(UTC) - datetime.fromisoformat(oldest.replace("Z", "+00:00"))).days
+        return max(1, math.ceil(days / 7))
 
     def _setlists(self) -> None:
         result = []

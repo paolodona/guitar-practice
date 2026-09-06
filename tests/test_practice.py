@@ -27,7 +27,7 @@ from woodshed.manifest import (
     save_setlist,
     save_song,
 )
-from woodshed.practice import is_cold, next_up, reached, song_readiness
+from woodshed.practice import is_cold, next_up, progress, reached, song_readiness
 
 
 def _song(slug: str = "cant-stop", **sections_kwargs) -> Song:
@@ -266,3 +266,157 @@ def test_next_up_gig_component_only_for_the_next_dated_setlist(tmp_path) -> None
     far_ranked = next_up(repo, far, [], Cfg(), now=now)
     assert near_ranked[0].gig == 5.0
     assert far_ranked[0].gig == 0.0
+
+
+# ---------------------------------------------------------------------------
+# progress() -- Phase 2, K2. Everything the progress screen draws, derived
+# from the ledger on every call (CLAUDE.md invariant 6: never a summary on
+# disk). The series are the interesting part: they are a REPLAY, not a
+# stored history, so they can be recomputed differently tomorrow without a
+# migration.
+
+
+def _multi_section_song(slug: str = "cant-stop") -> Song:
+    return Song(
+        slug=slug,
+        title="Can't Stop",
+        artist="RHCP",
+        recording=Recording(
+            file="audio/x.flac", sha256="a" * 64, duration_s=200.0, tuning="E standard"
+        ),
+        sections=[
+            Section(id="intro", name="Intro riff", start_s=0.0, end_s=10.0,
+                    snapped="free", target_speed=100.0),
+            Section(id="solo", name="Solo", start_s=10.0, end_s=30.0,
+                    snapped="free", target_speed=100.0),
+        ],
+    )
+
+
+NOW = datetime(2026, 9, 6, 12, 0, tzinfo=UTC)
+
+
+def test_progress_reports_one_row_per_section_with_its_own_totals() -> None:
+    song = _multi_section_song()
+    reps = [
+        _rep("cant-stop", "solo", 50.0, clean=True, t="2026-09-01T12:00:00Z"),
+        _rep("cant-stop", "solo", 55.0, clean=False, t="2026-09-02T12:00:00Z"),
+        _rep("cant-stop", "intro", 100.0, clean=True, t="2026-09-03T12:00:00Z"),
+    ]
+    result = progress(song, reps, now=NOW)
+
+    rows = {row.id: row for row in result.sections}
+    assert set(rows) == {"intro", "solo"}
+    assert rows["solo"].reps == 2
+    assert rows["solo"].cleans == 1
+    assert rows["intro"].reps == 1
+    assert rows["solo"].last_speed == 55.0
+
+
+def test_progress_orders_sections_furthest_from_target_first() -> None:
+    # The artboard's own heading, and the only ordering that puts the work
+    # at the top of the screen.
+    song = _multi_section_song()
+    reps = [
+        _rep("cant-stop", "intro", 100.0, clean=True, t="2026-09-01T12:00:00Z"),
+        _rep("cant-stop", "intro", 100.0, clean=True, t="2026-09-01T12:01:00Z"),
+        _rep("cant-stop", "intro", 100.0, clean=True, t="2026-09-01T12:02:00Z"),
+    ]
+    result = progress(song, reps, now=NOW)
+    assert [row.id for row in result.sections] == ["solo", "intro"]
+
+
+def test_progress_series_is_one_point_per_practised_day_at_that_days_top_speed() -> None:
+    song = _multi_section_song()
+    reps = [
+        _rep("cant-stop", "solo", 50.0, clean=True, t="2026-09-01T10:00:00Z"),
+        _rep("cant-stop", "solo", 55.0, clean=True, t="2026-09-01T18:00:00Z"),
+        _rep("cant-stop", "solo", 60.0, clean=True, t="2026-09-03T10:00:00Z"),
+    ]
+    result = progress(song, reps, now=NOW)
+    solo = next(row for row in result.sections if row.id == "solo")
+    assert solo.series == [(date(2026, 9, 1), 55.0), (date(2026, 9, 3), 60.0)]
+
+
+def test_progress_series_ignores_a_retracted_rep() -> None:
+    # A retraction is an appended line, and every number on this screen is
+    # post-resolve -- otherwise the chart would show a speed the ledger
+    # itself says never happened.
+    song = _multi_section_song()
+    reps = [
+        _rep("cant-stop", "solo", 50.0, clean=True, t="2026-09-01T10:00:00Z"),
+        _rep("cant-stop", "solo", 90.0, clean=True, t="2026-09-01T11:00:00Z"),
+    ]
+    retraction = Rep(
+        id="retraction-1", t="2026-09-01T11:05:00Z", song="cant-stop", section="solo",
+        speed=90.0, semitones=0, passed=False, clean=False, loop_s=0.0, setlist=None,
+        source="ui", retracted=True, retracts=reps[1].id,
+    )
+    result = progress(song, [*reps, retraction], now=NOW)
+    solo = next(row for row in result.sections if row.id == "solo")
+    assert solo.series == [(date(2026, 9, 1), 50.0)]
+
+
+def test_progress_readiness_series_is_a_replay_not_a_running_total() -> None:
+    # Each point is the song's readiness AS OF that date, computed from the
+    # reps up to it -- so a section learned in week 2 does not retroactively
+    # lift week 1.
+    song = _multi_section_song()
+    reps = [
+        _rep("cant-stop", "solo", 100.0, clean=True, t="2026-09-04T10:00:00Z"),
+        _rep("cant-stop", "solo", 100.0, clean=True, t="2026-09-04T10:01:00Z"),
+        _rep("cant-stop", "solo", 100.0, clean=True, t="2026-09-04T10:02:00Z"),
+    ]
+    result = progress(song, reps, now=NOW, weeks=4, points=5)
+    values = [value for _, value in result.readiness_series]
+    assert values[0] == 0.0
+    assert values[-1] > 0.0
+    assert values == sorted(values)  # monotone here only because nothing was retracted
+
+
+def test_progress_week_totals_cover_the_last_seven_days_only() -> None:
+    song = _multi_section_song()
+    reps = [
+        _rep("cant-stop", "solo", 50.0, clean=True, t="2026-08-01T10:00:00Z"),
+        _rep("cant-stop", "solo", 50.0, clean=True, t="2026-09-05T10:00:00Z"),
+    ]
+    result = progress(song, reps, now=NOW)
+    assert result.totals.passes == 2
+    assert result.week.passes == 1
+
+
+def test_progress_counts_rungs_gained_this_week_from_the_ledger_itself() -> None:
+    # "Rungs gained" is a comparison of best-sustained before and after the
+    # window -- never a counter kept anywhere, which is invariant 6 again.
+    song = _multi_section_song()
+    old = [
+        _rep("cant-stop", "solo", 50.0, clean=True, t=f"2026-08-01T10:0{i}:00Z")
+        for i in range(3)
+    ]
+    new = [
+        _rep("cant-stop", "solo", 60.0, clean=True, t=f"2026-09-05T10:0{i}:00Z")
+        for i in range(3)
+    ]
+    result = progress(song, [*old, *new], now=NOW)
+    assert result.rungs_gained == 2  # 50 -> 60 at a 5% step
+
+
+def test_progress_cold_sections_are_flagged_with_their_age() -> None:
+    song = _multi_section_song()
+    reps = [
+        _rep("cant-stop", "intro", 100.0, clean=True, t=f"2026-08-01T10:0{i}:00Z")
+        for i in range(3)
+    ]
+    result = progress(song, reps, now=NOW)
+    intro = next(row for row in result.sections if row.id == "intro")
+    assert intro.cold is True
+    assert round(intro.days_since) == 36
+
+
+def test_progress_on_an_untouched_song_is_empty_rather_than_an_error() -> None:
+    song = _multi_section_song()
+    result = progress(song, [], now=NOW)
+    assert result.totals.passes == 0
+    assert all(row.series == [] for row in result.sections)
+    assert all(row.last_practised is None for row in result.sections)
+    assert [value for _, value in result.readiness_series] == [0.0] * len(result.readiness_series)

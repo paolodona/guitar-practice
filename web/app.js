@@ -26,7 +26,7 @@
  * against `'/song/x'`). `loadModule` is a dynamic import() so the initial
  * page load does not pull in every screen; `loadPayload` resolves to
  * exactly what `mount`'s payload becomes (before params are merged in).
- * capture/library/progress have no GET endpoint yet in this phase (only
+ * capture/library have no GET endpoint yet in this phase (only
  * /api/song, /api/peaks, /api/audio, /api/setlists and /api/setlist/<slug>
  * exist server-side, per server.py's module docstring) — their loadPayload
  * is `async () => ({})` until a later phase's unit adds the endpoint AND
@@ -130,7 +130,10 @@ export const ROUTES = [
   {
     pattern: /^\/progress\/(?<slug>[^/]+)$/,
     loadModule: () => import('./screens/progress.js'),
-    loadPayload: async () => ({}),
+    // Phase 2, K2: `<slug>` is a SONG here (the plan's module map fixes
+    // the endpoint as per-song), and the screen's own range chips re-fetch
+    // with `?weeks=` without going back through the router.
+    loadPayload: async (params) => get(`/api/progress/${encodeURIComponent(params.slug)}`),
   },
 ];
 

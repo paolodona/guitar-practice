@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 
 from woodshed import ledger, manifest, sections
 
@@ -208,3 +208,194 @@ def _is_next_gig_setlist(repo, setlist: manifest.Setlist, now: datetime) -> bool
     if not upcoming:
         return False
     return setlist.date == min(upcoming)
+
+
+# ---------------------------------------------------------------------------
+# Progress (Phase 2, K2) -- everything screens/progress.js draws.
+#
+# All of it is a REPLAY of practice/reps.jsonl, computed per call. Nothing
+# below is ever written to disk (CLAUDE.md invariant 6: never a summary in
+# song.yaml), which is also what makes it safe to change how a series is
+# derived tomorrow -- there is no stored history to migrate, only a
+# different reading of the same lines.
+
+
+#: How many points the readiness series carries by default -- one per week
+#: over the default window, which is what the artboard's own axis labels
+#: ("26 WEEKS AGO / 13 / NOW") describe.
+PROGRESS_WEEKS = 26
+
+
+@dataclass(frozen=True)
+class SectionProgress:
+    """One row of the progress table, for one section."""
+
+    id: str
+    name: str
+    target_speed: float
+    reps: int
+    cleans: int
+    minutes: float
+    best_sustained: float
+    reached: float
+    last_speed: float | None
+    last_practised: datetime | None
+    days_since: float | None
+    cold: bool
+    #: (day, that day's highest practised speed) for every day with reps --
+    #: a day, not a "session", because the ledger records times and not
+    #: sittings, and inventing a session boundary out of gaps would be a
+    #: measurement the tool cannot actually make.
+    series: list[tuple[date, float]]
+
+
+@dataclass(frozen=True)
+class Progress:
+    """The whole progress payload for one song."""
+
+    slug: str
+    title: str
+    artist: str
+    weeks: int
+    #: (day, readiness 0..1 AS OF that day) -- each point recomputed from
+    #: the reps up to it, so a section learned late never lifts an early
+    #: point.
+    readiness_series: list[tuple[date, float]]
+    sections: list[SectionProgress]
+    totals: ledger.Totals
+    week: ledger.Totals
+    rungs_gained: int
+
+
+def progress(
+    song: manifest.Song,
+    reps: Iterable[ledger.Rep],
+    *,
+    now: datetime | None = None,
+    weeks: int = PROGRESS_WEEKS,
+    points: int | None = None,
+) -> Progress:
+    """Assemble the progress payload for *song* from *reps*.
+
+    `points` defaults to one per week over the window, plus the endpoint.
+    Sections come back **furthest from target first** -- the artboard's own
+    ordering, and the only one that puts the work at the top of the screen.
+    """
+    reps = list(reps)
+    now = now or _utcnow()
+    resolved = ledger.resolve(reps)
+
+    rows: list[SectionProgress] = []
+    for section in song.sections:
+        totals = ledger.totals(resolved, song.slug, section.id)
+        last = ledger.last_practised(resolved, song.slug, section.id)
+        reps_to_advance = (
+            section.reps_to_advance
+            if section.reps_to_advance is not None
+            else song.practice.reps_to_advance
+        )
+        rows.append(
+            SectionProgress(
+                id=section.id,
+                name=section.name,
+                target_speed=section.target_speed,
+                reps=totals.passes,
+                cleans=totals.cleans,
+                minutes=totals.minutes,
+                best_sustained=ledger.best_sustained_speed(
+                    resolved, song.slug, section.id, reps_to_advance
+                ),
+                reached=reached(resolved, song, section, song.practice),
+                last_speed=ledger.last_speed(resolved, song.slug, section.id),
+                last_practised=last,
+                days_since=None if last is None else (now - last).total_seconds() / 86400.0,
+                cold=is_cold(resolved, song, section, now=now),
+                series=_speed_series(resolved, song.slug, section.id),
+            )
+        )
+    rows.sort(key=lambda row: (row.reached, row.id))
+
+    window_start = now - timedelta(days=7)
+    week_reps = [r for r in resolved if _parse_t(r.t) >= window_start]
+
+    return Progress(
+        slug=song.slug,
+        title=song.title,
+        artist=song.artist,
+        weeks=weeks,
+        readiness_series=_readiness_series(song, resolved, now=now, weeks=weeks, points=points),
+        sections=rows,
+        totals=ledger.totals(resolved, song.slug),
+        week=ledger.totals(week_reps, song.slug),
+        rungs_gained=_rungs_gained(song, resolved, since=window_start),
+    )
+
+
+def _parse_t(t: str) -> datetime:
+    return datetime.fromisoformat(t.replace("Z", "+00:00"))
+
+
+def _speed_series(
+    resolved: list[ledger.Rep], slug: str, section_id: str
+) -> list[tuple[date, float]]:
+    """(day, that day's highest speed) for every day this section was played."""
+    by_day: dict[date, float] = {}
+    for rep in resolved:
+        if rep.song != slug or rep.section != section_id or not rep.passed:
+            continue
+        day = _parse_t(rep.t).date()
+        by_day[day] = max(by_day.get(day, 0.0), rep.speed)
+    return sorted(by_day.items())
+
+
+def _readiness_series(
+    song: manifest.Song,
+    resolved: list[ledger.Rep],
+    *,
+    now: datetime,
+    weeks: int,
+    points: int | None,
+) -> list[tuple[date, float]]:
+    """Song readiness recomputed at evenly spaced instants across the window.
+
+    Deliberately a replay rather than a stored curve: `song_readiness` is
+    the one definition of the number (CLAUDE.md: readiness is measured over
+    covered song time), and reading it at N instants keeps the chart and the
+    headline figure the same quantity by construction.
+    """
+    count = points if points is not None else weeks + 1
+    count = max(2, count)
+    span = timedelta(weeks=weeks)
+    series: list[tuple[date, float]] = []
+    for index in range(count):
+        at = now - span + span * (index / (count - 1))
+        upto = [r for r in resolved if _parse_t(r.t) <= at]
+        series.append((at.date(), song_readiness(song, upto, song.practice).ratio))
+    return series
+
+
+def _rungs_gained(song: manifest.Song, resolved: list[ledger.Rep], *, since: datetime) -> int:
+    """How many ladder rungs the whole song climbed inside the window.
+
+    Compared, not counted: best-sustained speed before the window against
+    best-sustained now, divided by the section's own ladder step. There is
+    no "rungs gained" number anywhere on disk to read, and there should not
+    be one -- it is a difference between two readings of the ledger.
+    """
+    before = [r for r in resolved if _parse_t(r.t) < since]
+    gained = 0
+    for section in song.sections:
+        reps_to_advance = (
+            section.reps_to_advance
+            if section.reps_to_advance is not None
+            else song.practice.reps_to_advance
+        )
+        step = (
+            section.ladder_step if section.ladder_step is not None else song.practice.ladder_step
+        )
+        if step <= 0:
+            continue
+        was = ledger.best_sustained_speed(before, song.slug, section.id, reps_to_advance)
+        is_now = ledger.best_sustained_speed(resolved, song.slug, section.id, reps_to_advance)
+        gained += max(0, int(round((is_now - was) / step)))
+    return gained

@@ -1911,3 +1911,82 @@ def test_a_woodshed_error_from_a_route_is_a_400(served):
              "target_speed": 100.0},
         )
     assert caught.value.code == 400
+
+
+# ── GET /api/progress/<slug> (Phase 2, K2) ───────────────────────────────
+
+
+def test_progress_payload_has_a_row_per_section_and_a_readiness_series(served):
+    base, repo, slug = served
+    _post(base, "/api/rep", {
+        "song": slug, "section": "solo-full", "speed": 60.0, "semitones": 0,
+        "pass": True, "clean": True, "loop_s": 30.0, "source": "ui",
+    })
+    status, data = _get_json(base, f"/api/progress/{slug}")
+    assert status == 200
+    assert data["slug"] == slug
+    assert {row["id"] for row in data["sections"]} == {"solo-full", "solo-part"}
+    assert len(data["readiness_series"]) >= 2
+    assert data["totals"]["passes"] == 1
+    row = next(r for r in data["sections"] if r["id"] == "solo-full")
+    assert row["reps"] == 1
+    assert row["series"][0][1] == 60.0
+
+
+def test_progress_on_an_unpractised_song_is_zeroes_not_an_error(served):
+    base, _repo, slug = served
+    status, data = _get_json(base, f"/api/progress/{slug}")
+    assert status == 200
+    assert data["totals"]["passes"] == 0
+    assert data["rungs_gained"] == 0
+    assert all(row["series"] == [] for row in data["sections"])
+
+
+def test_progress_unknown_song_is_a_404(served):
+    base, _repo, _slug = served
+    with pytest.raises(urllib.error.HTTPError) as excinfo:
+        _get(base, "/api/progress/no-such-song")
+    assert excinfo.value.code == 404
+
+
+def test_progress_traversal_attempt_is_a_404(served):
+    base, _repo, _slug = served
+    with pytest.raises(urllib.error.HTTPError) as excinfo:
+        _get(base, "/api/progress/..%2f..%2fetc%2fpasswd")
+    assert excinfo.value.code == 404
+
+
+def test_progress_writes_nothing(served):
+    """The progress screen is a pure read of the ledger -- CLAUDE.md's "the
+    server writes exactly four things" does not include a progress cache."""
+    base, repo, slug = served
+    before = _hash_tree(repo.root)
+    _get_json(base, f"/api/progress/{slug}")
+    assert _hash_tree(repo.root) == before
+
+
+def test_progress_weeks_query_narrows_the_readiness_window(served):
+    base, _repo, slug = served
+    _status, twelve = _get_json(base, f"/api/progress/{slug}?weeks=12")
+    assert twelve["weeks"] == 12
+    _status, default = _get_json(base, f"/api/progress/{slug}")
+    assert default["weeks"] == 26
+
+
+def test_progress_weeks_all_spans_back_to_the_oldest_rep(served):
+    base, _repo, slug = served
+    _post(base, "/api/rep", {
+        "song": slug, "section": "solo-full", "speed": 60.0, "semitones": 0,
+        "pass": True, "clean": True, "loop_s": 30.0, "source": "ui",
+    })
+    _status, data = _get_json(base, f"/api/progress/{slug}?weeks=all")
+    # One rep, appended a moment ago -- "all" is one week, not 26, and
+    # certainly not zero (a chart with no axis).
+    assert data["weeks"] == 1
+
+
+def test_progress_weeks_garbage_falls_back_rather_than_400ing(served):
+    base, _repo, slug = served
+    status, data = _get_json(base, f"/api/progress/{slug}?weeks=banana")
+    assert status == 200
+    assert data["weeks"] == 26

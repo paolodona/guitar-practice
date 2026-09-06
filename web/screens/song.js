@@ -371,6 +371,8 @@ export function mount(el, payload) {
       <div data-back title="Back to dashboard" style="cursor:pointer;color:var(--ink-3,#6A7873);font-size:20px;line-height:1;padding:2px 6px">&#8249;</div>
       <div style="font-size:26px;font-weight:600;letter-spacing:-.015em">${escapeHtml(payload.title)}</div>
       <div style="font-size:16px;color:var(--ink-3,#6A7873)">${escapeHtml(payload.artist)}${payload.album ? ' &middot; ' + escapeHtml(payload.album) : ''}</div>
+      <a href="#/progress/${encodeURIComponent(payload.slug)}" title="Practice history for this song"
+         style="font-size:14px;color:var(--accent,#E0913F);text-decoration:none">Progress &rarr;</a>
       <div style="margin-left:auto;display:flex;align-items:center;gap:12px">
         <div class="mono" style="font-size:13px;color:var(--ink-3,#6A7873);letter-spacing:.04em">RECORD IN ${escapeHtml(payload.recording.tuning).toUpperCase()}</div>
         <div style="display:flex;align-items:center;gap:6px;border:1px solid var(--line,#26302E);border-radius:5px;padding:4px">

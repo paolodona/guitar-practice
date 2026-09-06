@@ -2839,6 +2839,43 @@ instead.
   - 12 new node tests (`web/tests/test_ladder.mjs`), 4 new pytest cases
     (the mirror). Full suite 1010 passed (was 1005); ruff clean.
 - **K2** `web/screens/progress.js` — sparklines, totals, best sustained, the cold list
+  - **Done, 2026-09-06.** Three pieces: `practice.progress()` (the aggregation),
+    `GET /api/progress/<slug>?weeks=` (server.py's `_progress`, the endpoint the
+    module map assigns to this unit), and the screen itself.
+  - **Everything on the screen is a replay of the ledger**, computed per request
+    (CLAUDE.md invariant 6). The readiness chart is `song_readiness` re-evaluated
+    at N instants over the window, using only the reps up to each — so a section
+    learned in week 20 does not retroactively lift week 3, and a retraction moves
+    the chart, which is what an append-only ledger is for. "Rungs gained this
+    week" is *compared*, not counted: best-sustained speed before the window
+    against best-sustained now, over the section's own ladder step. There is no
+    counter for it anywhere and there should not be one.
+  - **A day, not a "session".** The artboard says "speed over the last 13
+    sessions"; the ledger records times, not sittings, and inventing a session
+    boundary out of the gaps between reps would be a measurement the tool cannot
+    make (the failure mode `gx100/CLAUDE.md` spends a page on). Each sparkline
+    point is one practised DAY, at that day's highest speed, and the column
+    header says so.
+  - **The screen is per SONG.** The artboard's header reads as a setlist ("Ramba
+    S.S. — the set") but the module map fixes the endpoint as
+    `GET /api/progress/<slug> -> per-section series`, with `<slug>` a song
+    everywhere else in the routing table. Per-song it is, with the header showing
+    title/artist; a set-wide version would be a second endpoint over
+    `next_up`'s own per-setlist walk and is not invented here. Reachable now:
+    the song screen's header gained a "Progress →" link, since nothing linked to
+    the route at all before.
+  - The range chips (12 / 26 weeks / All) re-fetch with `?weeks=`, since the
+    window changes what the replay covers. "All" measures back to the oldest rep
+    actually on disk, floored at one week so an empty ledger still has an axis;
+    an unparseable `weeks=` falls back to the default rather than 400ing a
+    read-only screen over a query string.
+  - Sparklines hold a FIXED speed domain (40-110%) rather than auto-scaling each
+    row, so a section that crawled 50 -> 55 does not look identical to one that
+    went 50 -> 100 — asserted directly, since a wrong domain doesn't fail, it
+    just quietly draws a lie.
+  - 10 new tests in `test_practice.py`, 8 in `test_server.py` (including one that
+    the endpoint writes nothing at all), 7 node tests for the plot maths. Full
+    suite 1028 passed (was 1010); ruff clean; no-extras 1025 passed, 3 deselected.
 - **K3** `doctor.py` completion + `woodshed status --setlist`
 
 **Phase 2 gate**
