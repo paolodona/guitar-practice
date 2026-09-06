@@ -32,7 +32,19 @@
   <div style="display:flex;align-items:baseline;gap:18px;padding-bottom:20px;border-bottom:1px solid #26302E">
     <div style="font-size:26px;font-weight:600;letter-spacing:-.015em">Capture</div>
     <div style="font-size:15px;color:#6A7873">whatever this machine is playing, bit-for-bit off the output device</div>
-    <div class="mono" style="margin-left:auto;font-size:13px;color:#C9805E;letter-spacing:.08em">● RECORDING</div>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:14px">
+      <!-- the state before this pass started -- an idle arm control, for
+           reference beside the recording state this artboard otherwise
+           shows throughout. Group T's single-song capture (no tracklist,
+           no queue panel) is this idle/recording pair alone. -->
+      <div style="display:flex;align-items:center;gap:8px;border:1px solid #26302E;border-radius:5px;padding:6px 14px 6px 8px">
+        <div style="width:20px;height:20px;border-radius:50%;border:1.5px solid #6A7873;display:flex;align-items:center;justify-content:center">
+          <div style="width:8px;height:8px;border-radius:2px;background:#6A7873"></div>
+        </div>
+        <div class="mono" style="font-size:13px;color:#6A7873;letter-spacing:.08em">IDLE — PRESS TO ARM</div>
+      </div>
+      <div class="mono" style="font-size:13px;color:#C9805E;letter-spacing:.08em">● RECORDING</div>
+    </div>
   </div>
 
   <div style="display:flex;gap:12px;padding:20px 0">

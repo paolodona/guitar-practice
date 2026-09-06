@@ -1490,6 +1490,46 @@ S: it already names the destination ("an isolated guitar track... is what `demuc
   variant (arm / level meter / elapsed timer / stop). Sign off with Paolo before P–T
   build against it, matching how every existing screen's ground truth was fixed before
   its D-unit implemented it.
+  - **Done, 2026-09-06, awaiting sign-off.** Working files in `design/` were confirmed
+    byte-identical to the published canvas before editing (canvas.json only differed by
+    pretty-printing — semantically equal), so this was a direct edit-and-republish, not
+    a fresh seed. Changes: `Main.dc.html` gained six inline SVG foot-chip icons (filled
+    play/skip-forward/skip-back triangles for CC80–82; stacked chevron-up/down for
+    faster/slower CC83–84; a distinct undo-arc, deliberately unlike the skip-back
+    triangle, for retract CC85) plus a "Guitar only" toggle beside the Shift stepper
+    (OFF shown as the artboard's default state) with a small labelled strip showing the
+    other two real states — two honest stages ("Isolating guitar… 1/2", "Rendering…
+    2/2") and "Ready — instant" — never a fabricated smooth percentage. New
+    `design/AddSong.dc.html` (chose a new artboard over a Dashboard state, since the
+    two flows — file bind vs. live capture — read better side by side than as toggled
+    states of one screen): left panel is the file-based form (styled file-picker shown
+    in its chosen-file state, title/artist fields, a styled tuning dropdown-look control
+    naming all six fixed choices), right panel is the live-capture variant (arm ring
+    shown recording, elapsed timer, L/R level meters, Stop) with a caption noting the
+    pre-start idle-arm state it's not currently showing. `Capture.dc.html` gained a
+    small idle-arm control next to the existing "● RECORDING" badge, additive — the
+    existing tracklist/queue view stays as the future (Phase 3 M1-dependent) multi-song
+    state; T2's actual single-song capture is the idle/recording pair alone. `canvas.json`
+    gained the `AddSong.dc.html` artboard entry and a `note-addsong` annotation.
+    Seeded, `--check`ed clean, republished to the existing canvas
+    (`https://claude.ai/code/artifact/618bb99d-abcd-4827-a11d-413c6dc3a6c8`) rather than
+    a new one. A background content-consistency pass (against the working files, not the
+    seeded output) found six real drifts from the established system, all fixed and
+    republished same session: the three "Guitar only" state chips had gained a border
+    and three off-palette colours not used anywhere else in the canvas (no badge in
+    `Dashboard.dc.html`/`Components.dc.html` carries a border) — replaced with the exact,
+    borderless colour pairs `Components.dc.html`'s own "+2 s · confirm" and "at target"
+    badges already use, and dropped the mini toggle-track illustration that was the
+    source of the new colours; `Capture.dc.html`'s new idle-arm control was a 20px pill,
+    the only fully-round container shape in the system (everything else is a 3–5px
+    rounded rectangle) — squared to 5px; its "IDLE — PRESS TO ARM" label sat at 11px
+    beside "● RECORDING" at 13px despite the two being shown as a directly-comparable
+    pair — matched to 13px; `AddSong.dc.html`'s own "● RECORDING" used `.1em` letter-
+    spacing against `Capture.dc.html`'s `.08em` for the identical string — matched; and
+    its "Change file" button read `#9CAAA4` against `Components.dc.html`'s analogous
+    "Bind file" outline button at `#E8EEEB` — matched. **Signed off: not yet** — P–T's
+    UI-facing halves stay blocked on that per the phase's own Ordering note; their
+    engine/server halves may proceed against the contracts already fixed in this plan.
 
 **Group P — waveform click-to-seek**
 - **P1** `player.js`'s `RealtimeEngine` gains `seek(sourceSeconds)`. This engine

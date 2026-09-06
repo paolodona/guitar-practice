@@ -7,6 +7,7 @@
     { "file": "SongPage.dc.html",        "x": 1560, "y": 1320, "w": 1440, "h": 900,  "title": "Song page" },
     { "file": "Capture.dc.html",         "x": 3120, "y": 1320, "w": 1440, "h": 900,  "title": "Capture" },
     { "file": "Library.dc.html",         "x": 4680, "y": 1320, "w": 1440, "h": 900,  "title": "Library" },
+    { "file": "AddSong.dc.html",         "x": 6240, "y": 1320, "w": 1440, "h": 900,  "title": "Add a song" },
     { "file": "Progress.dc.html",        "x": 0,    "y": 2400, "w": 1440, "h": 900,  "title": "Progress" },
     { "file": "Components.dc.html",      "x": 1560, "y": 2400, "w": 1440, "h": 1180, "title": "Components" }
   ],
@@ -17,6 +18,8 @@
       "text": "SETUP MODE — sitting at the desk, mouse in hand. Ordinary density is fine here; none of it appears while you are playing." },
     { "id": "note-capture",  "x": 3120, "y": 1150, "w": 700,
       "text": "CAPTURE is new since the first spec — records the machine's own output, splits a playlist on the gaps, matches segments to the tracklist by duration." },
+    { "id": "note-addsong",  "x": 6240, "y": 1150, "w": 700,
+      "text": "ADD A SONG — Phase 1.5. Replaces the dashboard's bare title/slug field: a real file picker plus a single-song live-capture variant (no tracklist, no queue — that needs Phase 3's Spotify import)." },
     { "id": "note-system",   "x": 1560, "y": 2270, "w": 700,
       "text": "One accent (bronze). Semantic colour — green at target, terracotta cold/recording — is kept separate from it and always carries a word as well as a hue." }
   ],

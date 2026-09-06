@@ -32,15 +32,38 @@
     </div>
     <div style="display:flex;flex-direction:column;align-items:flex-end;gap:12px;padding-top:6px">
       <div style="font-size:19px;color:#9CAAA4">Ramba S.S. — the set</div>
-      <div style="display:flex;gap:12px;align-items:center">
-        <div class="lbl" style="font-size:12px">Shift</div>
-        <div style="display:flex;align-items:center;gap:8px;border:1px solid #26302E;border-radius:5px;padding:5px">
-          <div style="width:38px;height:38px;border-radius:3px;background:#1B2422;display:flex;
-                      align-items:center;justify-content:center;font-size:22px;color:#9CAAA4">−</div>
-          <div class="mono num" style="font-size:28px;color:#E0913F;width:56px;text-align:center;font-weight:600">−1</div>
-          <div style="width:38px;height:38px;border-radius:3px;background:#1B2422;display:flex;
-                      align-items:center;justify-content:center;font-size:22px;color:#9CAAA4">+</div>
+      <div style="display:flex;gap:22px;align-items:center">
+        <!-- Guitar-only toggle. OFF shown here (default artboard state) --
+             its ON-and-isolating / ON-and-ready states are the small
+             labelled strip below, next to "STATES". -->
+        <div style="display:flex;align-items:center;gap:10px">
+          <div class="lbl" style="font-size:12px">Guitar only</div>
+          <div style="width:46px;height:27px;border-radius:14px;background:#1B2422;border:1px solid #26302E;padding:3px">
+            <div style="width:19px;height:19px;border-radius:10px;background:#5B6A64"></div>
+          </div>
         </div>
+        <div style="display:flex;gap:12px;align-items:center">
+          <div class="lbl" style="font-size:12px">Shift</div>
+          <div style="display:flex;align-items:center;gap:8px;border:1px solid #26302E;border-radius:5px;padding:5px">
+            <div style="width:38px;height:38px;border-radius:3px;background:#1B2422;display:flex;
+                        align-items:center;justify-content:center;font-size:22px;color:#9CAAA4">−</div>
+            <div class="mono num" style="font-size:28px;color:#E0913F;width:56px;text-align:center;font-weight:600">−1</div>
+            <div style="width:38px;height:38px;border-radius:3px;background:#1B2422;display:flex;
+                        align-items:center;justify-content:center;font-size:22px;color:#9CAAA4">+</div>
+          </div>
+        </div>
+      </div>
+      <!-- Guitar-only toggle -- the other two real states, for reference only
+           (not part of the OFF artboard above). Never a fabricated smooth
+           percentage -- two honest stages, then ready. -->
+      <div style="display:flex;gap:8px;align-items:center">
+        <div class="mono" style="font-size:10px;color:#4C5854;letter-spacing:.12em">STATES</div>
+        <!-- badge colours reused verbatim from Components.dc.html's own
+             "+2 s · confirm" / "at target" pairs -- no new tokens, no border,
+             same shape as every other badge in this system. -->
+        <div class="mono" style="background:#2A2118;color:#E0913F;font-size:11px;letter-spacing:.03em;white-space:nowrap;border-radius:4px;padding:6px 10px">Isolating guitar&hellip; 1/2</div>
+        <div class="mono" style="background:#2A2118;color:#E0913F;font-size:11px;letter-spacing:.03em;white-space:nowrap;border-radius:4px;padding:6px 10px">Rendering&hellip; 2/2</div>
+        <div class="mono" style="background:#16261F;color:#5FA88F;font-size:11px;letter-spacing:.03em;white-space:nowrap;border-radius:4px;padding:6px 10px">● Ready — instant</div>
       </div>
       <div class="mono" style="font-size:14px;color:#6A7873;letter-spacing:.03em">RECORD IN E · PLAYING IN E♭</div>
     </div>
@@ -105,31 +128,62 @@
     </div>
   </div>
 
-  <!-- feet -->
+  <!-- feet -- each tile gains a monochrome icon, right-aligned and vertically
+       centred against the label. Self-hosted inline SVG per Group Q (no icon
+       font, no CDN). -->
   <div style="display:flex;gap:12px;padding-top:30px">
-    <div style="flex:1;background:#131B19;border:1px solid #1C2523;border-radius:4px;padding:12px 16px;display:flex;flex-direction:column;gap:3px">
-      <div class="mono" style="font-size:12px;color:#8A5C29;letter-spacing:.14em">CC 80</div>
-      <div style="font-size:17px;font-weight:500">Play / pause</div>
+    <div style="flex:1;background:#131B19;border:1px solid #1C2523;border-radius:4px;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px">
+      <div style="display:flex;flex-direction:column;gap:3px">
+        <div class="mono" style="font-size:12px;color:#8A5C29;letter-spacing:.14em">CC 80</div>
+        <div style="font-size:17px;font-weight:500">Play / pause</div>
+      </div>
+      <!-- shown paused (play triangle); swaps live to a two-bar pause glyph while playing -->
+      <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true"><path d="M7 5.2v11.6l10-5.8z" fill="#9CAAA4"/></svg>
     </div>
-    <div style="flex:1;background:#131B19;border:1px solid #1C2523;border-radius:4px;padding:12px 16px;display:flex;flex-direction:column;gap:3px">
-      <div class="mono" style="font-size:12px;color:#8A5C29;letter-spacing:.14em">CC 81</div>
-      <div style="font-size:17px;font-weight:500">Next section</div>
+    <div style="flex:1;background:#131B19;border:1px solid #1C2523;border-radius:4px;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px">
+      <div style="display:flex;flex-direction:column;gap:3px">
+        <div class="mono" style="font-size:12px;color:#8A5C29;letter-spacing:.14em">CC 81</div>
+        <div style="font-size:17px;font-weight:500">Next section</div>
+      </div>
+      <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true"><path d="M4.5 5v12l8.5-6z" fill="#9CAAA4"/><rect x="14.5" y="5" width="2.6" height="12" rx="1" fill="#9CAAA4"/></svg>
     </div>
-    <div style="flex:1;background:#131B19;border:1px solid #1C2523;border-radius:4px;padding:12px 16px;display:flex;flex-direction:column;gap:3px">
-      <div class="mono" style="font-size:12px;color:#8A5C29;letter-spacing:.14em">CC 82</div>
-      <div style="font-size:17px;font-weight:500">Previous</div>
+    <div style="flex:1;background:#131B19;border:1px solid #1C2523;border-radius:4px;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px">
+      <div style="display:flex;flex-direction:column;gap:3px">
+        <div class="mono" style="font-size:12px;color:#8A5C29;letter-spacing:.14em">CC 82</div>
+        <div style="font-size:17px;font-weight:500">Previous</div>
+      </div>
+      <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true"><rect x="4.9" y="5" width="2.6" height="12" rx="1" fill="#9CAAA4"/><path d="M17.5 5v12l-8.5-6z" fill="#9CAAA4"/></svg>
     </div>
-    <div style="flex:1;background:#131B19;border:1px solid #1C2523;border-radius:4px;padding:12px 16px;display:flex;flex-direction:column;gap:3px">
-      <div class="mono" style="font-size:12px;color:#8A5C29;letter-spacing:.14em">CC 83</div>
-      <div style="font-size:17px;font-weight:500">Faster</div>
+    <div style="flex:1;background:#131B19;border:1px solid #1C2523;border-radius:4px;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px">
+      <div style="display:flex;flex-direction:column;gap:3px">
+        <div class="mono" style="font-size:12px;color:#8A5C29;letter-spacing:.14em">CC 83</div>
+        <div style="font-size:17px;font-weight:500">Faster</div>
+      </div>
+      <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true">
+        <path d="M5 10l6-5 6 5" fill="none" stroke="#9CAAA4" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M5 15l6-5 6 5" fill="none" stroke="#9CAAA4" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
     </div>
-    <div style="flex:1;background:#131B19;border:1px solid #1C2523;border-radius:4px;padding:12px 16px;display:flex;flex-direction:column;gap:3px">
-      <div class="mono" style="font-size:12px;color:#8A5C29;letter-spacing:.14em">CC 84</div>
-      <div style="font-size:17px;font-weight:500">Slower</div>
+    <div style="flex:1;background:#131B19;border:1px solid #1C2523;border-radius:4px;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px">
+      <div style="display:flex;flex-direction:column;gap:3px">
+        <div class="mono" style="font-size:12px;color:#8A5C29;letter-spacing:.14em">CC 84</div>
+        <div style="font-size:17px;font-weight:500">Slower</div>
+      </div>
+      <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true">
+        <path d="M5 7l6 5 6-5" fill="none" stroke="#9CAAA4" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M5 12l6 5 6-5" fill="none" stroke="#9CAAA4" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
     </div>
-    <div style="flex:1;background:#131B19;border:1px solid #1C2523;border-radius:4px;padding:12px 16px;display:flex;flex-direction:column;gap:3px">
-      <div class="mono" style="font-size:12px;color:#8A5C29;letter-spacing:.14em">CC 85</div>
-      <div style="font-size:17px;font-weight:500">Retract rep</div>
+    <div style="flex:1;background:#131B19;border:1px solid #1C2523;border-radius:4px;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px">
+      <div style="display:flex;flex-direction:column;gap:3px">
+        <div class="mono" style="font-size:12px;color:#8A5C29;letter-spacing:.14em">CC 85</div>
+        <div style="font-size:17px;font-weight:500">Retract rep</div>
+      </div>
+      <!-- undo arc -- deliberately unlike the previous-section triangle, so the two are never confused from sitting distance -->
+      <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true">
+        <path d="M15.5 15.5A7 7 0 1 0 15 6" fill="none" stroke="#9CAAA4" stroke-width="1.8" stroke-linecap="round"/>
+        <path d="M15 2.5v4.2h4.2" fill="none" stroke="#9CAAA4" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
     </div>
   </div>
 

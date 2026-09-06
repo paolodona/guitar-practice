@@ -1,0 +1,135 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+  <style>
+    *{box-sizing:border-box}
+    body{margin:0;background:#0C1211;color:#E8EEEB;
+         font-family:Archivo,'Helvetica Neue',Arial,sans-serif;-webkit-font-smoothing:antialiased}
+    a{color:#E0913F} a:hover{color:#EFA95C}
+    .mono{font-family:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace}
+    .lbl{font-family:'IBM Plex Mono',ui-monospace,Menlo,monospace;letter-spacing:.2em;
+         text-transform:uppercase;color:#6A7873}
+    .num{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1;
+         letter-spacing:-.035em;line-height:.84;font-weight:700}
+  </style>
+<style>
+  .panel{flex:1;background:#131B19;border:1px solid #1C2523;border-radius:5px;padding:24px 26px;
+         display:flex;flex-direction:column;gap:18px;min-width:0}
+  .fld{background:#0F1614;border:1px solid #26302E;border-radius:4px;padding:11px 14px;
+       font-size:15px;color:#E8EEEB;font-family:Archivo,sans-serif}
+  .fld::placeholder{color:#5B6A64}
+  .fgroup{display:flex;flex-direction:column;gap:6px}
+</style>
+</helmet>
+<div style="width:1440px;height:900px;background:#0C1211;display:flex;flex-direction:column;padding:34px 48px 30px">
+
+  <!-- top bar, matching Dashboard -->
+  <div style="display:flex;align-items:center;gap:36px;padding-bottom:22px;border-bottom:1px solid #26302E">
+    <div class="mono" style="font-size:14px;letter-spacing:.32em;color:#E8EEEB;font-weight:600">WOODSHED</div>
+    <div style="display:flex;align-items:baseline;gap:12px">
+      <a href="#" style="font-size:15px;color:#6A7873">Dashboard</a>
+      <div class="mono" style="font-size:13px;color:#4C5854">/</div>
+      <div style="font-size:19px;font-weight:600;letter-spacing:-.01em">Add a song</div>
+    </div>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:14px">
+      <div style="border:1px solid #26302E;border-radius:4px;padding:6px 12px;font-size:14px;color:#9CAAA4">Ramba S.S. — the set</div>
+    </div>
+  </div>
+
+  <!-- two ways in, side by side -->
+  <div style="display:flex;gap:20px;flex-grow:1;padding-top:26px;min-height:0">
+
+    <!-- from a file -->
+    <div class="panel">
+      <div style="display:flex;flex-direction:column;gap:3px">
+        <div class="lbl" style="font-size:11px;color:#E0913F">From a file</div>
+        <div style="font-size:15px;color:#6A7873">bind a recording you already have on disk</div>
+      </div>
+
+      <!-- file picker, chosen-file state -->
+      <div style="border:1px dashed #3A4844;border-radius:5px;padding:20px;display:flex;align-items:center;gap:16px">
+        <div style="width:44px;height:44px;border-radius:4px;background:#1B2422;flex-shrink:0;display:flex;align-items:center;justify-content:center">
+          <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><path d="M4 2.5h8l4 4V17a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1z" fill="none" stroke="#9CAAA4" stroke-width="1.4" stroke-linejoin="round"/><path d="M12 2.5V7h4" fill="none" stroke="#9CAAA4" stroke-width="1.4" stroke-linejoin="round"/></svg>
+        </div>
+        <div style="flex-grow:1;min-width:0">
+          <div style="font-size:15px;color:#E8EEEB;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Cant_Stop_RHCP.flac</div>
+          <div class="mono" style="font-size:12px;color:#6A7873;margin-top:2px">38.4 MB · 4:29 · 44 100 Hz</div>
+        </div>
+        <div style="border:1px solid #26302E;border-radius:4px;padding:9px 16px;font-size:14px;color:#E8EEEB;white-space:nowrap">Change file</div>
+      </div>
+      <div class="mono" style="font-size:11.5px;color:#5B6A64;letter-spacing:.02em">SHOWN WITH A FILE ALREADY CHOSEN. EMPTY STATE READS<br>"DROP AN AUDIO FILE, OR CHOOSE ONE" IN THE SAME BOX.</div>
+
+      <div style="display:flex;gap:14px">
+        <div class="fgroup" style="flex:1">
+          <div class="lbl" style="font-size:10px">Title</div>
+          <div class="fld">Can’t Stop</div>
+        </div>
+        <div class="fgroup" style="flex:1">
+          <div class="lbl" style="font-size:10px">Artist</div>
+          <div class="fld">Red Hot Chili Peppers</div>
+        </div>
+      </div>
+
+      <div class="fgroup" style="width:260px">
+        <div class="lbl" style="font-size:10px">Recording tuning</div>
+        <div class="fld" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer">
+          <span>E standard</span>
+          <svg width="11" height="7" viewBox="0 0 11 7" aria-hidden="true"><path d="M1 1l4.5 4.5L10 1" fill="none" stroke="#9CAAA4" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+        <div class="mono" style="font-size:11px;color:#5B6A64">FIXED CHOICE — E · E♭ · D · C♯ · C · B STANDARD</div>
+      </div>
+
+      <div style="margin-top:auto;display:flex;align-items:center;gap:14px">
+        <div style="background:#E0913F;color:#0C1211;border-radius:4px;padding:13px 28px;font-size:16px;font-weight:600">Add song</div>
+        <div style="font-size:13.5px;color:#6A7873">Bound to <span style="color:#9CAAA4">this setlist</span>, tuning fixed at add time.</div>
+      </div>
+    </div>
+
+    <!-- or capture live -->
+    <div class="panel" style="flex:0 0 420px">
+      <div style="display:flex;flex-direction:column;gap:3px">
+        <div class="lbl" style="font-size:11px;color:#E0913F">Or capture live</div>
+        <div style="font-size:15px;color:#6A7873">records this machine’s own output, one song</div>
+      </div>
+
+      <!-- armed / recording state -->
+      <div style="display:flex;flex-direction:column;align-items:center;gap:16px;padding:8px 0 4px">
+        <div style="width:74px;height:74px;border-radius:50%;border:2px solid #C9805E;display:flex;align-items:center;justify-content:center">
+          <div style="width:26px;height:26px;border-radius:4px;background:#C9805E"></div>
+        </div>
+        <div class="mono" style="font-size:13px;color:#C9805E;letter-spacing:.08em">● RECORDING</div>
+        <div class="num mono" style="font-size:42px">1:47</div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <div class="mono" style="font-size:11px;color:#5B6A64;width:12px">L</div>
+          <div style="flex-grow:1;height:9px;border-radius:2px;background:#1C2523;overflow:hidden"><div style="width:64%;height:9px;background:#E0913F"></div></div>
+          <div class="mono num" style="font-size:11px;color:#6A7873;width:44px;text-align:right">−8.4 dB</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <div class="mono" style="font-size:11px;color:#5B6A64;width:12px">R</div>
+          <div style="flex-grow:1;height:9px;border-radius:2px;background:#1C2523;overflow:hidden"><div style="width:60%;height:9px;background:#E0913F"></div></div>
+          <div class="mono num" style="font-size:11px;color:#6A7873;width:44px;text-align:right">−9.1 dB</div>
+        </div>
+      </div>
+
+      <div class="mono" style="font-size:11.5px;color:#5B6A64;line-height:1.6">
+        BEFORE START THIS SHOWS AN IDLE ARM BUTTON<br>IN PLACE OF THE RECORDING RING ABOVE.</div>
+
+      <div style="margin-top:auto;display:flex;justify-content:center">
+        <div style="background:#C9805E;color:#0C1211;border-radius:4px;padding:12px 30px;font-size:16px;font-weight:600">Stop</div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>
