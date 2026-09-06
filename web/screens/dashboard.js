@@ -372,7 +372,8 @@ function render(el, payload) {
             <option value="" disabled selected>Tuning&hellip;</option>
             ${tuningOptionsHtml()}
           </select>
-          <button type="submit" class="go-btn">Add song</button>
+          <button type="submit" class="go-btn" data-submit>Add song</button>
+          <div data-importing class="mono" style="display:none;font-size:12px;color:var(--ink-3,#6A7873);letter-spacing:.04em">Importing&hellip; detecting tempo, this can take a few seconds</div>
           <div data-error class="form-error"></div>
         </form>
       </div>
@@ -400,6 +401,8 @@ function render(el, payload) {
 
   const addSongForm = el.querySelector('[data-add-song]');
   const addSongError = addSongForm.querySelector('[data-error]');
+  const addSongSubmit = addSongForm.querySelector('[data-submit]');
+  const addSongImporting = addSongForm.querySelector('[data-importing]');
   const fileInput = addSongForm.querySelector('[data-file]');
   const fileLabel = addSongForm.querySelector('[data-file-label]');
   fileInput.addEventListener('change', () => {
@@ -413,6 +416,17 @@ function render(el, payload) {
     const artist = addSongForm.querySelector('[data-artist]').value.trim();
     const tuning = addSongForm.querySelector('[data-tuning]').value;
     if (!file || !title || !tuning) return;
+    // Found live 2026-09-06, Paolo: POST /api/song/upload binds the file
+    // AND runs cli.analyze_after_bind (tempo detection, librosa) before it
+    // returns -- a real file can take several seconds, and with no
+    // feedback at all it read as "not working" rather than "still
+    // importing". Disable the form and say so for exactly that window;
+    // switchTo() below replaces this whole screen on success, so there is
+    // nothing to re-enable there -- only the catch path needs to restore
+    // it, for a retry.
+    for (const field of addSongForm.elements) field.disabled = true;
+    addSongSubmit.textContent = 'Importing…';
+    addSongImporting.style.display = 'block';
     try {
       const formData = new FormData();
       formData.append('file', file);
@@ -428,6 +442,9 @@ function render(el, payload) {
       await switchTo(el, setlists, currentSetlist);
     } catch (err) {
       addSongError.textContent = err.message;
+      addSongImporting.style.display = 'none';
+      addSongSubmit.textContent = 'Add song';
+      for (const field of addSongForm.elements) field.disabled = false;
     }
   });
 }

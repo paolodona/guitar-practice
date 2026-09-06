@@ -82,6 +82,12 @@ test("R1's own test contract, enforced as a lint-style check (same pattern as Ph
   assert.ok(!src.includes('/api/rep'), 'song.js must never POST /api/rep -- practice.js owns every rep');
   assert.ok(
     !/addEventListener\(\s*['"]pass['"]/.test(src),
-    "song.js must never addEventListener('pass', ...) -- it only ever loads loop:false sections"
+    // Found live 2026-09-06: song.js's preview now loads `loop: true` for
+    // a selected section (continuous audition, not R1's original one-shot)
+    // -- it can fire 'boundary'/'pass' now, same as practice.js's engine
+    // does. The invariant this test actually guards survives unchanged:
+    // whatever it loads, this screen must never LISTEN for 'pass' or post
+    // a rep. It just no longer follows from "only ever loop:false".
+    "song.js must never addEventListener('pass', ...) -- it counts no reps, looped or not"
   );
 });

@@ -30,6 +30,11 @@ import { ACTIONS, dispatch } from './actions.js';
  *   m           metronome       — m = "metronome"
  *   f           fullscreen      — f = "fullscreen", browser-convention key
  *   ?           help            — '?' opens a help overlay, browser convention
+ *   Escape      cancel_lead_in  — found live 2026-09-06: exits the lead-in
+ *               overlay back to the plain practice screen, browser
+ *               convention for "back out of this". A no-op when the
+ *               overlay isn't showing (practice.js's own handler checks
+ *               `elapsed`, not this file's job to gate).
  *   [           nudge_start     \ Phase 1, G1. Both widen the selected
  *   ]           nudge_end       /  section outward by a fixed millisecond
  *               step (song.js's NUDGE_S) — '[' pulls the start earlier,
@@ -56,6 +61,7 @@ export const KEY_MAP = {
   m: 'metronome',
   f: 'fullscreen',
   '?': 'help',
+  Escape: 'cancel_lead_in',
 };
 
 /**

@@ -118,7 +118,7 @@
 import { currentSetlist, get, post } from '../app.js';
 import { drawWave, SONG_WAVE_OPTS } from '../wave.js';
 import { renderSections, attachCreateHandler } from '../sections.js';
-import { computeGrid, drawGrid, sizeCanvas, viewX } from '../timeline.js';
+import { computeGrid, drawGrid, sizeCanvas, viewX, computeSeekPosition } from '../timeline.js';
 import { on } from '../actions.js';
 import { createEngine } from '../player.js';
 
@@ -163,11 +163,12 @@ function beatOf(t, tempo) {
   return (((Math.floor(totalBeats) % bpb) + bpb) % bpb) + 1;
 }
 function barBeatLabel(t, tempo) { return `${barOf(t, tempo)}.${beatOf(t, tempo)}`; }
-function fmtClock(s) {
-  const m = Math.floor(s / 60);
-  const rem = Math.max(0, s - m * 60);
-  return `${m}:${rem.toFixed(1).padStart(4, '0')}`;
-}
+// 3 decimals -- matches the inspector's own Start/End fields
+// (`sec.start_s.toFixed(3)`) exactly, so a number read off this live
+// counter can be typed straight into either without rounding it first.
+// Found live 2026-09-06, Paolo: "I need to see the precise moment a
+// section starts... so I can key into the start or end input boxes."
+function fmtPreciseS(s) { return `${s.toFixed(3)}s`; }
 
 /** order() mirrored client-side: (start_s, -duration), display order only —
  *  sections.py/server.py own containment (`lane`/`ancestors`), never
@@ -203,7 +204,19 @@ export function mount(el, payload) {
   function closestRung(target) {
     return RUNGS.reduce((a, b) => (Math.abs(b - target) < Math.abs(a - target) ? b : a), RUNGS[0]);
   }
-  let previewSpeed = closestRung(payload.practice.start_speed);
+  // Found live 2026-09-06, Paolo: "not all songs or sections will be
+  // practiced from 50%" -- default the preview rung to the INITIALLY
+  // selected section's own `starting_speed_pct` (server.py's
+  // `_section_starting_speed`, GET /api/song's per-section field: the
+  // earned ladder rung for an ordinary section, the last speed actually
+  // practiced for a `full_song` one -- and a `full_song` section, being
+  // the longest span starting at 0, is `sections[0]` -- i.e. the initial
+  // selection -- almost always in practice), falling back to the song's
+  // flat `start_speed` default only when nothing has been practised yet
+  // or the field is missing (an older cached payload).
+  const initialSection = sections.find((s) => s.id === selectedId);
+  const initialStartSpeed = initialSection?.starting_speed_pct ?? payload.practice.start_speed;
+  let previewSpeed = closestRung(initialStartSpeed);
   let transportPlaying = false;
 
   // ---- the preview engine (Phase 1.5, R1) ----
@@ -252,23 +265,56 @@ export function mount(el, payload) {
   // ever CALLED from the click handler wired near the end of mount(), long
   // after both are assigned. Kept here, beside the rest of the engine
   // lifecycle, rather than moved past its own declaration site.
+  //
+  // Found live 2026-09-06, Paolo: previewing a section to fine-tune its
+  // boundaries meant re-pressing play after every edit, and the loop
+  // shape (R1's `loop: false`, one-shot) didn't match "keep listening
+  // while I nudge this" at all. Two changes:
+  //
+  // - A SELECTED section now loops continuously (`loop: !!sec`) instead
+  //   of playing once -- 'ended' (only fired for a non-looping load, see
+  //   player.js's own doc) simply never arrives for one, so the only way
+  //   to stop it is the transport button itself, same as any other loop
+  //   in this app. Nothing selected (previewing the whole recording)
+  //   keeps the original one-shot behaviour -- auto-looping a whole
+  //   multi-minute recording by default would be a surprise, not a
+  //   convenience. This still fires no 'pass' and posts no rep (this
+  //   screen never listens for the former or calls the latter -- R1's own
+  //   lint test already asserts that, unchanged by adding `loop: true`).
+  // - Resumes from `playheadSourceS` when it's still inside the (possibly
+  //   just-edited) section, rather than always restarting at `start_s`:
+  //   the same one code path now serves a waveform click mid-playback
+  //   (seekToClientX, below, only moves the cosmetic position -- the next
+  //   reload picks it up from here) AND `patchSection`'s own "reload if
+  //   the section playing right now is the one that just changed" call,
+  //   so dragging a boundary mid-preview keeps roughly where you were
+  //   instead of jumping back to the new start every time.
   async function playPreview() {
     await ensureEngine();
     if (!engineReady || !transportPlaying) return; // unavailable, or paused again before this resolved
     const sec = sections.find((s) => s.id === selectedId);
+    const startS = sec ? sec.start_s : 0;
+    const endS = sec ? sec.end_s : durationS;
+    const startFrom = (playheadSourceS !== null && playheadSourceS >= startS && playheadSourceS < endS)
+      ? playheadSourceS : startS;
     await engine.loadSection({
       sectionId: sec ? sec.id : 'full-song',
       audioUrl: `/api/audio/${encodeURIComponent(slug)}`,
-      startS: sec ? sec.start_s : 0,
-      endS: sec ? sec.end_s : durationS,
+      startS, endS,
       preRollS: 0,
-      loop: false, // R1: plays once, fires 'ended' -- never 'pass', never a rep
+      loop: !!sec,
     });
     if (!transportPlaying) return; // paused again while loadSection was in flight
     engine.setSpeedPct(previewSpeed);
     engine.setSemitones(shift);
+    if (startFrom !== startS) {
+      // Best-effort: a stale scrub position just outside the freshly
+      // loaded slice clamps rather than throws (RealtimeEngine.seek's own
+      // contract) -- nothing here needs a second fallback for that.
+      try { engine.seek(startFrom); } catch { /* no node -- loadSection above would have thrown first */ }
+    }
     engine.play();
-    startPlayhead(sec ? sec.start_s : 0);
+    startPlayhead(startFrom);
   }
 
   let shift = clampShift(payload.shift ?? 0); // interactive — see module doc, decision 1.
@@ -310,6 +356,8 @@ export function mount(el, payload) {
           <button data-shift-plus style="width:28px;height:28px;border-radius:3px;border:none;background:var(--raised,#1B2422);display:flex;align-items:center;justify-content:center;font-size:17px;color:var(--ink-2,#9CAAA4);cursor:pointer">+</button>
         </div>
         <div style="font-size:14px;color:var(--ink-2,#9CAAA4)">plays in ${escapeHtml(payload.recording.tuning)}</div>
+        <div data-delete-song title="Delete this song" style="cursor:pointer;color:var(--ink-3,#6A7873);
+                    font-size:13px;letter-spacing:.03em;margin-left:8px;padding-left:12px;border-left:1px solid var(--line,#26302E)">Delete</div>
       </div>
     </div>
 
@@ -336,7 +384,7 @@ export function mount(el, payload) {
           <div data-rungs style="display:flex;align-items:center;gap:2px"></div>
           <div style="width:1px;height:26px;background:var(--line,#26302E)"></div>
           <div class="mono" style="font-size:13px;color:var(--ink-2,#9CAAA4)">PREVIEW ONLY &middot; PRACTISE A SECTION TO LOOP IT</div>
-          <div data-transport-clock class="mono" style="margin-left:auto;font-size:14px;color:var(--ink-2,#9CAAA4);font-variant-numeric:tabular-nums">0:00.0 / ${fmtClock(durationS)}</div>
+          <div data-transport-clock class="mono" style="margin-left:auto;font-size:14px;color:var(--ink-2,#9CAAA4);font-variant-numeric:tabular-nums">${fmtPreciseS(0)} / ${fmtPreciseS(durationS)}</div>
         </div>
       </div>
 
@@ -356,8 +404,30 @@ export function mount(el, payload) {
   const barRuler = root.querySelector('[data-bar-ruler]');
   const rungsHost = root.querySelector('[data-rungs]');
   const transportPlayBtn = root.querySelector('[data-transport-play]');
+  const transportClockEl = root.querySelector('[data-transport-clock]');
 
   root.querySelector('[data-back]').addEventListener('click', () => { location.hash = '#/'; });
+
+  // Deliberately irreversible: this deletes the whole songs/<slug>/ tree on
+  // disk, real audio included (server.py's `_post_song_delete`), and drops
+  // the slug from every setlist that names it. It does NOT touch
+  // practice/reps.jsonl (CLAUDE.md invariant 5 -- the ledger never loses a
+  // line, even for a song that no longer exists). window.confirm() is the
+  // only guard against a misclick; there is no undo past this point.
+  root.querySelector('[data-delete-song]').addEventListener('click', async () => {
+    const ok = window.confirm(
+      `Delete "${payload.title}" for good?\n\nThis removes its audio file and cache from disk `
+      + 'and takes it out of every setlist. Its past practice history stays in the ledger, '
+      + 'but nothing can undo this.'
+    );
+    if (!ok) return;
+    try {
+      await post('/api/song/delete', { song: slug });
+      location.hash = '#/';
+    } catch (err) {
+      window.alert(`Could not delete "${payload.title}": ${err && err.message}`);
+    }
+  });
 
   const shiftValEl = root.querySelector('[data-shift-val]');
   function renderShift() {
@@ -502,8 +572,15 @@ export function mount(el, payload) {
   let playheadRafId = null;
   let playheadLastTs = null;
 
+  // transportClockEl now doubles as the live, precise seconds counter this
+  // unit's own module doc line 3 wanted, driven by the exact same estimate
+  // as the playhead line -- both read `playheadSourceS`, so they can never
+  // show two different numbers. 3 decimals, matching the inspector's own
+  // Start/End fields exactly (see fmtPreciseS): read this while listening,
+  // type it straight into Start or End.
   function renderPlayhead() {
     const v = view();
+    transportClockEl.textContent = `${fmtPreciseS(playheadSourceS ?? 0)} / ${fmtPreciseS(durationS)}`;
     if (playheadSourceS === null || !v.widthPx) { playheadEl.style.display = 'none'; return; }
     playheadEl.style.display = 'block';
     playheadEl.style.left = `${(viewX(playheadSourceS, v) / v.widthPx) * 100}%`;
@@ -516,15 +593,30 @@ export function mount(el, payload) {
     }
     playheadLastTs = ts;
     const sec = sections.find((s) => s.id === selectedId);
+    const startS = sec ? sec.start_s : 0;
     const endS = sec ? sec.end_s : durationS;
     if (playheadSourceS >= endS) {
-      // 'ended' will stop the engine and hide the playhead on its own
-      // (onPreviewEnded); clamp here just so the line doesn't visibly
-      // overshoot the section end in the last frame or two before that
-      // event actually arrives.
-      playheadSourceS = endS;
-      renderPlayhead();
-      return;
+      if (sec) {
+        // A selected section now loops continuously (playPreview's own
+        // `loop: !!sec`, found live 2026-09-06) -- the real audio wraps
+        // natively in the audio graph, so this cosmetic estimate wraps to
+        // match rather than clamping-and-stopping (that was only ever
+        // correct for the one-shot case below). Modulo, not a hard reset
+        // to startS, so an overshoot of a few ms -- this is still only an
+        // estimate, module doc decision 2 -- carries into the next lap
+        // instead of being silently dropped.
+        const span = endS - startS;
+        playheadSourceS = span > 0 ? startS + ((playheadSourceS - startS) % span) : startS;
+      } else {
+        // Whole-recording preview: still one-shot (playPreview's own
+        // doc). 'ended' will stop the engine and hide the playhead on its
+        // own (onPreviewEnded); clamp here just so the line doesn't
+        // visibly overshoot the end in the last frame or two before that
+        // event actually arrives.
+        playheadSourceS = endS;
+        renderPlayhead();
+        return;
+      }
     }
     renderPlayhead();
     playheadRafId = requestAnimationFrame(playheadTick);
@@ -542,6 +634,32 @@ export function mount(el, payload) {
     playheadRafId = null;
     playheadSourceS = null;
     renderPlayhead();
+  }
+
+  // ---- waveform click-to-seek (found live 2026-09-06, Paolo: "I need the
+  // ability to click on the waveform and move the playhead... to seek
+  // section starts much more quickly") ----
+  // Reuses timeline.js's computeSeekPosition (moved there from
+  // practice.js this same session for exactly this reuse) against THIS
+  // screen's own whole-recording view() (unlike practice.js, which windows
+  // to one section) -- a click anywhere in the waveform seeks to that
+  // absolute source position. Works whether or not anything is currently
+  // playing: paused, it just moves the reference marker/counter (and
+  // playPreview, above, will resume from there on the next press, same as
+  // a boundary edit does); playing, it ALSO seeks the live engine, and the
+  // already-running playheadTick rAF loop picks up the new position on its
+  // very next frame (playheadLastTs reset so it doesn't integrate a huge
+  // dt against a stale timestamp).
+  waveHost.addEventListener('pointerdown', (e) => seekToClientX(e.clientX));
+  function seekToClientX(clientX) {
+    const rect = waveHost.getBoundingClientRect();
+    const { sourceS } = computeSeekPosition(clientX, rect, view());
+    playheadSourceS = sourceS;
+    playheadLastTs = null;
+    renderPlayhead();
+    if (engineReady && transportPlaying) {
+      try { engine.seek(sourceS); } catch { /* no node yet -- nothing to seek */ }
+    }
   }
 
   let detachCreateHandler = null;
@@ -588,6 +706,17 @@ export function mount(el, payload) {
     const res = await post('/api/section', body);
     sections = orderSections(res.sections);
     redrawAll();
+    // Found live 2026-09-06, Paolo: dragging a boundary (or typing into the
+    // inspector's Start/End fields) of the section CURRENTLY PLAYING kept
+    // looping the OLD bounds until the transport was stopped and restarted
+    // by hand. Every boundary-commit path (inspector fields, snap, nudge,
+    // the lane's own drag handles) funnels through here, so reloading once,
+    // right here, covers all of them without each caller remembering to.
+    // Only when the edited section IS the one playing right now -- editing
+    // some OTHER section while a different one plays must not interrupt it.
+    if (transportPlaying && selectedId === id) {
+      playPreview().catch((err) => console.error('song.js: playPreview failed', err));
+    }
   }
 
   function renderInspector() {

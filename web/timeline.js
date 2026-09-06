@@ -93,6 +93,53 @@ export function positionAt(pixelX, view) {
 }
 
 /**
+ * A click's `clientX`, the waveform host's own bounding rect, and the
+ * current View -> the source seconds it maps to (clamped to the view's
+ * own span) and the 0-1 fraction of that span it falls at. Originally
+ * screens/practice.js's own (Phase 1.5, P2); moved here 2026-09-06 when
+ * screens/song.js needed the identical math for its own waveform
+ * click-to-seek -- one home for the pixel<->time conversion every caller
+ * shares, same reasoning as viewX/positionAt already living here rather
+ * than in whichever screen first needed them.
+ *
+ * Found live 2026-09-06, Paolo: a click landed BEFORE where he clicked,
+ * consistently, on practice.js's own screen. Root cause: that screen's
+ * `root` (and song.js's, and every screen mounted through app.js's own
+ * scaling wrapper) is scaled to fit the window with a CSS `transform:
+ * scale(s)` — `clientX`/`rect.left` (from `getBoundingClientRect()`) are
+ * VIEWPORT pixels, already transform-aware, but `view.widthPx` is a
+ * `clientWidth`-derived LAYOUT size, which transforms never touch.
+ * Dividing a viewport-pixel offset by a layout-pixel width silently mixes
+ * the two spaces: at any `s < 1` (the common case), the computed fraction
+ * reads LOWER than the true on-screen fraction, landing the seek before
+ * the click every time, worse the smaller the window. Fixed by rescaling
+ * the viewport offset through `rect.width` (also viewport pixels, so the
+ * ratio is scale-independent) before handing it to positionAt(), which
+ * expects layout pixels like every other `view.widthPx` caller (drawing
+ * code, never affected -- the canvas/svg's own pixels get scaled by the
+ * SAME transform, so layout-pixel coordinates already land correctly on
+ * screen there).
+ * @param {number} clientX
+ * @param {{left: number, width?: number}} rect
+ * @param {View} view
+ * @returns {{sourceS: number, frac: number}}
+ */
+export function computeSeekPosition(clientX, rect, view) {
+  // rect.width is viewport pixels (same space as clientX/rect.left); view.widthPx
+  // is layout pixels (waveHost.clientWidth, untouched by the stage's CSS scale).
+  // Rescale the viewport offset into layout-pixel units before positionAt() --
+  // a no-op when nothing is scaled (rect.width === view.widthPx), and falls back
+  // to view.widthPx outright if rect carries no width at all (a bare {left}
+  // stand-in, same shape this function's old contract allowed).
+  const viewportWidth = rect.width || view.widthPx;
+  const pixelX = ((clientX - rect.left) / viewportWidth) * view.widthPx;
+  const sourceS = Math.min(view.endS, Math.max(view.startS, positionAt(pixelX, view)));
+  const span = view.endS - view.startS;
+  const frac = span > 0 ? (sourceS - view.startS) / span : 0;
+  return { sourceS, frac: Math.max(0, Math.min(1, frac)) };
+}
+
+/**
  * Size *canvas* for crisp rendering at a FIXED device pixel ratio (default
  * 2, NOT `window.devicePixelRatio` — see the module doc's trap). Sets
  * canvas.width/height to cssWidth*dpr/cssHeight*dpr, canvas.style.width/

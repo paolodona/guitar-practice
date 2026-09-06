@@ -39,6 +39,7 @@ export const ACTIONS = {
   metronome:       { label: 'Metronome',       cc: null },
   fullscreen:      { label: 'Fullscreen',      cc: null },
   help:            { label: 'Help',            cc: null },
+  cancel_lead_in:  { label: 'Cancel lead-in',  cc: null },
 };
 
 /** @typedef {"midi" | "keyboard" | "ui"} ActionSource */

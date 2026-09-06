@@ -71,13 +71,14 @@
  *    on RealtimeEngine would let a later pass replace this estimate with
  *    an exact one.
  *
- * 4. Eleven of the sixteen actions are wired here (play_pause, next_section,
+ * 4. Twelve of the seventeen actions are wired here (play_pause, next_section,
  *    prev_section, speed_up, speed_down, retract_rep, confirm_clean,
- *    restart_section, transpose_up, transpose_down, help) — the ten the
- *    brief names as "at least", plus help (added live 2026-09-06: a
- *    shortcut reference overlay, built from ACTIONS + keys.js's KEY_MAP
- *    directly so it can't drift from what actually fires). It's the one
- *    deliberate exception to "six elements, nothing else" — hidden until
+ *    restart_section, transpose_up, transpose_down, help, cancel_lead_in) —
+ *    the ten the brief names as "at least", plus help (added live
+ *    2026-09-06: a shortcut reference overlay, built from ACTIONS + keys.js's
+ *    KEY_MAP directly so it can't drift from what actually fires) and
+ *    cancel_lead_in (added live 2026-09-06: Esc exits the lead-in overlay).
+ *    It's the one deliberate exception to "six elements, nothing else" — hidden until
  *    invoked, so it doesn't compete with the hero for attention while
  *    playing. loop_toggle/metronome/fullscreen/nudge_start/nudge_end still
  *    have no represented control on this artboard and are left unsubscribed
@@ -110,7 +111,7 @@
  */
 import { currentSetlist, get, post } from '../app.js';
 import { drawWave, PRACTICE_WAVE_OPTS } from '../wave.js';
-import { computeGrid, drawGrid, sizeCanvas, positionAt } from '../timeline.js';
+import { computeGrid, drawGrid, sizeCanvas } from '../timeline.js';
 import { createEngine } from '../player.js';
 import { ACTIONS, on, dispatch } from '../actions.js';
 import { KEY_MAP } from '../keys.js';
@@ -138,12 +139,13 @@ function ensureStyle() {
       display:flex;align-items:center;justify-content:center;font-size:22px;color:var(--ink-2,#9CAAA4);
       border:none;cursor:pointer }
     .ws-practice .stepper-btn:hover { background:var(--accent-tint,#2A2118);color:var(--on-tint,#F0C48A) }
-    .ws-practice .chip { flex:1;background:var(--surface,#131B19);border:1px solid var(--hairline,#1C2523);
-      border-radius:4px;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;
-      gap:10px;cursor:pointer;text-align:left;font-family:inherit;color:inherit }
+    .ws-practice .chip { flex:1;height:186px;box-sizing:border-box;background:var(--surface,#131B19);
+      border:1px solid var(--hairline,#1C2523);border-radius:4px;padding:18px 20px 22px;
+      display:flex;flex-direction:column;gap:8px;cursor:pointer;text-align:left;font-family:inherit;color:inherit }
     .ws-practice .chip:hover { border-color:var(--accent-dim,#8A5C29) }
-    .ws-practice .chip__text { display:flex;flex-direction:column;gap:3px }
-    .ws-practice .chip__icon { flex-shrink:0;display:flex;align-items:center }
+    .ws-practice .chip__head { display:flex;align-items:flex-start;justify-content:space-between;gap:10px }
+    .ws-practice .chip__icon { flex:1;min-height:0;display:flex;align-items:center;justify-content:center }
+    .ws-practice .chip__icon svg { width:88px;height:88px }
     .ws-practice .pill { width:64px;height:6px;border-radius:3px }
     .ws-practice .ws-song-link:hover { color:var(--ink,#E8EEEB);text-decoration:underline }
   `;
@@ -217,28 +219,14 @@ export const FOOT_ICONS = {
     + '<path d="M15 2.5v4.2h4.2" fill="none" stroke="#9CAAA4" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
 };
 
-/**
- * Phase 1.5, P2's pure half: a click's `clientX`, the waveform host's own
- * bounding rect, and the current `view()` -> the source seconds it maps to
- * (clamped to the view's own span) and the 0-1 fraction of that span it
- * falls at. Exported and unit-tested directly (web/tests/
- * test_practice_seek.mjs) — this repo has no DOM library to drive a real
- * `pointerdown` through `waveHost` with (test_seek.mjs/test_ended.mjs/
- * test_capture_review.mjs already made the identical trade elsewhere in
- * this phase); `seekToClientX`, below, is the DOM-coupled wiring around
- * this — calling `engine.seek()`, setting `elapsed`, calling
- * `renderCheap()` — covered by the manual gate instead.
- * @param {number} clientX
- * @param {{left: number}} rect
- * @param {import('../timeline.js').View} view
- * @returns {{sourceS: number, frac: number}}
- */
-export function computeSeekPosition(clientX, rect, view) {
-  const sourceS = Math.min(view.endS, Math.max(view.startS, positionAt(clientX - rect.left, view)));
-  const span = view.endS - view.startS;
-  const frac = span > 0 ? (sourceS - view.startS) / span : 0;
-  return { sourceS, frac: Math.max(0, Math.min(1, frac)) };
-}
+// Phase 1.5, P2's pure half moved to timeline.js 2026-09-06 (see that
+// module's own doc on computeSeekPosition): screens/song.js needed the
+// identical scale-aware click->source-seconds math for its own waveform
+// seek, and this repo's rule is one home per shared pixel<->time
+// conversion, not a second copy per screen. Re-exported here so
+// web/tests/test_practice_seek.mjs's existing import path keeps working
+// unchanged, and so `seekToClientX` below reads exactly as it always has.
+export { computeSeekPosition } from '../timeline.js';
 
 /** Slice a whole-song peaks payload down to [startS, endS] — wave.js's own
  *  doc is explicit that this is the caller's job, not its. */
@@ -337,7 +325,15 @@ export function mount(el, payload) {
   };
 
   // ---- mutable session state (see module doc, decisions 1 and 2) ----
-  let speedPct = clampSpeed(Math.min(cfg.startSpeed, cfg.targetSpeed));
+  // Found live 2026-09-06, Paolo: "not all songs or sections will be
+  // practiced from 50%" -- the mount speed comes from the server's
+  // per-section `starting_speed_pct` (server.py's `_section_starting_speed`:
+  // the earned ladder rung for an ordinary section, the last speed
+  // actually practiced for a `full_song` one), NOT `cfg.startSpeed`, which
+  // stays the fixed rung-sequence floor (song.practice.start_speed) that
+  // `rungs()`/`nextRung()` still build from below. Falls back to
+  // `cfg.startSpeed` only if an older cached payload has no such field.
+  let speedPct = clampSpeed(Math.min(section.starting_speed_pct ?? cfg.startSpeed, cfg.targetSpeed));
   let shift = clampShift(payload.shift ?? 0);
   let repCount = 0;
   let cleanAtSpeed = 0;
@@ -576,11 +572,13 @@ export function mount(el, payload) {
           <div class="mono" style="font-size:17px;color:var(--ink-3,#6A7873);letter-spacing:.05em;margin-top:4px" data-breadcrumb></div>
         </div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:12px;padding-top:6px">
-          <div style="display:flex;gap:20px;align-items:center">
+          <div style="display:flex;gap:20px;align-items:flex-start">
             <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
               <div style="display:flex;gap:12px;align-items:center">
                 <div class="lbl" style="font-size:12px">Guitar only</div>
-                <button class="stepper-btn" data-guitar-toggle aria-pressed="false" style="min-width:44px"></button>
+                <div style="display:flex;align-items:center;border:1px solid var(--good,#5FA88F);border-radius:5px;padding:5px">
+                  <button class="stepper-btn" data-guitar-toggle aria-pressed="false" style="min-width:44px"></button>
+                </div>
               </div>
               <div class="mono" style="font-size:12px;color:var(--ink-3,#6A7873);letter-spacing:.03em;min-height:1.2em" data-guitar-status></div>
             </div>
@@ -719,14 +717,16 @@ export function mount(el, payload) {
 
   // ---- foot strip: exactly the six CC actions, in ACTIONS' own table
   // order (never hand-reordered — see CLAUDE.md's "one action table").
-  // Group Q, Q1: each chip's icon (FOOT_ICONS, above) sits right-aligned
-  // and vertically centred against the label, per design/Main.dc.html. ----
+  // Group Q, Q1's original layout (icon right-aligned, label+CC stacked
+  // left) was replaced 2026-09-06 at Paolo's request: label top-left, CC
+  // top-right (chip__head), icon large (88px, 4x FOOT_ICONS' own 22px
+  // viewBox) and centred in the remaining chip body below the header. ----
   const footActions = Object.entries(ACTIONS).filter(([, spec]) => spec.cc != null);
   footEl.innerHTML = footActions.map(([name, spec]) => `
     <button class="chip" data-chip="${name}">
-      <div class="chip__text">
-        <div class="mono" style="font-size:12px;color:var(--accent-dim,#8A5C29);letter-spacing:.14em">CC ${spec.cc}</div>
+      <div class="chip__head">
         <div style="font-size:17px;font-weight:500">${escapeHtml(spec.label)}</div>
+        <div class="mono" style="font-size:12px;color:var(--accent-dim,#8A5C29);letter-spacing:.14em">CC ${spec.cc}</div>
       </div>
       <div class="chip__icon" data-chip-icon="${name}">${FOOT_ICONS[name] ?? ''}</div>
     </button>`).join('');
@@ -747,6 +747,14 @@ export function mount(el, payload) {
   // ---- transpose stepper ----
   root.querySelector('[data-shift-minus]').addEventListener('click', () => dispatch('transpose_down', 'ui'));
   root.querySelector('[data-shift-plus]').addEventListener('click', () => dispatch('transpose_up', 'ui'));
+
+  // A click anywhere on the lead-in overlay starts the count-in, same
+  // action as Space (play_pause via keys.js's KEY_MAP) or the play_pause
+  // foot chip -- CLAUDE.md's "one action table", not a private shortcut:
+  // this dispatches the SAME action, it does not touch `playing`/`elapsed`
+  // directly. Found live 2026-09-06: Paolo expected the lead-in page
+  // itself to be clickable, not just Space.
+  leadInOverlay.addEventListener('click', () => dispatch('play_pause', 'ui'));
 
   // ---- "Guitar only" toggle (Phase 1.5, S3) ----
   if (guitarToggleEl) guitarToggleEl.addEventListener('click', toggleGuitarOnly);
@@ -1141,6 +1149,26 @@ export function mount(el, payload) {
       renderDiscrete();
     },
     help() { toggleHelp(); },
+    // Found live 2026-09-06, Paolo: Esc, on the lead-in overlay, exits it
+    // back to the plain practice screen. A no-op once past lead-in
+    // (elapsed >= 0) -- nothing to cancel. Mirrors restart_section's own
+    // reset shape but lands at the SECTION START (elapsed 0, `inLeadIn`
+    // false) rather than back at the top of a fresh lead-in, and stops
+    // playback rather than keeping it running -- "back out", not "again".
+    cancel_lead_in() {
+      if (elapsed >= 0) return;
+      if (engineReady) {
+        engine.pause();
+        try { engine.seek(section.start_s); } catch { /* no node yet -- nothing to seek */ }
+      }
+      playing = false;
+      elapsed = 0;
+      advancing = false;
+      clearTimeout(advanceTimer);
+      renderCheap();
+      renderDiscrete();
+      renderFootIcon();
+    },
   };
   for (const name of Object.keys(handlers)) bind(name, handlers[name]);
 

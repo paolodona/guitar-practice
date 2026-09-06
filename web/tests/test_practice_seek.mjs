@@ -62,6 +62,35 @@ test('a click past the container clamps to the view\'s end, not a fraction above
   assert.equal(frac, 1);
 });
 
+// Found live 2026-09-06, Paolo: a click landed BEFORE where he clicked --
+// root cause was practice.js's own `root` being CSS-scaled (`transform:
+// scale(s)`) to fit the window. clientX/rect.left/rect.width are viewport
+// pixels (scale-aware, via getBoundingClientRect()); view.widthPx is
+// waveHost.clientWidth, a LAYOUT size the transform never touches. These
+// two tests pin the fix: rect.width rescales the viewport offset into
+// view.widthPx's own units before it reaches positionAt().
+
+test('a scaled-down container (on-screen half the view\'s layout width, e.g. '
+     + 'the practice screen\'s stage at scale(0.5)) still maps its own on-screen '
+     + 'midpoint to the view\'s midpoint, not a quarter of the way in -- the exact '
+     + '"lands before the click" symptom this fix closes, pinned against a real '
+     + 'scale factor rather than the RECT/VIEW fixture\'s coincidental 1:1 default', () => {
+  // view.widthPx is 200 layout px; this container only occupies 100 SCREEN
+  // px on screen (rect.width) -- its on-screen midpoint is rect.left + 50.
+  const scaledRect = { left: 50, width: 100 };
+  const { sourceS, frac } = computeSeekPosition(100, scaledRect, VIEW);
+  assert.equal(sourceS, 15);
+  assert.equal(frac, 0.5);
+});
+
+test('the SAME scaled container\'s on-screen right edge still maps to the view\'s '
+     + 'end, not somewhere past it', () => {
+  const scaledRect = { left: 50, width: 100 };
+  const { sourceS, frac } = computeSeekPosition(150, scaledRect, VIEW);
+  assert.equal(sourceS, 20);
+  assert.equal(frac, 1);
+});
+
 test("P2's own test contract, enforced as a lint-style check against seekToClientX's own "
      + 'extracted source (practice.js legitimately posts /api/rep elsewhere, in onPass, so '
      + "a whole-file check would be the wrong shape here): a waveform click never counts a "
