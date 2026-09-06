@@ -85,10 +85,18 @@ function ensureStyle() {
     .ws-dash .pill { font-size:15px;padding:7px 14px;border-radius:4px;color:var(--ink-2,#9CAAA4);
       background:none;border:none;cursor:pointer;font-family:inherit }
     .ws-dash .pill.sel { background:var(--raised,#1B2422);color:var(--ink,#E8EEEB) }
-    .ws-dash .row { display:grid;grid-template-columns:380px 1fr 210px 130px 96px 20px;
+    .ws-dash .row { display:grid;grid-template-columns:18px 380px 1fr 210px 130px 96px 20px;
       align-items:center;gap:24px;padding:17px 12px;border-bottom:1px solid var(--hairline,#1C2523);
       text-decoration:none;color:inherit }
     .ws-dash a.row:hover { background:#111917 }
+    /* The drag handle appears on hover only (Paolo's own ask): a running
+       order is dragged rarely and read constantly, so the affordance
+       should not compete with the row's actual content. */
+    .ws-dash .grip { opacity:0;cursor:grab;color:var(--ink-4,#5B6A64);font-size:13px;
+      line-height:1;user-select:none;text-align:center;transition:opacity .12s }
+    .ws-dash a.row:hover .grip { opacity:1 }
+    .ws-dash .row.dragging { opacity:.45 }
+    .ws-dash .row.dropping { border-top:2px solid var(--accent,#E0913F) }
     .ws-dash .track { height:6px;border-radius:3px;background:var(--hairline,#1C2523);overflow:hidden }
     .ws-dash .fill { height:6px;border-radius:3px;background:var(--accent,#E0913F) }
     .ws-dash .badge { font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.12em;
@@ -161,7 +169,9 @@ function rowHtml(row) {
   const shiftText = row.shift > 0 ? `+${row.shift}` : String(row.shift);
 
   return `
-    <a class="row" href="#/song/${encodeURIComponent(row.slug)}">
+    <a class="row" draggable="false" data-song="${escapeHtml(row.slug)}"
+       href="#/song/${encodeURIComponent(row.slug)}">
+      <div class="grip" draggable="true" data-grip title="Drag to reorder">&#8942;&#8942;</div>
       <div>
         <div style="font-size:17px;font-weight:500">${escapeHtml(row.title)}</div>
         <div style="font-size:14px;color:var(--ink-3,#6A7873);margin-top:2px">${escapeHtml(row.artist ?? '')}</div>
@@ -180,6 +190,73 @@ function rowHtml(row) {
       <div class="mono num" style="font-size:13px;color:${shiftColor};text-align:right">${shiftText}</div>
       <div><svg width="7" height="12" viewBox="0 0 7 12" fill="none"><path d="M1 1l5 5-5 5" stroke="#3E4A46" stroke-width="1.5" stroke-linecap="round"/></svg></div>
     </a>`;
+}
+
+/**
+ * Drag a row's grip to change the setlist's running order (Paolo's ask,
+ * 2026-09-06). Native HTML5 drag-and-drop, no library: this repo has no
+ * bundler and no framework (CLAUDE.md, "vanilla ES modules"), and a
+ * vertical list of a couple of dozen rows is exactly the case the native
+ * API handles without help.
+ *
+ * Only the grip is draggable; the row anchor has `draggable="false"` so a
+ * drag can never turn into "drag this link somewhere". The rows are moved
+ * in the DOM as you go, so the list you see IS the order being proposed,
+ * and the commit reads it straight back off the DOM.
+ *
+ * `setlist.reorder` server-side refuses anything that is not a permutation
+ * of what is already in the file, so the worst a mis-drag can do is fail —
+ * and a failure re-fetches, putting the screen back to whatever the file
+ * actually says rather than leaving a lie on screen.
+ */
+function wireReorder(el, setlists, currentSetlist) {
+  const rowsHost = el.querySelector('[data-rows]');
+  if (!rowsHost || !currentSetlist) return;
+  let dragging = null;
+
+  for (const grip of rowsHost.querySelectorAll('[data-grip]')) {
+    // The grip lives inside the row's anchor; a click on it must not
+    // navigate to the song.
+    grip.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); });
+    grip.addEventListener('dragstart', (e) => {
+      dragging = grip.closest('[data-song]');
+      dragging.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      // Firefox needs *something* set or the drag never starts.
+      e.dataTransfer.setData('text/plain', dragging.dataset.song);
+    });
+    grip.addEventListener('dragend', () => {
+      if (dragging) dragging.classList.remove('dragging');
+      for (const row of rowsHost.querySelectorAll('[data-song]')) {
+        row.classList.remove('dropping');
+      }
+      dragging = null;
+      commitOrder(el, rowsHost, setlists, currentSetlist);
+    });
+  }
+
+  rowsHost.addEventListener('dragover', (e) => {
+    if (!dragging) return;
+    e.preventDefault();
+    const target = e.target.closest?.('[data-song]');
+    if (!target || target === dragging) return;
+    const box = target.getBoundingClientRect();
+    const after = e.clientY > box.top + box.height / 2;
+    target.parentNode.insertBefore(dragging, after ? target.nextSibling : target);
+  });
+}
+
+/** Read the order off the DOM and write it to the file. */
+async function commitOrder(el, rowsHost, setlists, currentSetlist) {
+  const order = [...rowsHost.querySelectorAll('[data-song]')].map((row) => row.dataset.song);
+  try {
+    await post(`/api/setlist/${encodeURIComponent(currentSetlist)}/order`, { order });
+  } catch (err) {
+    console.error('dashboard.js: reorder failed', err);
+    // Put the screen back to what the file actually says rather than
+    // leaving the dragged-to order showing as if it had been saved.
+    await switchTo(el, setlists, currentSetlist);
+  }
 }
 
 function nextUpHtml(nextUp) {
@@ -351,6 +428,7 @@ function render(el, payload) {
       </div>
 
       <div class="row" style="border-bottom:1px solid var(--line,#26302E);padding-top:0;padding-bottom:10px">
+        <div></div>
         <div class="lbl" style="font-size:10px">Song</div>
         <div class="lbl" style="font-size:10px">Readiness</div>
         <div class="lbl" style="font-size:10px">Sections</div>
@@ -389,6 +467,8 @@ function render(el, payload) {
       switchTo(el, setlists, button.dataset.setlist);
     });
   }
+
+  wireReorder(el, setlists, currentSetlist);
 
   const newSetlistForm = el.querySelector('[data-new-setlist-form]');
   el.querySelector('[data-new-setlist-toggle]').addEventListener('click', () => {

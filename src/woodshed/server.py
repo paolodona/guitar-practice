@@ -144,7 +144,7 @@ from woodshed.ledger import Rep
 from woodshed.library import Repo, slugify
 from woodshed.manifest import Section, Setlist, effective_pre_roll_beats, load_song, save_song
 from woodshed.render_runner import RenderRunner
-from woodshed.setlist import add_song, effective_shift, set_shift
+from woodshed.setlist import add_song, effective_shift, reorder, set_shift
 from woodshed.setlist import create as create_setlist
 from woodshed.setlist import load as load_setlist
 from woodshed.setlist import save as save_setlist
@@ -1250,6 +1250,9 @@ class WoodshedHandler(BaseHTTPRequestHandler):
             elif path.startswith("/api/setlist/") and path.endswith("/songs"):
                 setlist_slug = path.removeprefix("/api/setlist/").removesuffix("/songs")
                 self._post_setlist_songs(setlist_slug, body)
+            elif path.startswith("/api/setlist/") and path.endswith("/order"):
+                setlist_slug = path.removeprefix("/api/setlist/").removesuffix("/order")
+                self._post_setlist_order(setlist_slug, body)
             elif path == "/api/library/scan":
                 self._post_library_scan(body)
             elif path == "/api/library/bind":
@@ -1523,6 +1526,24 @@ class WoodshedHandler(BaseHTTPRequestHandler):
         updated = add_song(load_setlist(self.repo, setlist_slug), song_slug, shift=shift)
         save_setlist(self.repo, setlist_slug, updated)
         self._json({"setlist": setlist_slug, "song": song_slug})
+
+    def _post_setlist_order(self, setlist_slug: str, body: dict) -> None:
+        """Reorder a setlist's running order. Body: `{order: [slug, ...]}`.
+
+        Its own route rather than a mode of `/songs`, because it is a
+        different act: `/songs` changes WHICH songs are in the set, this
+        changes only the sequence. `setlist.reorder` refuses anything that
+        is not a permutation of what is already there, so the worst a
+        mis-drag can do is fail -- a reorder that silently dropped a slug
+        would be indistinguishable from a removal nobody asked for, in a
+        file that is a human's own running order for a gig.
+        """
+        raw = body.get("order")
+        if not isinstance(raw, list):
+            raise WoodshedError("a reorder needs an `order` list of song slugs")
+        updated = reorder(load_setlist(self.repo, setlist_slug), [str(x) for x in raw])
+        save_setlist(self.repo, setlist_slug, updated)
+        self._json({"setlist": setlist_slug, "order": [e.slug for e in updated.songs]})
 
     # ── add a song for real (Phase 1.5, Group T, T1) ────────────────────────
 

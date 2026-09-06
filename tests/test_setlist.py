@@ -22,6 +22,7 @@ from woodshed.setlist import (
     list_setlists,
     load,
     remove_song,
+    reorder,
     save,
     set_shift,
 )
@@ -185,3 +186,49 @@ def test_set_shift_out_of_range_raises(repo) -> None:
     create(repo, "gig", Setlist(name="Gig", tuning="E standard", songs=[SetlistEntry(slug="x")]))
     with pytest.raises(WoodshedError):
         set_shift(repo, "gig", "x", 7)
+
+
+# ── reorder (2026-09-06: the dashboard's drag handle needed somewhere to
+#    put the result) ───────────────────────────────────────────────────────
+
+
+def test_reorder_puts_the_songs_in_the_given_order() -> None:
+    setlist = Setlist(
+        name="The Gig", tuning="E standard",
+        songs=[SetlistEntry(slug="a"), SetlistEntry(slug="b"), SetlistEntry(slug="c")],
+    )
+    reordered = reorder(setlist, ["c", "a", "b"])
+    assert [e.slug for e in reordered.songs] == ["c", "a", "b"]
+
+
+def test_reorder_carries_each_entry_whole_not_just_its_slug() -> None:
+    """A running order is the only thing being changed. An entry's own
+    shift override has to ride along with it, or reordering a set would
+    silently re-derive shifts someone set by hand."""
+    setlist = Setlist(
+        name="The Gig", tuning="Eb standard",
+        songs=[SetlistEntry(slug="a", shift=0), SetlistEntry(slug="b")],
+    )
+    reordered = reorder(setlist, ["b", "a"])
+    assert reordered.songs[1].slug == "a"
+    assert reordered.songs[1].shift == 0
+    assert reordered.songs[0].shift is None
+
+
+def test_reorder_is_pure() -> None:
+    setlist = Setlist(name="The Gig", tuning="E standard",
+                      songs=[SetlistEntry(slug="a"), SetlistEntry(slug="b")])
+    reorder(setlist, ["b", "a"])
+    assert [e.slug for e in setlist.songs] == ["a", "b"]
+
+
+def test_reorder_refuses_an_order_that_is_not_a_permutation() -> None:
+    """A reorder may not add, drop or duplicate a song. That is what makes
+    it safe to send from a browser: the worst a bad drag can do is fail.
+    Dropping a song here would be indistinguishable from a rm-song nobody
+    asked for, in a file that is a human's own running order."""
+    setlist = Setlist(name="The Gig", tuning="E standard",
+                      songs=[SetlistEntry(slug="a"), SetlistEntry(slug="b")])
+    for bad in (["a"], ["a", "b", "c"], ["a", "a"], []):
+        with pytest.raises(WoodshedError, match="running order"):
+            reorder(setlist, bad)

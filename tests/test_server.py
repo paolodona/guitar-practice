@@ -2250,3 +2250,47 @@ def test_song_payload_names_no_setlist_when_the_song_is_not_in_it(served):
     assert data["setlist"] is None
     _status, data = _get_json(base, f"/api/song/{slug}")
     assert data["setlist"] is None
+
+
+# ── POST /api/setlist/<slug>/order (the dashboard's drag handle) ──────────
+
+
+def _gig_with(repo: Repo, *slugs: str) -> None:
+    from woodshed.manifest import Setlist, SetlistEntry
+    from woodshed.setlist import save as save_setlist_
+
+    save_setlist_(repo, "gig", Setlist(
+        name="The Gig", tuning="E standard",
+        songs=[SetlistEntry(slug=s) for s in slugs],
+    ))
+
+
+def test_setlist_order_rewrites_the_running_order(served):
+    base, repo, _slug = served
+    _gig_with(repo, "a", "b", "c")
+    status, data = _post(base, "/api/setlist/gig/order", {"order": ["c", "a", "b"]})
+    assert status == 200
+    assert data["order"] == ["c", "a", "b"]
+    _status, dashboard = _get_json(base, "/api/setlist/gig")
+    assert [row["slug"] for row in dashboard["rows"]] == ["c", "a", "b"]
+
+
+def test_setlist_order_refuses_to_lose_a_song(served):
+    """The safety property that makes this safe to accept from a browser:
+    a reorder may not add or drop anything, so a mis-drag fails instead of
+    quietly removing a song from a gig's running order."""
+    base, repo, _slug = served
+    _gig_with(repo, "a", "b", "c")
+    with pytest.raises(urllib.error.HTTPError) as excinfo:
+        _post(base, "/api/setlist/gig/order", {"order": ["c", "a"]})
+    assert excinfo.value.code == 400
+    _status, dashboard = _get_json(base, "/api/setlist/gig")
+    assert [row["slug"] for row in dashboard["rows"]] == ["a", "b", "c"]
+
+
+def test_setlist_order_needs_a_list(served):
+    base, repo, _slug = served
+    _gig_with(repo, "a", "b")
+    with pytest.raises(urllib.error.HTTPError) as excinfo:
+        _post(base, "/api/setlist/gig/order", {"order": "c,a"})
+    assert excinfo.value.code == 400

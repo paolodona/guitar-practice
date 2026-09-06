@@ -13,6 +13,7 @@ and `GET /api/setlist/<slug>` (both this unit, F1) need and nothing
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 
 from woodshed import tuning
@@ -83,6 +84,29 @@ def add_song(setlist: Setlist, song_slug: str, shift: int | None = None) -> Setl
         raise WoodshedError(f"{song_slug!r} is already in this setlist")
     entry = SetlistEntry(slug=song_slug, shift=shift)
     return setlist.model_copy(update={"songs": [*setlist.songs, entry]})
+
+
+def reorder(setlist: Setlist, order: Sequence[str]) -> Setlist:
+    """A new Setlist with its songs in *order*. Pure.
+
+    *order* must be a permutation of the slugs already present -- same
+    songs, different sequence. Refusing anything else is what makes this
+    safe to accept from a browser: the worst a mis-drag can do is fail.
+    A reorder that silently dropped a slug would be indistinguishable from
+    a `rm-song` nobody asked for, in a file that is a human's own running
+    order for a gig.
+
+    Entries are carried WHOLE, not rebuilt from their slugs, so a hand-set
+    `shift` override rides along with the song it belongs to instead of
+    quietly reverting to the derived default.
+    """
+    by_slug = {entry.slug: entry for entry in setlist.songs}
+    if sorted(order) != sorted(by_slug):
+        raise WoodshedError(
+            "that is not this setlist's running order: a reorder must list "
+            f"exactly the songs already in it ({', '.join(sorted(by_slug)) or 'none'})"
+        )
+    return setlist.model_copy(update={"songs": [by_slug[slug] for slug in order]})
 
 
 def remove_song(setlist: Setlist, song_slug: str) -> Setlist:
