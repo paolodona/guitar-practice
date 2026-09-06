@@ -217,6 +217,35 @@ function selectOptions(presets, current, fmt = (v) => String(v)) {
  * @param {any} payload - GET /api/song/<slug> body + {params:{slug}}
  * @returns {() => void} unmount
  */
+/**
+ * What the sibling `gx100` repo says this section's `patch:` actually is
+ * (Phase 3, N1). `patch_ref` is resolved server-side by PATH from
+ * `config.gx100.path` -- never imported, never vendored -- and is null for
+ * every kind of absence: no configured repo, no such song there, no such
+ * patch id, or a sibling file mid-edit.
+ *
+ * Three states worth telling apart, because they mean different things to
+ * whoever typed the id:
+ *   - nothing typed        -> say nothing
+ *   - typed and resolved   -> quote the profile and the slot
+ *   - typed and unresolved -> say it did not resolve, and do NOT guess
+ *
+ * The slot is QUOTED exactly as the sibling wrote it. Nothing here turns it
+ * into a Program Change number: a PC names a slot, not a memory, and that
+ * mapping lives in rambass-live's config/gx100.yaml (docs/05-foot-control.md).
+ */
+function patchRefHtml(sec) {
+  if (!sec.patch) return '';
+  const ref = sec.patch_ref;
+  if (!ref) {
+    return `<div class="mono" style="font-size:11.5px;color:var(--ink-4,#5B6A64);margin-top:6px">
+      not found in the gx100 repo (or none configured)</div>`;
+  }
+  const parts = [ref.profile, ref.slot].filter(Boolean).map(escapeHtml);
+  return `<div class="mono" style="font-size:11.5px;color:var(--good,#5FA88F);margin-top:6px">
+    ${parts.join(' &middot; ') || 'found'}</div>`;
+}
+
 export function mount(el, payload) {
   ensureStyle();
   const slug = payload.params.slug;
@@ -838,6 +867,7 @@ export function mount(el, payload) {
       <div>
         <div class="flbl">GX-100 patch</div>
         <input class="fld" data-f="patch" value="${escapeHtml(sec.patch ?? '')}" style="font-size:14px">
+        ${patchRefHtml(sec)}
       </div>
       <div style="margin-top:auto;display:flex;flex-direction:column;gap:12px">
         <button class="practise-btn" data-practise>Practice this</button>

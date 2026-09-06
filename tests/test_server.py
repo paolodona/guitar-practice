@@ -2115,3 +2115,40 @@ def test_library_import_without_credentials_says_how_to_connect(served, tmp_path
     body = json.loads(excinfo.value.read().decode("utf-8"))
     assert excinfo.value.code == 400
     assert "connect" in body["error"].lower()
+
+
+# ── the gx100 cross-reference in the song payload (Phase 3, N1) ───────────
+
+
+def test_song_payload_resolves_a_section_patch_against_the_gx100_repo(served, tmp_path):
+    base, repo, slug = served
+    sibling = tmp_path / "gx100"
+    gx_song = sibling / "songs" / slug / "song.yaml"
+    gx_song.parent.mkdir(parents=True)
+    gx_song.write_text("patches:\n  - {id: lead, profile: solo-boost, slot: U02-3}\n",
+                       encoding="utf-8")
+    repo.config_path.write_text(
+        f"gx100:\n  path: {sibling.as_posix()}\n", encoding="utf-8"
+    )
+    song_path = repo.song_dir(slug) / "song.yaml"
+    song = load_song(song_path)
+    song.sections[0].patch = "lead"
+    save_song(song, song_path)
+
+    _status, data = _get_json(base, f"/api/song/{slug}")
+    row = next(s for s in data["sections"] if s["id"] == song.sections[0].id)
+    assert row["patch_ref"] == {"id": "lead", "profile": "solo-boost", "slot": "U02-3"}
+
+
+def test_song_payload_with_no_gx100_repo_shows_no_patch_rather_than_failing(served):
+    """The sibling repo is absent on every machine but Paolo's own. That has
+    to be a quiet 'not shown', not a 500 on the song page."""
+    base, repo, slug = served
+    song_path = repo.song_dir(slug) / "song.yaml"
+    song = load_song(song_path)
+    song.sections[0].patch = "lead"
+    save_song(song, song_path)
+
+    status, data = _get_json(base, f"/api/song/{slug}")
+    assert status == 200
+    assert all(s["patch_ref"] is None for s in data["sections"])

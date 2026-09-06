@@ -202,6 +202,20 @@ Out-of-scope items discovered while planning or implementing. Format:
       library scan is unaffected either way — its matching tokens strip apostrophes
       rather than splitting on them, which is a matching concern, not a slug one.
 
+- [ ] **[Plan 001]** **N2, the optional Program Change send, is unbuilt and blocked
+      on two things at once.** (a) MIDI *output* has no home yet: `midi.js` is Group L,
+      which is itself blocked on the three eyes-on-the-unit questions in
+      docs/05-foot-control.md. (b) The slot→memory mapping must come from
+      `rambass-live`'s `config/gx100.yaml` — that repo is not checked out beside this
+      one, and both docs/05-foot-control.md and `rambass-live/docs/gx100.md` say
+      explicitly that the mapping must not be assumed (a PC number names a slot; the
+      pedal's PROGRAM MAP decides which of the 300 memories that is). `gx100.py`
+      therefore carries no slot→PC arithmetic and a test says so.
+      `config.gx100.send_program_changes` already exists and defaults to false, so the
+      safe default is in place ahead of the feature. When it is built: lift the
+      CC#0 → CC#32 → PC ordering from `rambass-live/src/rambass/gx100.py`, keep the
+      toggle explicit, and never send on mount.
+
 ## Low
 - [ ] **[Plan 001]** Add `uv run pytest` as the Stop-hook quality gate in
       `.claude/plan-project.md` now that Phase 0 has scaffolded the package and the

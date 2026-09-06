@@ -3018,6 +3018,39 @@ touches the network, ever, in a test.
     1077 passed (was 1066); ruff clean; no-extras 1074 passed, 3 deselected.
 
 **Group N — the gx100 cross-reference (∥)**
+
+**N1 done, 2026-09-06. N2 not built — blocked, see below.**
+- **N1**: `src/woodshed/gx100.py` + `tests/test_gx100.py` (9 tests), read by
+  **path** from a new `config.gx100.path`, never imported and never vendored —
+  CLAUDE.md's cross-reference-by-slug rule for the three repos, honoured without
+  creating a dependency. `GET /api/song/<slug>` now carries a `patch_ref` per
+  section (`{id, profile, slot}` or null) and the song screen's inspector quotes
+  the profile and slot under the patch field.
+  Every kind of absence answers the same "not shown": no configured repo, a
+  configured path that is not there, no such song in the sibling, no such patch
+  id, or a sibling file mid-edit. The last one has its own test — a file in
+  ANOTHER repo may not be able to 500 a practice screen. Both plausible YAML
+  shapes for `patches:` (a list of entries with an `id`, or a mapping keyed by
+  id) are read, because the sibling's file is not this repo's to fix and
+  depending on today's shape would break the cross-reference the first time it
+  changed.
+  **The slot is quoted, never computed.** docs/05-foot-control.md's gotcha —
+  a PC number names a SLOT, not a memory, and the pedal's own PROGRAM MAP
+  decides which of the 300 memories it points at — is made structural: this
+  module contains no slot→PC arithmetic at all, and a test asserts it contains
+  none. `config.gx100.send_program_changes` exists and defaults to **false**,
+  so the safe default is in place before the thing it guards is.
+- **N2 (optional PC send): not built, and not guessable from here.** It needs
+  two things this run has neither of: MIDI *output*, which lives in `midi.js`
+  (Group L, explicitly out of scope this run and blocked on a human at the
+  actual pedal per docs/05-foot-control.md); and the real slot→memory map from
+  `rambass-live`'s own `config/gx100.yaml`, which is a sibling repo that is not
+  checked out here and which that document says explicitly must not be assumed.
+  Building the CC#0 → CC#32 → PC ordering against a guessed mapping would
+  produce a tool that confidently switches Paolo's pedal to the wrong patch mid
+  gig-prep — exactly the "inventing a measurement the tool cannot make" failure
+  CLAUDE.md names, with a foot pedal attached. Logged in BACKLOG.md instead.
+- Full suite 1088 passed (was 1077); ruff clean; no-extras gate green.
 - **N1** a section's `patch:` id resolved against `gx100/songs/<slug>/song.yaml`'s
   `patches:` block (`{id, profile, slot}`) — **read by path from config, never imported**,
   and absent-repo degrades to "not shown", not an error

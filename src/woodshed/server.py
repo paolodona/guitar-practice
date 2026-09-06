@@ -116,7 +116,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 import numpy as np
 from pydantic import ValidationError
 
-from woodshed import ledger, practice, sections
+from woodshed import gx100, ledger, practice, sections
 from woodshed import render as render_module
 from woodshed.capture import (
     Segment,
@@ -499,6 +499,13 @@ class WoodshedHandler(BaseHTTPRequestHandler):
         reps = list(ledger.read(self.repo))
         readiness = practice.song_readiness(song, reps, song.practice)
 
+        # Phase 3, N1: a section's `patch:` resolved against the sibling
+        # gx100 repo, read by path and never imported. Absent repo, absent
+        # song, absent patch and a malformed sibling file all answer None,
+        # which the UI shows as nothing at all -- see gx100.py's own doc.
+        gx100_root = gx100.repo_path(load_config(self.repo))
+        patches = gx100.load_patches(gx100_root, slug)
+
         from woodshed.separate import demucs_available
 
         self._json({
@@ -535,6 +542,14 @@ class WoodshedHandler(BaseHTTPRequestHandler):
                     "lane": lanes[section.id],
                     "ancestors": [a.id for a in sections.ancestors(spans, section.id)],
                     "starting_speed_pct": self._section_starting_speed(reps, song, section),
+                    "patch_ref": (
+                        None if section.patch is None or section.patch not in patches
+                        else {
+                            "id": patches[section.patch].id,
+                            "profile": patches[section.patch].profile,
+                            "slot": patches[section.patch].slot,
+                        }
+                    ),
                 }
                 for section in song.sections
             ],
