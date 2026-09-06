@@ -18,17 +18,9 @@ practice:
   reps_to_advance: 3
   pre_roll_beats: 4.0
   pre_roll_every_pass: false
-  click: 'lead-in'
+  click: lead-in
   loop_crossfade_ms: 10.0
 sections:
-- id: whole-song
-  name: Whole song
-  start_s: 0.0
-  end_s: 299.49387755102043
-  snapped: free
-  target_speed: 100.0
-  counts_toward_readiness: true
-  full_song: true
 - id: 436c3b14
   name: Vinceremo
   start_s: 133.39901969521435
@@ -40,8 +32,18 @@ sections:
 - id: d6f23b46
   name: Solo
   start_s: 219.0
-  end_s: 243.0
+  end_s: 241.0
   snapped: free
   target_speed: 100.0
+  start_speed: 70.0
   counts_toward_readiness: true
   full_song: false
+- id: whole-song
+  name: Whole song
+  start_s: 0.0
+  end_s: 299.49387755102043
+  snapped: free
+  target_speed: 100.0
+  start_speed: 75.0
+  counts_toward_readiness: true
+  full_song: true

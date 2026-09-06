@@ -1,0 +1,32 @@
+slug: can-t-stop
+title: Can't stop
+artist: Red Hot Chili Peppers
+recording:
+  file: audio/can-t-stop.flac
+  sha256: 1b5afc3079a1f5c3eff5c438194646957a347adb3ad5288c5ac10171a88374aa
+  duration_s: 267.1399546485261
+  tuning: E standard
+  source: capture
+tempo:
+  bpm: 182.66
+  source: refined
+  grid_offset_s: 0.016
+  time_signature: 4/4
+  confidence: 0.347
+practice:
+  start_speed: 50.0
+  ladder_step: 5.0
+  reps_to_advance: 3
+  pre_roll_beats: 4.0
+  pre_roll_every_pass: false
+  click: lead-in
+  loop_crossfade_ms: 10.0
+sections:
+- id: whole-song
+  name: Whole song
+  start_s: 0.0
+  end_s: 267.1399546485261
+  snapped: free
+  target_speed: 100.0
+  counts_toward_readiness: true
+  full_song: true
