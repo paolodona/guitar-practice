@@ -50,6 +50,12 @@ now:
                                             recent raw capture recording  (U2)
     GET  /api/capture/segment-audio/<i> -> one pending segment's audio,
                                             RANGE-SERVED, cut on the fly   (U2)
+    GET  /api/capture/raw-audio         -> the current session's whole raw
+                                            recording, RANGE-SERVED         (U3)
+    GET  /api/capture/raw-peaks         -> waveform buckets for the current
+                                            session's whole raw recording,
+                                            computed on the fly, never
+                                            cached                         (U3)
     POST /api/capture/bind              -> bind one pending segment to a
                                             song, existing or new          (U2)
     POST /api/capture/discard           -> drop one pending segment       (U2)
@@ -344,6 +350,10 @@ class WoodshedHandler(BaseHTTPRequestHandler):
                 self._capture_segments()
             elif path.startswith("/api/capture/segment-audio/"):
                 self._capture_segment_audio(path.removeprefix("/api/capture/segment-audio/"))
+            elif path == "/api/capture/raw-audio":
+                self._capture_raw_audio()
+            elif path == "/api/capture/raw-peaks":
+                self._capture_raw_peaks()
             elif path == "/api/capture/status":
                 self._capture_status()
             else:
@@ -1029,13 +1039,84 @@ class WoodshedHandler(BaseHTTPRequestHandler):
     def _capture_segments(self) -> None:
         """The still-unresolved segments from the most recent raw capture
         recording -- `[]` once every segment from it is resolved (bound or
-        discarded), same as `current_session` returning `None` then."""
+        discarded), same as `current_session` returning `None` then.
+
+        `start_frame`/`end_frame`/`sample_rate` (added for U3) are what
+        `screens/capture.js`'s segment-review UI needs to position each
+        segment against the whole-pass waveform strip (`/api/capture/
+        raw-peaks`, below) and to build the frame-valued bodies `POST
+        /api/capture/adjust|merge|split` already require -- additive
+        fields, nothing existing that only read `index`/`duration_s`/
+        `overflowed` is affected."""
         session = current_session(self.repo)
         entries = [] if session is None else session.pending
         self._json([
-            {"index": e.index, "duration_s": e.duration_s, "overflowed": e.overflowed}
+            {
+                "index": e.index,
+                "duration_s": e.duration_s,
+                "overflowed": e.overflowed,
+                "start_frame": e.start_frame,
+                "end_frame": e.end_frame,
+                "sample_rate": e.sample_rate,
+            }
             for e in entries
         ])
+
+    def _capture_raw_audio(self) -> None:
+        """`GET /api/capture/raw-audio` (U3) -- the CURRENT session's whole
+        raw recording, RANGE-SERVED (`_send_file`, same as `_audio`) so
+        `player.js`'s `RealtimeEngine` (`loop: false`, R1) can fetch/decode
+        it and `seek()` (P1) around it for the whole-pass scrub strip --
+        the same "audition, no rep" mechanism already built, pointed at the
+        raw pass instead of a bound song's `/api/audio/<slug>`. 404 when
+        there is no current session (nothing captured yet, or every
+        segment from the last one has already resolved)."""
+        session = current_session(self.repo)
+        if session is None:
+            self._error(404, "no current capture session")
+            return
+        self._send_file(session.raw_path, "audio/wav")
+
+    def _capture_raw_peaks(self) -> None:
+        """`GET /api/capture/raw-peaks` (U3) -- waveform buckets for the
+        CURRENT session's whole raw recording, computed on the fly from
+        the WAV already on disk (never cached under `cache/`: this is
+        `capture/`, ephemeral by CLAUDE.md's own lifecycle rule, gone the
+        moment every segment resolves) via `woodshed.peaks` (Tier 2, numpy
+        only -- same lazy, defensive import `_peaks` already uses). Shape
+        mirrors a bound song's peaks payload plus `duration_s`/
+        `sample_rate`, which a bound song's own `song.yaml` already
+        supplies some other way but a raw capture session has nowhere else
+        to read from. 404 when there is no current session."""
+        session = current_session(self.repo)
+        if session is None:
+            self._error(404, "no current capture session")
+            return
+        try:
+            from woodshed import peaks as peaks_module
+        except ImportError:
+            self._error(404, "peaks are not built yet")
+            return
+        samples, sample_rate = self._read_wav_mono(session.raw_path)
+        buckets = peaks_module.compute_peaks(samples, peaks_module.DEFAULT_LEVEL)
+        self._json({
+            "level": peaks_module.DEFAULT_LEVEL,
+            "peaks": [list(pair) for pair in buckets],
+            "duration_s": len(samples) / sample_rate if sample_rate else 0.0,
+            "sample_rate": sample_rate,
+        })
+
+    @staticmethod
+    def _read_wav_mono(path: Path) -> tuple[np.ndarray, int]:
+        """The inverse of `_encode_wav_mono` below -- a mono 16-bit PCM WAV
+        (what `capture.py`'s `_write_wav_mono_16bit` always writes for a
+        raw capture recording) back to float32 samples in [-1, 1] plus its
+        sample rate, stdlib + numpy only."""
+        with wave_module.open(str(path), "rb") as reader:
+            sample_rate = reader.getframerate()
+            raw = reader.readframes(reader.getnframes())
+        pcm16 = np.frombuffer(raw, dtype="<i2")
+        return pcm16.astype(np.float32) / 32768.0, sample_rate
 
     def _capture_segment_audio(self, raw_index: str) -> None:
         """Range-served preview audio for one still-pending segment, cut

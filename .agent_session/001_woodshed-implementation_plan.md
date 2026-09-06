@@ -2273,6 +2273,54 @@ what's missing is everything **after** a segment exists and before it is a bound
   `test_seek.mjs`/`test_ended.mjs`) asserting a second click on an already-clicked
   Add/Discard control never issues a second `fetch` to `/api/capture/bind` or `/api/capture/
   discard`.
+  - **Done, 2026-09-06.** Built mostly as specced, with two real gaps found and closed
+    first (companion backend surface U0/U3's own text didn't actually name, same
+    "found and fixed at the root" pattern this phase's other units used):
+    1. `GET /api/capture/segments` carried no `start_frame`/`end_frame`/`sample_rate` —
+       nothing this screen could send to `adjust`/`merge`/`split` (all frame-valued) or
+       use to position a segment against the strip. Added as additive fields (existing
+       `index`/`duration_s`/`overflowed` callers unaffected); the one test asserting the
+       payload by exact equality (`test_capture_segments_lists_pending_entries`) updated
+       alongside.
+    2. There was no way to fetch the WHOLE raw pass's own audio or waveform at all —
+       `segment-audio` only ever served one already-resolved segment's cut. Two new GET
+       routes, both scoped to `capture_session.current_session` (404 with none): `/api/
+       capture/raw-audio` (range-served, `_send_file` on the raw WAV directly — no ffmpeg
+       needed, the raw file already IS a WAV) is what the strip's engine and its `seek()`
+       actually play; `/api/capture/raw-peaks` decodes that same WAV (stdlib `wave` +
+       numpy, a new `server._read_wav_mono` mirroring the existing `_encode_wav_mono` the
+       click endpoint already had) and buckets it via `woodshed.peaks.compute_peaks` at
+       `DEFAULT_LEVEL` — computed on the fly, never cached (`capture/`, not `cache/` —
+       this file is gone the moment every segment resolves). 4 new `test_server.py` tests
+       (each route's 404-with-no-session case, plus a real-WAV round trip for peaks
+       using the existing `_wav_bytes` helper).
+    Frontend: `mountSegmentReview` in `capture.js` (~470 lines), wired into `mount()`
+    once at load and again via a new `mountLiveCapture(..., onStopped)` callback fired
+    from `renderStopped`. One shared `RealtimeEngine` (`loop: false`) serves both the
+    whole-pass scrub strip and every row's own preview — `loadSection`'s existing hard-
+    cut teardown (R1) is what makes switching between them safe; the only wrinkle it
+    doesn't handle on its own is a previously-"playing" row's or the strip's own icon,
+    which needed an explicit reset on takeover in both directions (found while wiring,
+    not in the original spec text) and a re-sync on `renderRows()` for a refresh that
+    lands mid-preview. A shared boundary between two time-adjacent segments moves via
+    TWO `adjust_boundary` calls in a judgement-call order (`boundaryMoveOrder`, pure and
+    unit-tested): `adjust_boundary` refuses overlapping a neighbour's STILL-STORED
+    range, so the entry that is SHRINKING toward the new boundary must commit first,
+    freeing the space the GROWING entry's own call would otherwise be refused for.
+    "Merge at playhead" (drafted in the artboard alongside each boundary's own round
+    merge button) picks whichever boundary sits nearest the current playhead.
+    The contract's double-click guard (`onceGuard`, pure, exported) is shared between a
+    row's Discard and Add controls — either locks out both, since a row resolves to one
+    outcome — with a `reset()` escape hatch so a genuine request failure is retryable
+    rather than bricking the row permanently; this repo has no DOM/testing library to
+    drive a real click through the actual buttons with (test_seek.mjs/test_ended.mjs
+    made the identical trade for `RealtimeEngine`), so this pure half is what carries the
+    unit test and the DOM-coupled half (buttons actually disabling) is the manual gate's
+    job. `web/tests/test_capture_review.mjs`: 8 assertions (three `boundaryMoveOrder`
+    cases, four `onceGuard` cases, the lint-style `/api/rep`/`'pass'` check) — all
+    passing; `node --check` clean on both touched/new files. Full suite 906 passed (was
+    902); ruff clean; no-extras gate 903 passed, 3 deselected (unaffected — no heavy
+    dependency touched).
 - **U4** (lower priority — may be cut without blocking this phase's gate) CLI parity:
   `woodshed capture --split` records until stopped and prints one line per detected
   segment (index/duration/overflow) instead of trying to bind anything; `woodshed

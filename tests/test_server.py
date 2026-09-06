@@ -1090,9 +1090,55 @@ def test_capture_segments_lists_pending_entries(served) -> None:
 
     assert status == 200
     assert body == [
-        {"index": 0, "duration_s": 1.0, "overflowed": False},
-        {"index": 1, "duration_s": 1.0, "overflowed": True},
+        {
+            "index": 0, "duration_s": 1.0, "overflowed": False,
+            "start_frame": 0, "end_frame": 48_000, "sample_rate": 48_000,
+        },
+        {
+            "index": 1, "duration_s": 1.0, "overflowed": True,
+            "start_frame": 48_000, "end_frame": 96_000, "sample_rate": 48_000,
+        },
     ]
+
+
+def test_capture_raw_audio_404_with_no_current_session(served) -> None:
+    base, _repo, _slug = served
+    with pytest.raises(urllib.error.HTTPError) as caught:
+        _get(base, "/api/capture/raw-audio")
+    assert caught.value.code == 404
+
+
+def test_capture_raw_audio_range_serves_the_raw_file(served) -> None:
+    base, repo, _slug = served
+    _start_capture(repo, [Segment(start_frame=0, end_frame=48_000, sample_rate=48_000)])
+
+    status, body = _get(base, "/api/capture/raw-audio")
+
+    assert status == 200
+    assert body == AUDIO_BYTES
+
+
+def test_capture_raw_peaks_404_with_no_current_session(served) -> None:
+    base, _repo, _slug = served
+    with pytest.raises(urllib.error.HTTPError) as caught:
+        _get(base, "/api/capture/raw-peaks")
+    assert caught.value.code == 404
+
+
+def test_capture_raw_peaks_computed_from_the_real_wav_on_disk(served) -> None:
+    base, repo, _slug = served
+    raw_path = repo.capture_dir / "20260906-120000.wav"
+    raw_path.parent.mkdir(parents=True, exist_ok=True)
+    raw_path.write_bytes(_wav_bytes(seconds=1.0, rate=48_000))
+    start_session(repo, raw_path, [Segment(start_frame=0, end_frame=48_000, sample_rate=48_000)])
+
+    status, body = _get_json(base, "/api/capture/raw-peaks")
+
+    assert status == 200
+    assert body["sample_rate"] == 48_000
+    assert body["duration_s"] == pytest.approx(1.0)
+    assert body["level"] == 1024
+    assert len(body["peaks"]) == 1024
 
 
 def test_capture_segment_audio_serves_the_extracted_bytes(served, monkeypatch) -> None:
