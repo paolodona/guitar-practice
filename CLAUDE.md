@@ -137,9 +137,15 @@ and push. Don't create a branch unless explicitly asked to. Same rule as
 History note: the repo was created empty and the first push landed on
 `claude/guitar-practice-tool-spec-8e7y5s`, which GitHub then made the default
 branch. `main` was created from that history, so the two are identical up to the
-commit that added this note. If GitHub's default branch is still the `claude/…`
-one, switch it to `main` in the repository settings and the old branch can be
-deleted.
+commit that added this note. **GitHub's default branch is `main` as of
+2026-09-06**, verified through the API.
+
+The old branch still exists on the remote and can be deleted whenever Paolo
+likes — checked the same day: nothing is unique to it (diffing it against `main`
+shows no file only it has, and every doc on it is a subset of `main`'s), it is
+just not an *ancestor* of `main`, because `main` re-landed that content as its
+own root. Left in place rather than deleted here: it is an irreversible remote
+action nobody asked for out loud, and it costs nothing to keep.
 
 ## Testing
 
