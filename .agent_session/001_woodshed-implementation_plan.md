@@ -1897,15 +1897,77 @@ what's missing is everything **after** a segment exists and before it is a bound
     thing) — allow-listed alongside `cache/`/`capture/` rather than treated as
     a surprise. 23 new tests, all passing; full suite 823 passed; ruff clean;
     no-extras gate (820 passed, 3 deselected) unaffected.
-- **U3** `screens/capture.js` gains U0's segment-review UI: one row per pending segment,
-  a preview-play control reusing `player.js`'s `loop: false` engine from **R1** —
-  literally the same "audition, no rep" mechanism, pointed at `segment-audio` instead of
-  `/api/audio/<slug>` — plus the inline title/artist/tuning form and Add/Discard
+- **U2b — split-boundary editing, not yet built** (added 2026-09-06, per U0's own scope
+  addition above; sequence before U3, which wires the UI against it). Three new
+  `capture_session.py` operations, all acting on the CURRENT session only (same
+  `current_session`/permanent-index discipline `resolve` already established — none of
+  these renumber or remove entries; a merge/split replaces the affected entries' rows in
+  place, keeping every OTHER entry's index stable) and all refusing outright on a
+  non-pending index, same as `resolve`:
+  ```python
+  def adjust_boundary(repo: Repo, index: int, *, start_frame: int | None = None,
+                      end_frame: int | None = None) -> SessionEntry
+      # Moves one pending entry's own start_frame and/or end_frame. Refuses a result
+      # where start_frame >= end_frame, or where the new range would overlap the
+      # PREVIOUS or NEXT pending entry's own range (dragging a handle past a neighbour
+      # is a merge, not an overlap -- refuse and name the fix, never silently clamp).
+
+  def merge_segments(repo: Repo, first_index: int, second_index: int) -> SessionEntry
+      # first_index and second_index must be adjacent pending entries (by index, in
+      # either order) -- refuses two non-adjacent indices, since "merge segment 1 and
+      # segment 4" has no principled meaning. Replaces both with ONE new pending entry
+      # spanning [first.start_frame, second.end_frame) at first_index's own index;
+      # second_index's row is removed from the session (not merely marked resolved --
+      # it never existed as its own bound/discarded song, so it shouldn't linger as a
+      # third status). overflowed is the OR of both (a dropout in either half still
+      # makes the merged segment unsafe to bind).
+
+  def split_segment(repo: Repo, index: int, at_frame: int) -> tuple[SessionEntry, SessionEntry]
+      # at_frame must fall strictly inside [entry.start_frame, entry.end_frame) --
+      # refuses a split point at or past either end (nothing to split). Replaces the one
+      # pending entry with TWO: [start_frame, at_frame) keeps index's own index,
+      # [at_frame, end_frame) gets a fresh index one past the session's current highest
+      # -- appended, not inserted, so it never collides with or renumbers a later entry.
+  ```
+  Each of these rewrites the sidecar via the same `_save`/`_load` pair `resolve` already
+  uses -- no new on-disk format, just more shapes the `entries` array can take between
+  saves. Server gains `POST /api/capture/adjust`, `POST /api/capture/merge`,
+  `POST /api/capture/split` (bodies: `{index, start_frame?, end_frame?}`,
+  `{first_index, second_index}`, `{index, at_frame}` respectively) — each a thin call onto
+  the function above, same "routes only" discipline every other endpoint follows.
+  *Test contract*: `adjust_boundary` refuses `start_frame >= end_frame` and refuses
+  overlapping a neighbour; `merge_segments` refuses non-adjacent indices and ORs
+  `overflowed`; `split_segment` refuses a boundary at or past either end and the new
+  entry's index is never one already in use; all three refuse a non-pending index, same
+  message shape as `resolve`.
+- **U3** `screens/capture.js` gains U0's segment-review UI: the whole-pass waveform strip
+  (draggable boundary handles calling `merge_segments`/`adjust_boundary`, a "+ split at
+  playhead" action calling `split_segment`, a scrubbable playhead using `player.js`'s
+  `loop: false` engine from **R1** and its `RealtimeEngine.seek()` from **P1** — literally
+  the same "audition, no rep" mechanism P1/R1 already built, pointed at `segment-audio`/the
+  raw pass instead of `/api/audio/<slug>`) above one row per pending segment, each with its
+  own preview-play control plus the inline title/artist/tuning form and Add/Discard
   actions. Degrades to nothing (no new UI at all) when `GET /api/capture/segments` is
   empty, the same "show only what's real" instinct H2's own screen already follows.
+  **Cannot add (or discard) the same segment twice** — two layers, not one:
+  1. Already true at the data layer (U1/U2, already built and tested): `resolve()` refuses
+     a non-pending index outright, and a resolved segment simply stops appearing in
+     `GET /api/capture/segments` — there is no request this screen could send that
+     double-binds a segment. Nothing new needed here.
+  2. What U3 itself must still get right: the row's own Add/Discard controls disable the
+     instant they're clicked (before the request round-trips), so an impatient double-click
+     can't even fire a second request, and the row shows a brief inline "Added" / "Discarded"
+     confirmation rather than silently vanishing — a resolved row disappearing from a
+     re-fetched list with no acknowledgement is exactly the kind of ambiguity that makes
+     someone click Add again "just in case." Same reasoning as invariant 12 in spirit
+     (never leave the human guessing what the tool actually did), applied to a click instead
+     of a rep.
   *Test contract*: `node --check`; the same lint-style "never `/api/rep`, never
   `addEventListener('pass', ...)`" assertion R1's test added for `song.js`, copied for
-  this file rather than reimplemented by hand.
+  this file rather than reimplemented by hand; a synthetic-DOM test (same technique as
+  `test_seek.mjs`/`test_ended.mjs`) asserting a second click on an already-clicked
+  Add/Discard control never issues a second `fetch` to `/api/capture/bind` or `/api/capture/
+  discard`.
 - **U4** (lower priority — may be cut without blocking this phase's gate) CLI parity:
   `woodshed capture --split` records until stopped and prints one line per detected
   segment (index/duration/overflow) instead of trying to bind anything; `woodshed
@@ -1922,10 +1984,13 @@ in this plan, not in the code" rule Phase 2 already relies on. **P1 and Group J
 (Phase 2) both touch `player.js`** — sequence P1 before J, or have one person own both,
 rather than two units editing the same file's seek/loop-boundary logic in parallel.
 **U3 depends on R1** (it reuses R1's `loop: false` preview engine for segment audition)
-— sequence U3 after R1, which is already done. S, T and U's backend halves (U1/U2) are
-otherwise independent of everything else and may run in parallel with each other and
-with P/Q/R; U2 and T2 should be built by the same person or in sequence, since T2's own
-"finish the capture" step is U1's `bind_segment_to_song`, not a separate function.
+— sequence U3 after R1, which is already done. **U3 also depends on U2b** (the waveform
+strip's drag/merge/split controls call straight into it) — sequence U2b before U3, not in
+parallel; U2b itself has no UI half and no dependency beyond U1/U2 (already done), so it
+can start immediately. S, T and U's backend halves (U1/U2/U2b) are otherwise independent
+of everything else and may run in parallel with each other and with P/Q/R; U2 and T2
+should be built by the same person or in sequence, since T2's own "finish the capture"
+step is U1's `bind_segment_to_song`, not a separate function.
 
 **Phase 1.5 gate**
 - Automated: `uv run pytest` green; the no-extras gate green and unaffected by
@@ -1942,7 +2007,14 @@ with P/Q/R; U2 and T2 should be built by the same person or in sequence, since T
   pass against a brand-new, empty setlist, split them into segments, preview each before
   naming it, and add all of them to the setlist with distinct titles and tunings** —
   this is the workflow Group U exists for, and the gate should exercise it for real, not
-  just each endpoint in isolation.
+  just each endpoint in isolation. **Also (U2b/U3): capture a pass containing at least one
+  quiet passage inside a song and one short gap between two songs**, confirm the
+  auto-splitter gets at least one of them wrong, then actually use the waveform strip to
+  fix it — merge an over-split pair back into one segment, split an under-split pair into
+  two, scrub across a boundary to confirm it lands where expected — and add the corrected
+  segments with confidence they're the right length; **and confirm double-clicking Add (or
+  Discard) on the same row never produces two ledger/setlist entries or a visible error**,
+  the specific failure this session was asked to close off.
 
 ---
 

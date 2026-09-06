@@ -33,6 +33,19 @@
         display:flex;align-items:center;justify-content:center}
   .ghost{font-size:14px;color:#9CAAA4;padding:9px 4px}
   .ghost:hover{color:#C9805E}
+  .wf-action{font-size:13.5px;color:#9CAAA4;border:1px solid #26302E;border-radius:4px;padding:7px 13px;white-space:nowrap}
+  .wf-seg{position:absolute;top:0;bottom:0;background:rgba(224,145,63,.10);border-left:1px solid #E0913F;border-right:1px solid #E0913F}
+  .wf-seg.flagged{background:rgba(201,128,94,.13);border-color:#C9805E}
+  .handle{position:absolute;top:0;bottom:0;transform:translateX(-50%);width:13px;
+          background:#1B2422;border:1px solid #3A4844;border-radius:3px;cursor:ew-resize;
+          display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px}
+  .handle i{width:3px;height:3px;border-radius:50%;background:#6A7873}
+  .merge{position:absolute;top:-15px;transform:translateX(-50%);width:24px;height:24px;border-radius:50%;
+         background:#131B19;border:1px solid #26302E;display:flex;align-items:center;justify-content:center}
+  .playhead{position:absolute;top:0;bottom:0;width:2px;background:#F6C98A;transform:translateX(-50%)}
+  .playhead .flag{position:absolute;bottom:100%;left:50%;transform:translateX(-50%);margin-bottom:4px;
+                  white-space:nowrap;background:#F6C98A;color:#0C1211;border-radius:3px;padding:2px 6px;
+                  font-size:10.5px;font-weight:600}
 </style>
 </helmet>
 <div style="width:1440px;height:900px;background:#0C1211;display:flex;flex-direction:column;padding:34px 48px 30px">
@@ -52,7 +65,48 @@
   </div>
 
   <div style="display:flex;flex-direction:column;gap:2px;padding:20px 0 16px">
-    <div style="font-size:16px;color:#C6D2CD">Split on the gaps, not yet named. Name each one, or discard it — nothing is bound until you do.</div>
+    <div style="font-size:16px;color:#C6D2CD">Split on the gaps, not yet named. Confirm the cuts below, then name each one or discard it — nothing is bound until you do.</div>
+  </div>
+
+  <!-- the whole pass, cuts adjustable before anything is named -->
+  <div style="background:#131B19;border:1px solid #1C2523;border-radius:5px;padding:16px 20px;
+              display:flex;flex-direction:column;gap:10px;margin-bottom:14px;flex-shrink:0">
+    <div style="display:flex;align-items:center;gap:14px">
+      <div class="play" style="width:30px;height:30px">
+        <svg width="12" height="12" viewBox="0 0 22 22" aria-hidden="true"><path d="M7 5.2v11.6l10-5.8z" fill="#9CAAA4"/></svg></div>
+      <div class="mono num" style="font-size:14px;color:#9CAAA4">9:34 / 23:21</div>
+      <div style="margin-left:auto;display:flex;gap:10px">
+        <div class="wf-action">Merge at playhead</div>
+        <div class="wf-action" style="border-color:#8A5C29;color:#E0913F">+ Split at playhead</div>
+      </div>
+    </div>
+    <div style="position:relative;height:84px;margin-top:24px">
+      <div style="position:absolute;inset:0;top:8px;background:#0F1614;border-radius:3px;overflow:hidden">
+        <svg viewBox="0 0 1180 84" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:84px">
+          <path d="M4 38.8V45.2M12 37.2V46.8M20 39.5V44.5M28 36.5V47.5M36 33.8V50.2M44 39.0V45.0M52 34.9V49.1M60 30.9V53.1M68 33.9V50.1M76 34.5V49.5M84 30.0V54.0M92 27.8V56.2M100 33.9V50.1M108 30.4V53.6M116 26.5V57.5M124 32.9V51.1M132 31.7V52.3M140 24.7V59.3M148 27.4V56.6M156 20.9V63.1M164 23.1V60.9M172 21.5V62.5M180 33.0V51.0M188 24.5V59.5M196 28.6V55.4M204 40.5V43.5M212 40.9V43.1M220 41.6V42.4M228 40.4V43.6M236 41.2V42.8M244 40.0V44.0M252 41.9V42.1M260 39.9V44.1M268 30.5V53.5M276 25.1V58.9M284 20.4V63.6M292 26.5V57.5M300 30.9V53.1M308 24.0V60.0M316 29.9V54.1M324 33.5V50.5M332 27.4V56.6M340 32.0V52.0M348 41.4V42.6M356 41.0V43.0M364 40.6V43.4M372 41.8V42.2M380 40.2V43.8M388 41.5V42.5M396 40.9V43.1M404 27.5V56.5M412 20.9V63.1M420 29.5V54.5M428 33.7V50.3M436 22.9V61.1M444 30.9V53.1M452 26.0V58.0M460 33.4V50.6M468 28.5V55.5M476 20.4V63.6M484 32.5V51.5M492 27.0V57.0M500 41.7V42.3M508 40.4V43.6M516 41.0V43.0M524 40.8V43.2M532 30.4V53.6M540 24.9V59.1M548 33.9V50.1M556 20.5V63.5M564 28.0V56.0M572 33.0V51.0M580 26.5V57.5M588 30.9V53.1M596 24.0V60.0M604 32.9V51.1M612 29.4V54.6M620 21.0V63.0M628 26.9V57.1M636 33.5V50.5M644 20.4V63.6M652 30.0V54.0M660 24.5V59.5M668 33.4V50.6M676 27.5V56.5M684 21.9V62.1M692 32.0V52.0M700 26.4V57.6M708 30.9V53.1M716 24.0V60.0M724 33.9V50.1M732 20.9V63.1M740 41.4V42.6M748 40.0V44.0M756 41.9V42.1M764 40.5V43.5M772 27.0V57.0M780 33.5V50.5M788 21.4V62.6M796 30.0V54.0M804 26.5V57.5M812 32.9V51.1M820 24.4V59.6M828 20.9V63.1M836 33.0V51.0M844 27.5V56.5M852 30.5V53.5M860 24.0V60.0M868 21.9V62.1M876 32.4V51.6M884 27.0V57.0M892 33.4V50.6M900 26.9V57.1M908 21.0V63.0M916 30.9V53.1M924 24.5V59.5M932 33.0V51.0M940 27.4V56.6M948 20.5V63.5M956 32.0V52.0M964 26.4V57.6M972 30.9V53.1M980 24.0V60.0M988 33.9V50.1M996 21.4V62.6M1004 27.0V57.0M1012 33.5V50.5M1020 26.5V57.5M1028 30.0V54.0M1036 24.5V59.5M1044 20.9V63.1M1052 32.9V51.1M1060 27.4V56.6M1068 33.0V51.0M1076 24.0V60.0M1084 30.5V53.5M1092 21.9V62.1M1100 26.9V57.1M1108 33.4V50.6M1116 27.0V57.0M1124 24.5V59.5M1132 20.9V63.1M1140 30.0V54.0M1148 26.5V57.5M1156 33.5V50.5M1164 27.4V56.6M1172 30.9V53.1"
+                fill="none" stroke="#3F544E" stroke-width="1.2"></path>
+        </svg>
+        <div class="wf-seg" style="left:0%;width:19.3%"></div>
+        <div class="wf-seg flagged" style="left:23.6%;width:16.6%"></div>
+        <div class="wf-seg" style="left:44.5%;width:24.8%"></div>
+        <div class="wf-seg" style="left:75.7%;width:11.5%"></div>
+      </div>
+      <div class="handle" style="left:21.45%"><i></i><i></i><i></i></div>
+      <div class="merge" style="left:21.45%">
+        <svg width="11" height="9" viewBox="0 0 11 9" aria-hidden="true"><path d="M1 4.5h9M1 4.5l2.5-2.5M1 4.5l2.5 2.5M10 4.5l-2.5-2.5M10 4.5l-2.5 2.5" fill="none" stroke="#9CAAA4" stroke-width="1.1" stroke-linecap="round"/></svg>
+      </div>
+      <div class="handle" style="left:42.35%"><i></i><i></i><i></i></div>
+      <div class="merge" style="left:42.35%">
+        <svg width="11" height="9" viewBox="0 0 11 9" aria-hidden="true"><path d="M1 4.5h9M1 4.5l2.5-2.5M1 4.5l2.5 2.5M10 4.5l-2.5-2.5M10 4.5l-2.5 2.5" fill="none" stroke="#9CAAA4" stroke-width="1.1" stroke-linecap="round"/></svg>
+      </div>
+      <div class="handle" style="left:72.5%"><i></i><i></i><i></i></div>
+      <div class="merge" style="left:72.5%">
+        <svg width="11" height="9" viewBox="0 0 11 9" aria-hidden="true"><path d="M1 4.5h9M1 4.5l2.5-2.5M1 4.5l2.5 2.5M10 4.5l-2.5-2.5M10 4.5l-2.5 2.5" fill="none" stroke="#9CAAA4" stroke-width="1.1" stroke-linecap="round"/></svg>
+      </div>
+      <div class="playhead" style="left:41%"><div class="flag">9:34</div></div>
+    </div>
+    <div class="mono" style="font-size:11px;color:#5B6A64">
+      DRAG A HANDLE TO MOVE A CUT · CLICK THE WAVE TO SCRUB AND PREVIEW · THE ROUND BUTTON MERGES THE TWO SEGMENTS EITHER SIDE OF IT</div>
   </div>
 
   <!-- the list -->
