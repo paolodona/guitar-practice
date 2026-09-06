@@ -2877,6 +2877,34 @@ instead.
     the endpoint writes nothing at all), 7 node tests for the plot maths. Full
     suite 1028 passed (was 1010); ruff clean; no-extras 1025 passed, 3 deselected.
 - **K3** `doctor.py` completion + `woodshed status --setlist`
+  - **Done, 2026-09-06.** `woodshed status` is real now (it was one of the
+    three `_NOT_YET_IMPLEMENTED` stubs) in three shapes, all pure reads:
+    bare (every song, least ready first), `status <song>` (section by section:
+    best sustained, target, reps, cleans, last), and `status --setlist <slug>`
+    (rows with their derived shift and readiness bar, plus the next-up pick with
+    its three score components broken out — `score == gap + cold + gig`, the same
+    explainability rule the dashboard follows). A setlist entry with no
+    `song.yaml` prints "needs audio" rather than erroring: degrade, don't refuse.
+    A test asserts the whole command writes nothing at all.
+  - **doctor's cache check is no longer "report only"**, and finding out why is
+    the interesting part: **`render.evict` existed since Group I and nothing ever
+    called it**, so `config.render.cache_max_gb` was a number the tool printed
+    and never honoured. The render path applies it now
+    (`server.render_then_evict`, on the background render thread, after the file
+    that just grew the cache is on disk — mtime-ordered eviction makes the fresh
+    render the last thing reclaimable, never the first; a failed sweep is caught
+    so it can never lose the render). doctor then reports over-budget as a MISS,
+    and says the manual answer too: everything under `songs/*/cache/` is safe to
+    delete by hand, because it re-renders. That is the sentence worth having when
+    a disk is full at 11pm.
+  - **doctor's midi line stopped being a placeholder without becoming a lie.**
+    Web MIDI lives in the browser; this process cannot enumerate a pedal and must
+    not pretend to. It now reports what `config.yaml` is looking FOR
+    (`midi.input`) and says the matching happens in the browser, Chrome/Edge
+    only. Group L still owns the actual matching.
+  - 6 new tests in `test_cli.py`, 2 rewritten + 1 new in `test_doctor.py`, 2 new
+    in `test_server.py`. Full suite 1036 passed (was 1028); ruff clean;
+    no-extras 1033 passed, 3 deselected.
 
 **Phase 2 gate**
 - Automated: `uv run pytest` green; the `playbackRate` grep test passes; the render argv

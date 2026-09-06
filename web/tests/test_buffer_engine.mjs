@@ -375,6 +375,31 @@ await test('equalPowerCurve is sin/cos of one angle, so the pair sums to unit po
   for (let i = 0; i < 64; i++) assert.ok(Math.abs(up[i] ** 2 + down[i] ** 2 - 1) < 1e-6);
 });
 
+await test('position() is exact, and wraps at the loop points', async () => {
+  const { ctx, engine } = await mounted({ speedPct: 50 });
+  const clock = renderClock(makeSection(), 50);
+  assert.equal(engine.position(), 0);
+  engine.play();
+  ctx.currentTime = 10;
+  assert.ok(Math.abs(engine.position() - 10) < 1e-9);
+  // One lap and a bit later: back round to just past the loop start.
+  ctx.currentTime = clock.loopEnd + 3;
+  assert.ok(Math.abs(engine.position() - (clock.loopStart + 3)) < 1e-9);
+  // ... and in the recording's own clock: 60s section start, 2s lead-in,
+  // so playback 4s (the loop start) is source second 60.
+  ctx.currentTime = clock.loopEnd;
+  assert.ok(Math.abs(engine.sourcePosition() - 60) < 1e-9);
+});
+
+await test('position() holds still while paused', async () => {
+  const { ctx, engine } = await mounted({ speedPct: 50 });
+  engine.play();
+  ctx.currentTime = 7;
+  engine.pause();
+  ctx.currentTime = 99;
+  assert.ok(Math.abs(engine.position() - 7) < 1e-9);
+});
+
 await test('createEngine picks the engine, and still defaults to the real-time one', () => {
   // docs/03-audio-engine.md's table: exploring gets the stretcher,
   // practising gets the buffer. Every caller that has not asked for the

@@ -23,7 +23,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
-from woodshed import ledger, sections
+from woodshed import ledger, practice, sections
 from woodshed.errors import WoodshedError
 from woodshed.ledger import Rep
 from woodshed.library import Repo, find_root, slugify
@@ -59,7 +59,6 @@ or check the toolchain first:
 #: "not built yet" refusal on a command this unit does not implement.
 _NOT_YET_IMPLEMENTED = {
     "render": "Phase 2 -- the offline render cache",
-    "status": "Phase 2 -- the progress dashboard",
     "scan": "Phase 3 -- library scan and file binding",
 }
 
@@ -455,6 +454,126 @@ def cmd_log(args: argparse.Namespace) -> int:
     ledger.append(repo, rep)
     verb = "clean pass" if rep.clean else ("pass" if rep.passed else "attempt")
     _say(f"{slug}/{args.section}: logged a {verb} at {rep.speed:g}%")
+    return 0
+
+
+# ── commands: status (Phase 2, K3) ───────────────────────────────────────
+def cmd_status(args: argparse.Namespace) -> int:
+    """The dashboard, as text. Three shapes, all pure reads of song.yaml,
+    setlist.yaml and the ledger:
+
+      woodshed status                     every song, readiness first
+      woodshed status <song>              one song, section by section
+      woodshed status --setlist <slug>    one setlist, plus what to play next
+
+    Nothing here is cached and nothing is written (CLAUDE.md invariant 6 and
+    "the repo is the database"): each number is recomputed from the ledger
+    on the spot, which is what keeps this command and the web dashboard from
+    ever disagreeing.
+    """
+    repo = _repo()
+    reps = list(ledger.read(repo))
+    if args.setlist:
+        return _status_setlist(repo, reps, args.setlist)
+    if args.song:
+        return _status_song(repo, reps, args.song)
+    return _status_all(repo, reps)
+
+
+def _bar(ratio: float, width: int = 16) -> str:
+    """A readiness bar. Text, because this is the CLI -- the same number the
+    dashboard draws as a bar, shown as one."""
+    filled = int(round(max(0.0, min(1.0, ratio)) * width))
+    return "#" * filled + "-" * (width - filled)
+
+
+def _since(last) -> str:
+    if last is None:
+        return "never"
+    days = (datetime.now(UTC) - last).days
+    if days <= 0:
+        return "today"
+    if days == 1:
+        return "yesterday"
+    return f"{days}d ago"
+
+
+def _status_all(repo: Repo, reps: list) -> int:
+    slugs = repo.list_songs()
+    if not slugs:
+        _say("no songs yet -- `woodshed add \"path/to/song.wav\" --title ...` starts one.")
+        return 0
+    rows = []
+    for slug in slugs:
+        song_path = repo.song_dir(slug) / "song.yaml"
+        if not song_path.is_file():
+            continue
+        song = load_song(song_path)
+        ratio = practice.song_readiness(song, reps, song.practice).ratio
+        rows.append((ratio, song, ledger.last_practised(reps, slug)))
+    rows.sort(key=lambda row: (row[0], row[1].slug))
+    _say(f"  {'song':<28}{'sections':>9}   readiness            last")
+    for ratio, song, last in rows:
+        count = sum(1 for s in song.sections if not s.full_song)
+        _say(f"  {song.title[:28]:<28}{count:>9}   [{_bar(ratio)}] {ratio * 100:>3.0f}%   "
+             f"{_since(last)}")
+    return 0
+
+
+def _status_song(repo: Repo, reps: list, needle: str) -> int:
+    slug, _path, song = _load_song(repo, needle)
+    readiness = practice.song_readiness(song, reps, song.practice)
+    _say(f"{song.title} -- {song.artist}    [{_bar(readiness.ratio)}] "
+         f"{readiness.ratio * 100:.0f}%")
+    _say()
+    _say(f"  {'section':<24}{'best':>6}{'target':>8}{'reps':>7}{'clean':>7}   last")
+    for section in song.sections:
+        reps_to_advance = (
+            section.reps_to_advance if section.reps_to_advance is not None
+            else song.practice.reps_to_advance
+        )
+        best = ledger.best_sustained_speed(reps, slug, section.id, reps_to_advance)
+        totals = ledger.totals(reps, slug, section.id)
+        last = ledger.last_practised(reps, slug, section.id)
+        _say(f"  {section.name[:24]:<24}{best:>5.0f}%{section.target_speed:>7.0f}%"
+             f"{totals.passes:>7}{totals.cleans:>7}   {_since(last)}")
+    return 0
+
+
+def _status_setlist(repo: Repo, reps: list, slug: str) -> int:
+    from woodshed.config import load_config
+    from woodshed.setlist import effective_shift
+    from woodshed.setlist import load as load_setlist
+
+    setlist = load_setlist(repo, slug)
+    header = f"{setlist.name}  ({setlist.tuning})"
+    if setlist.date is not None:
+        weeks = max(0, (setlist.date - datetime.now(UTC).date()).days // 7)
+        header += f"  --  {setlist.date.isoformat()}, {weeks} week{'' if weeks == 1 else 's'} away"
+    _say(header)
+    _say()
+    _say(f"  {'song':<28}{'shift':>6}   readiness")
+    for entry in setlist.songs:
+        song_path = repo.song_dir(entry.slug) / "song.yaml"
+        if not song_path.is_file():
+            # A needs-audio entry: named in the setlist, nothing bound yet.
+            # Degrade, do not refuse (docs/02-data-model.md:160).
+            _say(f"  {entry.slug[:28]:<28}{'':>6}   needs audio")
+            continue
+        song = load_song(song_path)
+        ratio = practice.song_readiness(song, reps, song.practice).ratio
+        shift = effective_shift(setlist, entry, song)
+        _say(f"  {song.title[:28]:<28}{shift:>+6}   [{_bar(ratio)}] {ratio * 100:>3.0f}%")
+
+    ranked = practice.next_up(repo, setlist, reps, load_config(repo).defaults)
+    if ranked:
+        top = ranked[0]
+        top_song = load_song(repo.song_dir(top.song_slug) / "song.yaml")
+        top_section = next(s for s in top_song.sections if s.id == top.section_id)
+        _say()
+        _say(f"  next up: {top_song.title} -- {top_section.name} "
+             f"({top.reached * 100:.0f}% of target; gap {top.gap:.2f}, "
+             f"cold {top.cold:.2f}, gig {top.gig:.2f})")
     return 0
 
 
@@ -1011,11 +1130,18 @@ def build_parser() -> argparse.ArgumentParser:
                     help="also add the new song to this setlist")
     p.set_defaults(func=cmd_capture_bind)
 
+    # -- status: the dashboard as text (Phase 2, K3) --
+    p = sub.add_parser("status", help="the dashboard, as text")
+    p.add_argument("song", nargs="?", default=None,
+                    help="a song slug or title -- omit for every song")
+    p.add_argument("--setlist", default=None, metavar="SLUG",
+                    help="show this setlist's rows, shifts and next-up pick instead")
+    p.set_defaults(func=cmd_status)
+
     # -- not yet implemented, registered so `--help` is honest about the
     #    tool's eventual shape (docs/01-architecture.md's full command list) --
     stub_help = {
         "render": "render a section into the offline cache (not yet implemented)",
-        "status": "the dashboard, as text (not yet implemented)",
         "scan": "scan config.yaml's library_paths for audio to bind (not yet implemented)",
     }
     for name, phase in _NOT_YET_IMPLEMENTED.items():

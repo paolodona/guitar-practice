@@ -161,16 +161,35 @@ Out-of-scope items discovered while planning or implementing. Format:
       accessor — only the discrete `pass` event at a loop boundary. `screens/practice.js`
       (D6) therefore animates the progress ring, waveform clip and playhead from a
       local wall-clock estimate resynced to 0 at each `pass`, not from engine ground
-      truth. Correct and unnoticeable at a glance, but Phase 2's J1/J2 (the buffer
-      engine and its boundary-swap arithmetic) should add a real accessor so this
-      stops being an approximation.
+      truth. **Half-closed 2026-09-06 (Phase 2, J1):** `BufferEngine` — the engine the
+      practice screen now uses by default — has exact `position()`/`sourcePosition()`
+      accessors (a native loop's position is arithmetic, not a guess). What remains:
+      `RealtimeEngine` still has none (its position lives inside the worklet), and
+      practice.js still animates from its own estimate rather than reading the
+      accessor when the engine it holds has one. Cosmetic either way; the rep count
+      has never come from the estimate.
 - [ ] **[Plan 001]** `screens/practice.js` has no ledger-read endpoint to ask "what rung
       and how many clean reps does this section already have" — it starts every mount
-      from a client-side mirror of `ladder.py`'s pure rung math with zero history,
-      correct for a fresh section but wrong the moment a song has practice history.
-      This is the same underlying gap as the existing `practice.py`-has-no-owning-unit
-      item above (Phase 1 Group F / Phase 2's `GET /api/progress`) — noting the concrete
-      front-end symptom here so it's checked off the same time that endpoint lands.
+      from a client-side mirror of `ladder.py`'s pure rung math with zero history.
+      **Mostly closed:** the RUNG is right (`/api/song`'s per-section
+      `starting_speed_pct`, from `ladder.starting_speed` over the ledger), and
+      `GET /api/progress/<slug>` (Phase 2, K2) now exposes the history itself. What is
+      still zeroed on every mount is `cleanAtSpeed` — progress *within* the current
+      rung — so three clean reps spread over two sittings never advance. Fix is a field
+      on the song payload beside `starting_speed_pct`, not a new endpoint.
+
+- [ ] **[Plan 001]** `woodshed render` is still a `_NOT_YET_IMPLEMENTED` stub even
+      though `render.py` has been real since Phase 1.5 (Group I, pulled forward). The
+      server renders on demand, so nothing is blocked — but "render this section at
+      these rungs before I get on the train" has no CLI, and the module's whole
+      surface (`render_section`, `plan_ahead`, `evict`) is already there to call.
+      Not in any unit's scope; noted rather than folded into K3.
+- [ ] **[Plan 001]** The practice screen says nothing while a render is being built.
+      `BufferEngine` polls the endpoint's 202 (which can mean minutes when Demucs runs
+      first for a guitar-only section), and until it resolves, pressing play is
+      silence with no explanation. The engine knows the stage — server.py's 202 body
+      carries `"stage": "separating" | "rendering"` — so this is a matter of
+      surfacing it, probably in the same status line the engine-kind fallback uses.
 
 ## Low
 - [ ] **[Plan 001]** Add `uv run pytest` as the Stop-hook quality gate in

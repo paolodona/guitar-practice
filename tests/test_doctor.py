@@ -70,15 +70,35 @@ def test_core_deps_are_present_in_this_dev_env(repo: Repo) -> None:
         assert by_name[core].ok, by_name[core].detail
 
 
-def test_cache_check_is_report_only_and_never_fails(repo: Repo) -> None:
+def test_cache_check_passes_while_under_the_budget(repo: Repo) -> None:
     by_name = {c.name: c for c in doctor.run_checks(repo)}
     assert by_name["cache"].ok is True
     assert "GB" in by_name["cache"].detail
 
 
-def test_midi_check_is_an_honest_placeholder(repo: Repo) -> None:
+def test_cache_check_fails_when_the_budget_is_already_exceeded(
+    repo: Repo, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Phase 2, K3: `evict` exists now, so this is no longer report-only.
+    Over budget is a MISS naming what actually reclaims it -- and saying
+    that `cache/` is safe to delete by hand, which is the one thing a
+    person needs to know when a disk is full at 11pm."""
+    monkeypatch.setattr(doctor, "_cache_usage_bytes", lambda _repo: 999 * 10**9)
+    check = {c.name: c for c in doctor.run_checks(repo)}["cache"]
+    assert check.ok is False
+    assert "safe to delete" in check.fix
+
+
+def test_midi_check_names_the_configured_input_and_the_browser(repo: Repo) -> None:
+    """Web MIDI lives in the browser, so Python cannot see a pedal from
+    here. Reporting what config.yaml is looking FOR, and where that
+    matching happens, is the honest check -- inventing a pass/fail for a
+    device this process cannot enumerate is exactly the measurement
+    CLAUDE.md forbids."""
     by_name = {c.name: c for c in doctor.run_checks(repo)}
-    assert "not yet checked" in by_name["midi"].detail.lower()
+    check = by_name["midi"]
+    assert check.ok is True
+    assert "Chrome" in check.detail or "browser" in check.detail.lower()
 
 
 def test_loopback_check_reports_honestly_either_way(repo: Repo) -> None:

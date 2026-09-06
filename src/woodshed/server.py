@@ -233,6 +233,27 @@ def parse_multipart(
     return fields, files
 
 
+def render_then_evict(repo: Repo, thunk, max_gb: float):
+    """Run one render, then trim `cache/` back to the budget.
+
+    FOUND 2026-09-06 building K3's doctor check: `render.evict` existed and
+    **nothing ever called it**, so `config.render.cache_max_gb` was a number
+    the tool printed and never honoured. This is where the budget is
+    actually applied -- on the background render thread, after the file that
+    just grew the cache is on disk. Eviction is mtime-ordered, so the render
+    that just finished is the last thing that could be reclaimed, never the
+    first; and an eviction failure must not lose the render, so it is caught
+    and dropped (the file is already served either way, and doctor will
+    report the cache as over budget).
+    """
+    path = thunk()
+    try:
+        render_module.evict(repo, max_gb)
+    except Exception:  # noqa: BLE001 -- a failed sweep must never fail the render
+        pass
+    return path
+
+
 def _totals_json(totals) -> dict:
     """`ledger.Totals` as JSON -- three keys, named as the dataclass names
     them, so nothing downstream has to guess whether "reps" means passes."""
@@ -958,11 +979,16 @@ class WoodshedHandler(BaseHTTPRequestHandler):
             return
 
         key = str(dest)
+        max_gb = load_config(self.repo).render.cache_max_gb
         self.render_runner.ensure_started(
             key,
-            lambda: render_module.render_section(
-                self.repo, song, section, speed_pct, semitones,
-                crossfade_ms=crossfade_ms, pre_roll_s=pre_roll_s, source=source,
+            lambda: render_then_evict(
+                self.repo,
+                lambda: render_module.render_section(
+                    self.repo, song, section, speed_pct, semitones,
+                    crossfade_ms=crossfade_ms, pre_roll_s=pre_roll_s, source=source,
+                ),
+                max_gb,
             ),
         )
         error = self.render_runner.error(key)

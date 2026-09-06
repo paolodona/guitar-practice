@@ -86,7 +86,7 @@ def test_no_subcommand_prints_help_and_returns_1(capsys: pytest.CaptureFixture) 
 
 
 @pytest.mark.parametrize(
-    "name", ["render", "status", "scan"]
+    "name", ["render", "scan"]
 )
 def test_not_yet_implemented_commands_refuse_cleanly(
     name: str, capsys: pytest.CaptureFixture
@@ -797,3 +797,106 @@ def test_analyze_bpm_and_tap_together_refuses(repo: Repo, tmp_path: Path) -> Non
     with pytest.raises(SystemExit) as excinfo:
         cli.main(["analyze", slug, "--bpm", "120", "--tap", "0.0", "--tap", "0.5"])
     assert excinfo.value.code == 2
+
+
+# ── status (Phase 2, K3) ─────────────────────────────────────────────────
+
+
+def _status_song(repo: Repo, slug: str, title: str) -> None:
+    """A song on disk with two sections, no audio file needed -- `status`
+    reads song.yaml and the ledger, never the recording itself."""
+    from woodshed.manifest import Recording, Section, Song, save_song
+
+    song = Song(
+        slug=slug,
+        title=title,
+        artist="Nobody",
+        recording=Recording(
+            file="audio/x.wav", sha256="a" * 64, duration_s=200.0, tuning="E standard"
+        ),
+        sections=[
+            Section(id="intro", name="Intro", start_s=0.0, end_s=20.0,
+                    snapped="free", target_speed=100.0),
+            Section(id="solo", name="Solo", start_s=20.0, end_s=60.0,
+                    snapped="free", target_speed=90.0),
+        ],
+    )
+    repo.song_dir(slug).mkdir(parents=True, exist_ok=True)
+    save_song(song, repo.song_dir(slug) / "song.yaml")
+
+
+def test_status_with_no_arguments_lists_every_song(
+    repo: Repo, capsys: pytest.CaptureFixture
+) -> None:
+    _status_song(repo, "cant-stop", "Can't Stop")
+    _status_song(repo, "sultans", "Sultans of Swing")
+    rc = cli.main(["status"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "Can't Stop" in out
+    assert "Sultans of Swing" in out
+
+
+def test_status_on_an_empty_repo_says_so_rather_than_printing_a_blank(
+    repo: Repo, capsys: pytest.CaptureFixture
+) -> None:
+    rc = cli.main(["status"])
+    assert rc == 0
+    assert "no songs" in capsys.readouterr().out.lower()
+
+
+def test_status_for_one_song_breaks_out_its_sections(
+    repo: Repo, capsys: pytest.CaptureFixture
+) -> None:
+    _status_song(repo, "cant-stop", "Can't Stop")
+    for _ in range(3):
+        cli.main(["log", "cant-stop", "solo", "--speed", "60", "--clean"])
+    capsys.readouterr()
+    rc = cli.main(["status", "cant-stop"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "Solo" in out and "Intro" in out
+    assert "60" in out  # the best sustained speed, earned by three clean reps
+
+
+def test_status_setlist_lists_its_rows_and_the_next_up_suggestion(
+    repo: Repo, capsys: pytest.CaptureFixture
+) -> None:
+    _status_song(repo, "cant-stop", "Can't Stop")
+    cli.main(["setlist", "create", "The Gig", "--tuning", "Eb standard", "--slug", "gig"])
+    cli.main(["setlist", "add-song", "gig", "cant-stop"])
+    capsys.readouterr()
+    rc = cli.main(["status", "--setlist", "gig"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "The Gig" in out
+    assert "Can't Stop" in out
+    assert "next up" in out.lower()
+    assert "-1" in out  # the derived shift: an E record in an Eb band
+
+
+def test_status_setlist_unknown_slug_refuses_with_exit_2(
+    repo: Repo, capsys: pytest.CaptureFixture
+) -> None:
+    rc = cli.main(["status", "--setlist", "no-such-setlist"])
+    assert rc == 2
+    assert capsys.readouterr().err.startswith("woodshed: ")
+
+
+def test_status_writes_nothing(repo: Repo, capsys: pytest.CaptureFixture) -> None:
+    """The whole command is a read (CLAUDE.md: the server -- and the CLI --
+    write exactly four things, and a text dashboard is none of them)."""
+    import hashlib
+
+    _status_song(repo, "cant-stop", "Can't Stop")
+    before = {
+        p: hashlib.sha256(p.read_bytes()).hexdigest()
+        for p in repo.root.rglob("*") if p.is_file()
+    }
+    cli.main(["status"])
+    cli.main(["status", "cant-stop"])
+    after = {
+        p: hashlib.sha256(p.read_bytes()).hexdigest()
+        for p in repo.root.rglob("*") if p.is_file()
+    }
+    assert after == before

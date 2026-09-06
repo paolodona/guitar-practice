@@ -707,6 +707,30 @@ export class BufferEngine extends EventTarget {
 
   /** The rung currently loaded, as a percent. */
   get speedPct() { return this._speedPct; }
+
+  /**
+   * Where playback actually is, in PLAYBACK seconds, right now — the
+   * position accessor RealtimeEngine has never had (which is why
+   * screens/practice.js animates its ring from a wall-clock estimate
+   * resynced at each 'pass'). Exact here rather than estimated, because a
+   * native loop's position is arithmetic: where the node started, plus
+   * elapsed AudioContext time, wrapped at the loop points.
+   * @returns {number} playback seconds, 0 when nothing is loaded or playing
+   */
+  position() {
+    if (!this._active) return this._position;
+    if (!this._playing) return this._position;
+    return playbackPositionAt(this._active.anchor, this.ctx.currentTime);
+  }
+
+  /** `position()` converted back to SOURCE seconds — the recording's own
+   *  clock, what the waveform and the section boundaries are in. */
+  sourcePosition() {
+    const clock = this._clock();
+    const section = this._section;
+    if (!section) return 0;
+    return this.position() * clock.speed + (section.startS - section.preRollS);
+  }
   /** The shift currently loaded, in semitones. */
   get semitones() { return this._semitones; }
 

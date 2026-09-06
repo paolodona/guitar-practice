@@ -1990,3 +1990,41 @@ def test_progress_weeks_garbage_falls_back_rather_than_400ing(served):
     status, data = _get_json(base, f"/api/progress/{slug}?weeks=banana")
     assert status == 200
     assert data["weeks"] == 26
+
+
+# ── the cache budget is actually applied (Phase 2, K3's own find) ─────────
+
+
+def test_render_then_evict_trims_the_cache_after_the_render(monkeypatch, tmp_path):
+    """`render.evict` existed from Group I and nothing called it, so
+    `config.render.cache_max_gb` was decoration. The render path runs it
+    now -- after the render, never instead of it."""
+    from woodshed import server as server_module
+
+    repo = Repo(root=tmp_path)
+    order = []
+    monkeypatch.setattr(
+        server_module.render_module, "evict",
+        lambda r, gb: order.append(("evict", gb)),
+    )
+
+    def thunk():
+        order.append(("render", None))
+        return tmp_path / "rendered.flac"
+
+    result = server_module.render_then_evict(repo, thunk, 20.0)
+
+    assert result == tmp_path / "rendered.flac"
+    assert order == [("render", None), ("evict", 20.0)]
+
+
+def test_render_then_evict_never_loses_the_render_to_a_failed_sweep(monkeypatch, tmp_path):
+    from woodshed import server as server_module
+
+    repo = Repo(root=tmp_path)
+
+    def boom(_repo, _gb):
+        raise OSError("the disk went away mid-sweep")
+
+    monkeypatch.setattr(server_module.render_module, "evict", boom)
+    assert server_module.render_then_evict(repo, lambda: "path", 20.0) == "path"

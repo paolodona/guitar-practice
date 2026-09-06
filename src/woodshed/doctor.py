@@ -46,8 +46,8 @@ def _module(name: str) -> bool:
 
 
 def _cache_usage_bytes(repo: Repo) -> int:
-    """Total bytes under every song's cache/ dir. Report only -- see
-    docs/01-architecture.md; eviction against the budget is a later phase."""
+    """Total bytes under every song's cache/ dir, measured against
+    `config.render.cache_max_gb` by `run_checks` below."""
     total = 0
     for slug in repo.list_songs():
         cache_dir = repo.cache_dir(slug)
@@ -189,20 +189,33 @@ def run_checks(repo: Repo) -> list[Check]:
     config = load_config(repo)
     used_bytes = _cache_usage_bytes(repo)
     budget_gb = config.render.cache_max_gb
+    over = used_bytes > budget_gb * 1e9
     checks.append(Check(
-        "cache", True,
-        f"{used_bytes / 1e9:.2f} GB used of a {budget_gb:g} GB budget "
-        "(report only -- eviction is a later phase)",
+        "cache", not over,
+        f"{used_bytes / 1e9:.2f} GB used of a {budget_gb:g} GB budget"
+        + (" -- OVER" if over else ""),
         "keeping songs/*/cache/ from filling the disk",
+        # Phase 2, K3: `render.evict` exists now, and the server runs it
+        # after every render, so this is no longer report-only. The manual
+        # answer is worth printing anyway: every byte under cache/ is
+        # reproducible, which is the one thing worth knowing when a disk is
+        # full at 11pm.
+        "" if not over else (
+            "the next render evicts down to the budget on its own; "
+            "everything under songs/*/cache/ is safe to delete by hand too "
+            "(it is a cache -- it re-renders)"
+        ),
     ))
 
-    # midi.js (Web MIDI in) does not exist yet in this phase -- an honest
-    # placeholder, not a fabricated pass/fail for something unbuilt (see
-    # CLAUDE.md's "the tool never judges the playing" and this unit's brief:
-    # inventing a measurement the tool cannot make is the failure mode to
-    # avoid).
+    # Web MIDI lives in the BROWSER: this process cannot enumerate a pedal
+    # and must not pretend to. What it can honestly report is what
+    # config.yaml is looking for and where the matching happens -- see
+    # CLAUDE.md on inventing a measurement the tool cannot make.
+    wanted = config.midi.input or "(nothing configured)"
     checks.append(Check(
-        "midi", True, "not yet checked -- Web MIDI (midi.js) is not built in this phase",
+        "midi", True,
+        f"looking for an input matching {wanted!r} -- matched in the browser "
+        f"(Web MIDI, Chrome/Edge only), never from here",
         "the foot controller (Phase 3)",
     ))
 
