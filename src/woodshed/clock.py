@@ -44,8 +44,9 @@ class Render:
     # lead-in plays once, on load/restart, and every subsequent pass loops
     # from AFTER it. True replays the lead-in on every pass instead --
     # loop_start moves to the render's very start; loop_end and total are
-    # untouched, since how long a lap lasts doesn't change, only where it
-    # begins.
+    # untouched: total because it describes what was rendered, loop_end
+    # because it is the section's own end position. The LAP therefore gets
+    # longer by exactly the lead-in -- which is the point of the setting.
     pre_roll_every_pass: bool = False
 
     @property
@@ -59,9 +60,17 @@ class Render:
         # crossfade_ms is already-stretched playback milliseconds, so it is
         # NOT divided by speed -- see the module and class docstrings for
         # why this term exists at all.
+        #
+        # Measured from the SECTION's own end (pre-roll + section, less the
+        # crossfade), never from loop_start: where a lap begins has nothing
+        # to say about where the section ends. Defining it relative to
+        # loop_start -- as this property did until Group J -- dragged the
+        # loop end back by pre_roll_s/speed whenever pre_roll_every_pass
+        # moved loop_start to 0, so a native loop stopped that far short of
+        # the section's real end and render.py trimmed those samples off
+        # the cache file. See tests/test_clock.py for the named test.
         return PlaybackSeconds(
-            self.loop_start
-            + (self.end_s - self.start_s) / self.speed
+            (self.pre_roll_s + (self.end_s - self.start_s)) / self.speed
             - self.crossfade_ms / 1000
         )
 

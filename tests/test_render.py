@@ -31,7 +31,15 @@ from woodshed.clock import Render, pre_roll_seconds
 from woodshed.errors import WoodshedError
 from woodshed.ladder import LadderConfig, LadderState
 from woodshed.library import Repo
-from woodshed.manifest import Recording, Section, Song, Tempo, effective_pre_roll_beats, save_song
+from woodshed.manifest import (
+    PracticeDefaults,
+    Recording,
+    Section,
+    Song,
+    Tempo,
+    effective_pre_roll_beats,
+    save_song,
+)
 from woodshed.render import (
     cache_key,
     cache_path,
@@ -133,6 +141,40 @@ def test_span_fingerprint_changes_with_crossfade_ms() -> None:
     a = span_fingerprint(song, section, pre_roll_s=0.0, crossfade_ms=10.0)
     b = span_fingerprint(song, section, pre_roll_s=0.0, crossfade_ms=20.0)
     assert a != b
+
+
+def test_span_fingerprint_changes_when_the_lead_in_starts_replaying_every_pass() -> None:
+    # An every-pass render bakes its crossfade in a different place (see
+    # _bake_crossfade's own every-pass test), so the two are different
+    # FILES and must not share a cache name -- the same stale-loop class of
+    # bug the fingerprint exists to make impossible.
+    section = _section()
+    once = _song()
+    always = _song(practice=PracticeDefaults(pre_roll_every_pass=True))
+    a = span_fingerprint(once, section, pre_roll_s=1.0, crossfade_ms=10.0)
+    b = span_fingerprint(always, section, pre_roll_s=1.0, crossfade_ms=10.0)
+    assert a != b
+
+
+def test_render_section_hands_the_every_pass_flag_to_the_clock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The one place `Render` is constructed on the render path -- if the
+    song replays its lead-in every pass, the render it bakes has to know."""
+    repo, _song_unused, _calls = _setup(tmp_path, monkeypatch)
+    song = _song(practice=PracticeDefaults(pre_roll_every_pass=True))
+    (repo.song_dir(song.slug) / song.recording.file).parent.mkdir(parents=True, exist_ok=True)
+    (repo.song_dir(song.slug) / song.recording.file).write_bytes(b"fake source audio")
+    seen: list = []
+    real_bake = render_module._bake_crossfade
+    monkeypatch.setattr(
+        render_module, "_bake_crossfade",
+        lambda samples, sr, render: (seen.append(render), real_bake(samples, sr, render))[1],
+    )
+
+    render_section(repo, song, _section(), 60.0, 0, pre_roll_s=1.0)
+
+    assert [r.pre_roll_every_pass for r in seen] == [True]
 
 
 # ── render_section(): argv, caching ──────────────────────────────────────
@@ -455,6 +497,29 @@ def test_bake_crossfade_blends_head_and_tail_with_equal_power_endpoints() -> Non
     # Untouched region (after the blended head, before the trim) still the
     # plain head value.
     assert out[50, 0] == pytest.approx(head_value, abs=1e-5)
+
+
+def test_bake_crossfade_every_pass_lead_in_blends_at_sample_zero_and_keeps_the_section() -> None:
+    # FOUND 2026-09-06 building Group J. With pre_roll_every_pass the loop
+    # wraps back to the very start of the render (the lead-in replays), so
+    # the tail has to be folded over sample 0 -- not over the post-lead-in
+    # head, which is mid-lap now and would be an audible blip once per
+    # pass. And nothing may be trimmed off the section's own end: loop_end
+    # is the section end either way (see tests/test_clock.py's own note).
+    sample_rate = 100
+    total_frames = 150  # 0.5s lead-in + 1.0s section at speed 1.0
+    samples = np.full((total_frames, 1), 0.2, dtype=np.float32)
+    samples[-5:, 0] = 0.8  # distinguishable tail
+
+    render = Render(
+        start_s=0.0, end_s=1.0, pre_roll_s=0.5, speed=1.0, crossfade_ms=50.0,
+        pre_roll_every_pass=True,
+    )
+    out = render_module._bake_crossfade(samples, sample_rate, render)
+
+    assert len(out) == 145  # loop_end = 150 - 5, exactly as the once-only render
+    assert out[0, 0] == pytest.approx(0.8, abs=1e-5)  # pure tail at the blend's start
+    assert out[50, 0] == pytest.approx(0.2, abs=1e-5)  # the old blend point, untouched now
 
 
 def test_bake_crossfade_zero_crossfade_still_trims_to_loop_end() -> None:

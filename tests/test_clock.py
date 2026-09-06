@@ -219,14 +219,31 @@ def test_pre_roll_every_pass_true_puts_loop_start_at_zero() -> None:
     assert r.loop_start == 0.0
 
 
-def test_pre_roll_every_pass_true_leaves_lap_duration_and_total_unchanged() -> None:
-    # Only WHERE the loop starts moves; loop_end shifts by exactly the same
-    # amount as loop_start (it's defined relative to it), so the LAP's own
-    # duration and the whole render's total length do not change -- the
-    # lead-in still plays every pass, it just isn't skipped afterwards.
+def test_pre_roll_every_pass_true_keeps_loop_end_at_the_section_end() -> None:
+    # FOUND 2026-09-06 building Group J (the buffer engine), fixed here.
+    # loop_end used to be defined relative to loop_start, so moving
+    # loop_start back to 0 for an every-pass lead-in dragged loop_end back
+    # with it -- a native loop (loopEnd = loop_end) would then stop
+    # pre_roll_s/speed seconds SHORT of the section's actual end, silently
+    # truncating the last few seconds of every pass, and render.py would
+    # trim those same samples off the cache file. loop_end is the position
+    # the SECTION ends at; it does not care where the lap began.
     always = Render(start_s=0.0, end_s=10.0, pre_roll_s=2.0, speed=0.5, pre_roll_every_pass=True)
     once = Render(start_s=0.0, end_s=10.0, pre_roll_s=2.0, speed=0.5, pre_roll_every_pass=False)
-    assert always.loop_end - always.loop_start == pytest.approx(once.loop_end - once.loop_start)
+    assert always.loop_end == pytest.approx(once.loop_end)
+    assert always.loop_end == pytest.approx(always.total - 0.010)
+
+
+def test_pre_roll_every_pass_true_makes_the_lap_longer_by_the_lead_in() -> None:
+    # The corollary of the test above, stated as the musician hears it: a
+    # lap that replays the lead-in lasts the lead-in longer. total is the
+    # same either way -- it is a property of what was rendered, not of
+    # where the loop points sit.
+    always = Render(start_s=0.0, end_s=10.0, pre_roll_s=2.0, speed=0.5, pre_roll_every_pass=True)
+    once = Render(start_s=0.0, end_s=10.0, pre_roll_s=2.0, speed=0.5, pre_roll_every_pass=False)
+    always_lap = always.loop_end - always.loop_start
+    once_lap = once.loop_end - once.loop_start
+    assert always_lap - once_lap == pytest.approx(2.0 / 0.5)
     assert always.total == once.total
 
 

@@ -75,7 +75,7 @@ __all__ = [
 
 #: Bumped by hand whenever the rubberband argv or the crossfade maths below
 #: changes -- see the module docstring and `separate.SEPARATOR_VERSION`.
-RENDERER_VERSION = 1
+RENDERER_VERSION = 2
 
 #: `<section_id>@<speed>x<semitones>st[-guitar]-<fp>.flac`, directly under
 #: `cache/<slug>/` (never a subdirectory -- unlike `separate.py`'s
@@ -104,13 +104,21 @@ def span_fingerprint(
     song: Song, section: Section, *, pre_roll_s: float = 0.0, crossfade_ms: float = 10.0
 ) -> str:
     """8 hex of sha256 over `(recording.sha256, start_s, end_s, pre_roll_s,
-    crossfade_ms, RENDERER_VERSION)`, each field at fixed precision -- a
-    boundary nudge of even 10ms misses the cache. Mirrors
-    `separate.stem_fingerprint`'s own shape (that one predates this by one
-    module, having been built first -- see the module docstring)."""
+    crossfade_ms, pre_roll_every_pass, RENDERER_VERSION)`, each field at
+    fixed precision -- a boundary nudge of even 10ms misses the cache.
+    Mirrors `separate.stem_fingerprint`'s own shape (that one predates this
+    by one module, having been built first -- see the module docstring).
+
+    `pre_roll_every_pass` is read off the song rather than passed in (it is
+    a song-level setting with no section override, unlike the pre-roll
+    LENGTH) and it belongs in the hash because it moves where the crossfade
+    is baked -- see `_bake_crossfade`. Two renders of the same span, one
+    replaying its lead-in and one not, are different files.
+    """
     raw = (
         f"{song.recording.sha256}|{section.start_s:.6f}|{section.end_s:.6f}|"
-        f"{pre_roll_s:.6f}|{crossfade_ms:.3f}|{RENDERER_VERSION}"
+        f"{pre_roll_s:.6f}|{crossfade_ms:.3f}|{int(song.practice.pre_roll_every_pass)}|"
+        f"{RENDERER_VERSION}"
     )
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:8]
 
@@ -337,6 +345,11 @@ def render_section(
         render = Render(
             start_s=section.start_s, end_s=section.end_s, pre_roll_s=pre_roll_s,
             speed=speed, crossfade_ms=crossfade_ms,
+            # Where the loop wraps back to decides where the crossfade is
+            # baked (_bake_crossfade), so the flag has to reach the clock:
+            # an every-pass render folds its tail over sample 0, a
+            # once-only render over the post-lead-in head.
+            pre_roll_every_pass=song.practice.pre_roll_every_pass,
         )
         baked = _bake_crossfade(samples, sample_rate, render)
 

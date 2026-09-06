@@ -2691,6 +2691,31 @@ response).
   construction, not separately re-run in this pass.
 
 **Group J — the practice engine (the invariant-9 work)**
+
+**Found and fixed before J1, 2026-09-06 — `clock.Render.loop_end` was defined
+relative to `loop_start`.** Group J is the first consumer of `loop_end` as a
+*native* `loopEnd`, and building against it surfaced a real bug: with
+`pre_roll_every_pass` true, `loop_start` moves to 0 and `loop_end` — being
+`loop_start + section/speed - crossfade` — moved back with it, so the loop
+stopped `pre_roll_s/speed` seconds SHORT of the section's real end, and
+`render.py` trimmed exactly those samples off the cache file. `loop_end` is now
+measured from the section's own end (`(pre_roll_s + section)/speed - crossfade`),
+identical for the once-only case and correct for the every-pass one; the lap
+therefore gets *longer* by the lead-in, which is the point of the setting. The
+old test asserting "lap duration unchanged" encoded the wrong model and was
+replaced by two named for the truncation they prevent. Two consequences carried
+through: `render_section` now passes `song.practice.pre_roll_every_pass` into
+`Render`, so an every-pass render bakes its crossfade over sample 0 (where the
+loop actually wraps) rather than over the post-lead-in head, which would be an
+audible blip once per pass mid-lap; and `span_fingerprint` hashes the flag (read
+off the song — it has no section override) so the two renders cannot share a
+cache filename. `RENDERER_VERSION` 1 -> 2. 4 new tests, 1 rewritten; full suite
+996 passed (was 992).
+
+**Sandbox note, 2026-09-06**: this unattended run installed `ffmpeg`,
+`rubberband-cli` and `librosa` in its own container, so the counts above are a
+FULL green suite — the `needs_rubberband`/`needs_librosa` integration tests
+included — not a partial one. Nothing about the repo changed to achieve it.
 - **J1** `player.js` gains the buffer engine: fetch the render, `decodeAudioData`,
   `AudioBufferSourceNode` with `loop = true`, `loopStart` at the end of the pre-roll,
   `loopEnd` at the section end. First pass plays from sample 0 and includes the lead-in.
