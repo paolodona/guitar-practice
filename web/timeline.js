@@ -145,6 +145,21 @@ const BEAT_LINE_COLOR = '#1C2523';
  * and a beat line reads as a bar, matching the CSS trough backdrop's own
  * layering (design/_css.txt's bar gradient is listed before the beat
  * gradient, i.e. painted over it).
+ *
+ * **Found live 2026-09-06**: a song viewed at whole-song zoom (the only
+ * zoom level this phase has — `song.js`'s own `view()` always spans
+ * `[0, durationS]`) with no real tempo analysed yet still has SOME
+ * `tempo.bpm` (`cli.py`'s placeholder default, 120) — `computeGrid` has no
+ * way to know that's a guess, so it dutifully returns one mark per beat
+ * across the whole file. At whole-song width that is often several
+ * hundred beat lines landing closer together than a device pixel, which
+ * does not read as "a beat grid" — it reads as solid vertical stripes
+ * covering the whole waveform, indistinguishable from a rendering bug.
+ * `MIN_BEAT_PX`/`MIN_BAR_PX` skip a whole TIER of marks (never a decimated
+ * subset — a beat line every 3rd beat is not a beat grid, it is a wrong
+ * one) once consecutive marks would land closer than that many CSS
+ * pixels apart; both empty or single-entry `grid.beats`/`grid.bars` draw
+ * nothing, since spacing needs at least two marks to measure.
  * @param {CanvasRenderingContext2D} ctx
  * @param {View} view
  * @param {Grid} grid
@@ -158,17 +173,39 @@ export function drawGrid(ctx, view, grid) {
   ctx.save();
   ctx.lineWidth = 1;
 
-  ctx.strokeStyle = BEAT_LINE_COLOR;
-  for (const t of grid.beats) {
-    drawVerticalLine(ctx, viewX(t, view), height, view.widthPx);
+  if (marksAreLegibleAt(grid.beats, view, MIN_BEAT_PX)) {
+    ctx.strokeStyle = BEAT_LINE_COLOR;
+    for (const t of grid.beats) {
+      drawVerticalLine(ctx, viewX(t, view), height, view.widthPx);
+    }
   }
 
-  ctx.strokeStyle = BAR_LINE_COLOR;
-  for (const t of grid.bars) {
-    drawVerticalLine(ctx, viewX(t, view), height, view.widthPx);
+  if (marksAreLegibleAt(grid.bars, view, MIN_BAR_PX)) {
+    ctx.strokeStyle = BAR_LINE_COLOR;
+    for (const t of grid.bars) {
+      drawVerticalLine(ctx, viewX(t, view), height, view.widthPx);
+    }
   }
 
   ctx.restore();
+}
+
+/** Beat lines closer together than this many CSS px read as solid
+ * stripes, not a grid -- see drawGrid's own "Found live" note. */
+const MIN_BEAT_PX = 4;
+/** Bars are the coarser, more load-bearing mark -- allowed to sit closer
+ * together than beats before the same "solid stripe" problem applies. */
+const MIN_BAR_PX = 2;
+
+/** Whether consecutive entries in *marks* (assumed evenly spaced, as
+ * `computeGrid`'s own output always is) land at least *minPx* CSS pixels
+ * apart at *view*'s current scale. Fewer than two marks has no spacing to
+ * measure and is treated as legible (there is nothing to crowd). */
+function marksAreLegibleAt(marks, view, minPx) {
+  if (marks.length < 2) return true;
+  const pxPerSecond = view.widthPx / Math.max(1e-9, view.endS - view.startS);
+  const spacingPx = (marks[1] - marks[0]) * pxPerSecond;
+  return spacingPx >= minPx;
 }
 
 /** One crisp 1px vertical line at *x*, skipped entirely when outside [0, widthPx]. */

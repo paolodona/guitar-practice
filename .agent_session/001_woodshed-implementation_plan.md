@@ -1506,6 +1506,48 @@ tests in `test_capture.py`/`test_server.py` gained an assertion that the default
 is present. Full suite 894 passed (was 892); ruff clean; no-extras gate 891 passed, 3
 deselected.
 
+**Eighth thing, found 2026-09-06, same review pass — four small UI bugs in `song.js`/
+`sections.js`/`timeline.js`, none Python-side, no new tests (matching this repo's own
+"no JS framework" convention outside P1/R1's two narrow exceptions — verified by
+`node --check` and reasoning, not a new harness)**:
+- **Empty-lane affordance.** The empty lane strip `attachCreateHandler` (`sections.js`)
+  owns had no visual sign it was an active drop zone — same cursor as dead space. It now
+  sets `cursor: crosshair` on `laneRoot` for as long as the handler is attached (a section
+  tile's own `cursor: pointer`, from `buildTile`, still wins on hover since it is the more
+  specific element) plus a faint accent tint on pointerenter/leave. Fixing this surfaced a
+  real, pre-existing bug: `song.js`'s `renderLanes()` called `attachCreateHandler` on
+  every redraw without ever detaching the previous call's listeners — harmless while the
+  only listener was a plain pointerdown, but a growing pile of never-removed
+  pointerenter/leave handlers is not something to leave now that it is visible. Fixed by
+  having `renderLanes` store and call the previous detach before attaching again, and
+  `unmount()` now detaches on the way out too.
+- **Live speed change while previewing.** `song.js`'s rung buttons only updated the local
+  `previewSpeed` variable a FUTURE press would read — a mid-playback click did nothing
+  audible. `practice.js`'s own speed slider already established
+  `engine.setSpeedPct()` takes effect immediately (its own "FOUND LIVE 2026-09-05" note);
+  `song.js` just never called it. One line: `if (engineReady) engine.setSpeedPct(previewSpeed)`
+  on rung click.
+- **No playhead during preview.** Named in `song.js`'s own module doc as a still-open D4
+  gap (`RealtimeEngine` has no real position accessor) — Paolo's actual need ("I want to
+  see where playback is so I know it needs to end here") doesn't require a true
+  audio-graph read, so this is a COSMETIC wall-clock estimate, the same kind
+  `practice.js`'s own ring/waveform already uses. Unlike that one (a single elapsed*speed
+  multiplication, fine for a value that resets every lap), this is a per-frame
+  INTEGRATION (`playheadTick`, added each frame's own real-time delta times the speed
+  ACTIVE during that frame) — deliberately, so a mid-playback speed change (the fix above)
+  reshapes only time from that point forward, matching the same distortion the practice.js
+  note already warns a naive recompute causes. Hidden (`display:none`) whenever nothing is
+  playing; positioned via the same `viewX`/`view()` mapping the selection box already uses.
+- **Dense beat/bar grid lines read as solid stripes.** A song with no real tempo analysed
+  yet still has SOME `tempo.bpm` (`cli.py`'s placeholder default, 120) — `computeGrid` has
+  no way to know that is a guess, so at whole-song zoom it can return several hundred beat
+  marks landing closer together than a device pixel, which reads as broken rendering, not
+  a grid (this is what the screenshot Paolo sent actually showed — not a waveform bug, no
+  peaks were loaded at all; the "waveform" in that image was 100% grid lines). `timeline.
+  drawGrid` now skips a WHOLE TIER of marks (beats, or separately bars) once consecutive
+  marks would land closer than `MIN_BEAT_PX`(4)/`MIN_BAR_PX`(2) apart — never a decimated
+  subset, since a beat line every 3rd beat is not a beat grid, it is a wrong one.
+
 ### Work units
 
 **Group O — design first (∥ with nothing; everything else in this phase reads it)**

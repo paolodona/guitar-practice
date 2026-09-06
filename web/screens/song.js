@@ -43,11 +43,22 @@
  *    from a user gesture's own call stack. This still owns no rep
  *    semantics and writes nothing to the ledger — practice.js remains the
  *    one screen that does that, and "Practise this" is still how you get
- *    there for the looped, counted version. Deliberately NOT wired: a live
- *    playhead/elapsed-time readout — `RealtimeEngine` has no position
- *    accessor (D6's own report on practice.js flagged this as a future D4
- *    gap; still open, not this unit's job to add) — so the transport clock
- *    stays the static total-duration display it already was.
+ *    there for the looped, counted version.
+ *
+ *    **Found live 2026-09-06**: with no playhead at all, there was no way
+ *    to see where playback actually was in order to decide "shorten the
+ *    section here". `RealtimeEngine` still has no real position accessor
+ *    (D6's own report on practice.js flagged this as a future D4 gap;
+ *    still open) — so the playhead below is a COSMETIC wall-clock
+ *    estimate, the same kind practice.js's own ring/waveform already uses
+ *    for its "decision 3", not a read from the audio graph. Unlike that
+ *    one, this is a plain per-frame INTEGRATION (`playheadTick`) rather
+ *    than a single elapsed-time multiplication, so a mid-playback speed
+ *    change (the rungs below, now itself live — see their own "Found
+ *    live" note) reshapes only time from that point forward, never
+ *    retroactively distorting time that already played at the old speed.
+ *    The transport clock itself is still the static total-duration
+ *    display; only the playhead line moves.
  *
  * 3. The inspector's rep/readiness footer (31 REPS / BEST 75% / YESTERDAY
  *    in the artboard) is omitted. Reading historical reps needs a ledger
@@ -229,6 +240,7 @@ export function mount(el, payload) {
   function onPreviewEnded() {
     transportPlaying = false;
     setTransportIcon(false);
+    stopPlayhead();
   }
 
   // References `durationS`/`transportPlayBtn`, both declared further down
@@ -252,6 +264,7 @@ export function mount(el, payload) {
     engine.setSpeedPct(previewSpeed);
     engine.setSemitones(shift);
     engine.play();
+    startPlayhead(sec ? sec.start_s : 0);
   }
 
   let shift = clampShift(payload.shift ?? 0); // interactive — see module doc, decision 1.
@@ -304,6 +317,8 @@ export function mount(el, payload) {
           <svg data-wave-svg preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:132px"></svg>
           <div data-selection-box style="position:absolute;top:0;bottom:0;display:none;
                       background:rgba(224,145,63,.10);border-left:1px solid var(--accent,#E0913F);border-right:1px solid var(--accent,#E0913F)"></div>
+          <div data-playhead style="position:absolute;top:0;bottom:0;width:2px;display:none;
+                      background:var(--good,#5FA88F);pointer-events:none"></div>
         </div>
 
         <div data-lane-root style="position:relative;height:88px"></div>
@@ -331,6 +346,7 @@ export function mount(el, payload) {
   const waveSvg = root.querySelector('[data-wave-svg]');
   const gridCanvas = root.querySelector('[data-grid-canvas]');
   const selectionBox = root.querySelector('[data-selection-box]');
+  const playheadEl = root.querySelector('[data-playhead]');
   const laneRoot = root.querySelector('[data-lane-root]');
   const inspector = root.querySelector('[data-inspector]');
   const barRuler = root.querySelector('[data-bar-ruler]');
@@ -389,6 +405,7 @@ export function mount(el, payload) {
       // no-op-and-abort rather than a real desync; only the throw itself
       // needs swallowing here.
       try { engine.pause(); } catch { /* no node between loads -- see above */ }
+      stopPlayhead();
     }
   });
 
@@ -397,6 +414,13 @@ export function mount(el, payload) {
     btn.addEventListener('click', () => {
       previewSpeed = Number(btn.dataset.rung);
       rungsHost.querySelectorAll('.rung').forEach((b) => b.classList.toggle('sel', Number(b.dataset.rung) === previewSpeed));
+      // Found live 2026-09-06: this only ever updated the LOCAL variable
+      // a future playPreview() would read -- a mid-playback rung click did
+      // nothing audible until the next press. practice.js's own speed
+      // slider already established that engine.setSpeedPct() takes effect
+      // immediately (see player.js's module doc / practice.js's "FOUND
+      // LIVE 2026-09-05" note); this screen just never called it here.
+      if (engineReady) engine.setSpeedPct(previewSpeed);
     });
   });
 
@@ -450,12 +474,80 @@ export function mount(el, payload) {
     selectionBox.style.width = `${((rightPx - leftPx) / v.widthPx) * 100}%`;
   }
 
+  // ---- the playhead (Phase 1.5, found live 2026-09-06) ----
+  // player.js's RealtimeEngine still has no real position accessor (module
+  // doc, decision 2, names this an open D4 gap) -- so, same as
+  // practice.js's own ring/waveform estimate (that file's own "decision 3"),
+  // this is a COSMETIC wall-clock estimate, not a read from the audio
+  // graph. Unlike practice.js's looping estimate, this one is a plain
+  // INTEGRATION (add each frame's own elapsed-real-time * the speed THAT
+  // WAS ACTIVE during that frame) rather than a single elapsed*speed
+  // multiplication -- the same "FOUND LIVE 2026-09-05" note above already
+  // explains why recomputing from a CHANGED speed retroactively distorts
+  // time that already played at the OLD one; integrating avoids that
+  // without needing this screen's own non-looping playback to reason about
+  // wrap-around at all.
+  let playheadSourceS = null; // null: hidden, nothing playing
+  let playheadRafId = null;
+  let playheadLastTs = null;
+
+  function renderPlayhead() {
+    const v = view();
+    if (playheadSourceS === null || !v.widthPx) { playheadEl.style.display = 'none'; return; }
+    playheadEl.style.display = 'block';
+    playheadEl.style.left = `${(viewX(playheadSourceS, v) / v.widthPx) * 100}%`;
+  }
+
+  function playheadTick(ts) {
+    if (playheadLastTs !== null) {
+      const dtS = (ts - playheadLastTs) / 1000;
+      playheadSourceS += dtS * (previewSpeed / 100);
+    }
+    playheadLastTs = ts;
+    const sec = sections.find((s) => s.id === selectedId);
+    const endS = sec ? sec.end_s : durationS;
+    if (playheadSourceS >= endS) {
+      // 'ended' will stop the engine and hide the playhead on its own
+      // (onPreviewEnded); clamp here just so the line doesn't visibly
+      // overshoot the section end in the last frame or two before that
+      // event actually arrives.
+      playheadSourceS = endS;
+      renderPlayhead();
+      return;
+    }
+    renderPlayhead();
+    playheadRafId = requestAnimationFrame(playheadTick);
+  }
+
+  function startPlayhead(startS) {
+    stopPlayhead();
+    playheadSourceS = startS;
+    playheadLastTs = null;
+    playheadRafId = requestAnimationFrame(playheadTick);
+  }
+
+  function stopPlayhead() {
+    if (playheadRafId !== null) cancelAnimationFrame(playheadRafId);
+    playheadRafId = null;
+    playheadSourceS = null;
+    renderPlayhead();
+  }
+
+  let detachCreateHandler = null;
   function renderLanes() {
     renderSections(laneRoot, sections, view(), grid, {
       onSelect: (id) => { selectedId = id; renderSelectionHighlight(); renderInspector(); },
       onDragCommit: (patch) => { patchSection(patch.id, patch); },
     });
-    attachCreateHandler(laneRoot, view(), {
+    // Detach the PREVIOUS call's listeners before attaching fresh ones --
+    // renderLanes runs on every redrawAll, and attachCreateHandler's own
+    // hover-cursor listeners (found live 2026-09-06) made a stale,
+    // never-detached copy from an earlier redraw newly visible as a bug
+    // (duplicate pointerenter/leave handlers, each harmlessly setting the
+    // same value -- but "harmless today" is not a reason to leave a
+    // known-growing listener list attached to a long-lived element).
+    detachCreateHandler?.();
+    detachCreateHandler = attachCreateHandler(laneRoot, view(), {
       onCreateCommit: (body) => {
         post('/api/section', {
           song: slug, action: 'upsert', target_speed: 100,
@@ -591,6 +683,7 @@ export function mount(el, payload) {
     renderWave();
     renderLanes();
     renderSelectionHighlight();
+    renderPlayhead();
     renderInspector();
   }
 
@@ -613,7 +706,9 @@ export function mount(el, payload) {
     resizeObserver.disconnect();
     clearTimeout(shiftPersistTimer);
     clearTimeout(nudgeTimer);
+    if (playheadRafId !== null) cancelAnimationFrame(playheadRafId);
     for (const unsub of unsubs) unsub();
+    detachCreateHandler?.();
     if (engine) {
       try { engine.destroy(); } catch { /* already torn down, or never finished loading */ }
     }

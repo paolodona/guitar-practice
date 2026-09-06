@@ -396,12 +396,28 @@ export function attachDragHandlers(sectionEl, section, view, grid = { bars: [], 
  * (not on an existing section), ending in one handlers.onCreateCommit call
  * with a fresh section body (no `id` — the server mints one) suitable for
  * POST /api/section with action "upsert".
+ *
+ * **Found live 2026-09-06**: nothing marked the empty lane strip as an
+ * active drop zone — same cursor as everywhere else, no visual difference
+ * from dead space, so there was no way to tell "drag here" from "this is
+ * just a gap". `laneRoot` now gets `cursor: crosshair` for as long as this
+ * handler is attached (a section tile's own `cursor: pointer`, set in
+ * `buildTile`, wins over this by CSS specificity — an inline style on a
+ * more specific element beats one inherited from its parent) plus a faint
+ * tint on pointerenter/leave, the same accent colour family the
+ * design system already uses for a hover state elsewhere.
  * @param {HTMLElement} laneRoot
  * @param {import('./timeline.js').View} view
  * @param {{onCreateCommit?: (body: object) => void}} [handlers]
  * @returns {() => void} detach
  */
 export function attachCreateHandler(laneRoot, view, handlers = {}) {
+  laneRoot.style.cursor = 'crosshair';
+  const onEnter = () => { laneRoot.style.background = 'rgba(224,145,63,.05)'; };
+  const onLeave = () => { laneRoot.style.background = ''; };
+  laneRoot.addEventListener('pointerenter', onEnter);
+  laneRoot.addEventListener('pointerleave', onLeave);
+
   const onDown = (downEvt) => {
     // renderSections' tiles call stopPropagation on their own pointerdown,
     // so this only ever fires for a press that started on bare lane
@@ -454,5 +470,11 @@ export function attachCreateHandler(laneRoot, view, handlers = {}) {
   };
 
   laneRoot.addEventListener('pointerdown', onDown);
-  return () => laneRoot.removeEventListener('pointerdown', onDown);
+  return () => {
+    laneRoot.removeEventListener('pointerdown', onDown);
+    laneRoot.removeEventListener('pointerenter', onEnter);
+    laneRoot.removeEventListener('pointerleave', onLeave);
+    laneRoot.style.cursor = '';
+    laneRoot.style.background = '';
+  };
 }
