@@ -1555,6 +1555,89 @@ deselected.
   marks would land closer than `MIN_BEAT_PX`(4)/`MIN_BAR_PX`(2) apart — never a decimated
   subset, since a beat line every 3rd beat is not a beat grid, it is a wrong one.
 
+**Ninth thing, found 2026-09-06, same review pass** — a section drag or create-gesture
+could overshoot the file's own duration: `positionAt`/`viewX` are DELIBERATELY unclamped
+(timeline.js's own module doc: the caller decides whether to skip a mark outside the
+view), correct for drawing a mark but wrong for a drag's RESULT, which becomes a real
+`start_s`/`end_s` and can never legitimately fall outside `[0, duration_s]`. A pointer a
+few px past the track's right edge produced `end_s` past the recording's duration,
+refused server-side (`sections.validate`'s bounds check, 400) with nothing but a console
+error visible — reported as `POST /api/section 400` while dragging the auto-created
+whole-song section back out to the full file length. Fixed with one new helper,
+`sections.js`'s `clampToView(t, view)`, applied at both call sites that turn a pixel
+position into a real boundary: `attachDragHandlers`'s `onMove` and `attachCreateHandler`'s
+`onUp`.
+
+**Tenth thing, found 2026-09-06, same review pass — capture's Stop button appeared to do
+nothing** (reported as "capture doesn't stop"; confirmed live at the machine: a real
+capture sat at `running: true` for 93+ elapsed seconds after Stop was clicked). Two real
+bugs, not one:
+1. `screens/capture.js`'s own poll loop (`tick()`, `setTimeout(tick, POLL_MS)`) kept
+   running independently of the Stop click — ~300ms later it re-fetched status (still
+   `running: true`, since the real device thread hadn't noticed `stop_event` yet),
+   called `renderRunning()` again, and overwrote the just-disabled Stop button with a
+   FRESH, enabled one. Disabling the clicked button was never enough once something
+   else could blow the whole view away moments later; the real fix is cancelling the
+   poll timer the INSTANT Stop is clicked, before the request even goes out.
+2. `capture_runner.py`'s `stop()` joined the capture thread for up to 30 REAL seconds
+   before returning — from a plain `fetch()` with no progress indicator, a stop that
+   is merely slow to notice `stop_event` looked identical to one that never will.
+   Shortened to a 2s join (generous against a ~100ms chunk read) and `screens/
+   capture.js` gained `settleStop`, which reads the response's own `running` field and,
+   if still true, keeps polling `GET /api/capture/status` until it genuinely reads false
+   — rather than trusting one `stop()` call to always finish the job — before showing
+   the stopped state. Whether a genuinely stuck real-device `stream.read()` (unverified
+   without hardware, per capture.py's own module doc) is ALSO in play here is not
+   something either fix can rule out from a description alone; both are real,
+   independently-confirmed bugs regardless, and the session's own stuck capture was
+   killed by restarting the server rather than trusting the in-flight stop().
+
+**Eleventh thing, found 2026-09-06, same review pass — Paolo's explicit call: "I should
+not have to run the analyze cli command myself, it should be done automatically when the
+song is created/the audio imported."** Until this, peaks (the waveform) and a real tempo
+needed a separate, manual `woodshed analyze <slug>` after every `add`/upload/capture —
+by design when C1/E1-E4 were built, but never revisited once T1's browser upload made
+"add a song" something Paolo does far more casually than a terminal `add` + `analyze`
+pair. Fixed at the root: new `cli.analyze_after_bind(repo, slug, audio_path, *,
+auto_tempo=True)` -- peaks are ALWAYS written (decoding is ffmpeg, already a hard
+requirement; bucketing is pure numpy, `peaks.py`'s own Tier 2 -- no optional dependency
+at all), and tempo is auto-detected via a new `analyze.librosa_available()` non-raising
+check (mirroring `separate.demucs_available()`'s own pattern) WHEN `auto_tempo` is true
+and librosa is actually installed; a `detect_tempo` failure degrades to leaving the
+song's existing tempo alone (caught narrowly as `WoodshedError`, never a bare
+`except Exception` that could mask a real bug) rather than blocking the bind. Called
+automatically from every place that writes a fresh `song.yaml`: `cli.py`'s
+`bind_song_file` (now `bpm: float | None = None` -- `None` is the caller's signal that
+no explicit tempo was requested, so `auto_tempo=(bpm is None)`; an explicit `bpm` always
+wins outright, never silently overridden by a guess), `cli.py`'s own `cmd_capture`
+(H2's older single-song CLI path, which had its own separate `Song(...)` construction
+and never even got `whole_song_section` until now either), and `capture.py`'s
+`bind_segment_to_song`/`bind_segment_as_new_song` (lazy `from woodshed.cli import
+analyze_after_bind`, symmetrical with `cli.py`'s own existing lazy import FROM
+`capture.py` -- neither module needs the other at top level). `add`'s and `capture`'s
+own `--bpm` argparse default changed from the literal `120.0` to `None`, so "not typed
+on the command line" now actually threads through as "no explicit choice" rather than
+being indistinguishable from someone typing `--bpm 120`.
+Test isolation, not a nice-to-have: `test_cli.py`, `test_capture.py` and `test_server.py`
+each gained an autouse fixture disabling the new automatic step for their existing
+tests (`test_cli.py`/`test_capture.py` disable `librosa_available` only, keeping real
+peaks coverage; `test_server.py` and most of `test_capture.py` no-op `analyze_after_bind`
+entirely, since their fixtures write placeholder bytes a real ffmpeg decode would
+reject) -- without this, every existing test exercising `add`/capture-bind would try
+REAL librosa tempo detection on synthetic (often silent) test audio whenever librosa
+happens to be installed on the machine running the suite, which it now durably is in
+this dev venv. 4 new `test_cli.py` tests for `analyze_after_bind`/`bind_song_file`'s own
+wiring (peaks always written; auto-detect runs when `bpm` is `None` and librosa is
+available; an explicit `bpm` skips detection outright, asserted via a call-spy; a
+`detect_tempo` failure degrades without blocking the bind), 2 new `test_analyze.py`
+tests for `librosa_available` itself (both directions, via a fake module in
+`sys.modules`/a faked `ImportError`, same technique T2's `capture.py` tests used for
+`pyaudiowpatch`). Backfilled Paolo's two existing songs (`tutti-in-fila`,
+`no-farts-in-the-car`) with a real `woodshed analyze` run each, now that librosa is
+restored in this venv -- both cached peaks and a real detected tempo (confidence 0.28/
+0.36 respectively; reported honestly, not discarded for being low). Full suite 900
+passed (was 894); ruff clean; no-extras gate 897 passed, 3 deselected.
+
 ### Work units
 
 **Group O — design first (∥ with nothing; everything else in this phase reads it)**

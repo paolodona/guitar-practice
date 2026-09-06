@@ -16,9 +16,10 @@ from pathlib import Path
 import pytest
 
 from woodshed import cli
+from woodshed.errors import WoodshedError
 from woodshed.ledger import read as ledger_read
 from woodshed.library import Repo
-from woodshed.manifest import load_song
+from woodshed.manifest import Tempo, load_song
 
 
 @pytest.fixture
@@ -29,6 +30,21 @@ def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Repo:
     (tmp_path / "pyproject.toml").write_text("", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
     return Repo(root=tmp_path)
+
+
+@pytest.fixture(autouse=True)
+def _no_auto_tempo_detection(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`bind_song_file`'s automatic `analyze_after_bind` step (found live
+    2026-09-06) would otherwise try REAL librosa tempo detection on every
+    test's synthetic (often silent) audio whenever librosa happens to be
+    installed on the machine running these tests -- slow, and liable to
+    behave unpredictably on audio with no real onsets to find. Every test
+    in this file gets a deterministic "librosa not installed" unless it
+    explicitly overrides this itself (see the dedicated
+    `analyze_after_bind` tests below). The existing `needs_librosa`-marked
+    `cmd_analyze` tests are unaffected -- that command calls `detect_tempo`
+    directly and never consults `librosa_available` at all."""
+    monkeypatch.setattr("woodshed.analyze.librosa_available", lambda: False)
 
 
 def _write_wav(path: Path, *, seconds: float = 1.0, rate: int = 44100) -> None:
@@ -256,6 +272,8 @@ def test_bind_song_file_writes_the_expected_song_yaml(repo: Repo, tmp_path: Path
     assert reloaded.recording.tuning == "Eb standard"
     assert reloaded.recording.duration_s == pytest.approx(3.0, abs=0.05)
     assert (repo.song_dir("direct-call") / reloaded.recording.file).is_file()
+    # analyze_after_bind's own peaks half -- always runs, no librosa needed.
+    assert (repo.cache_dir("direct-call") / "peaks-1024.json").is_file()
 
 
 def test_bind_song_file_refuses_a_missing_source(repo: Repo, tmp_path: Path) -> None:
@@ -284,6 +302,84 @@ def test_bind_song_file_uses_dest_filename_when_given(repo: Repo, tmp_path: Path
 
     assert song.recording.file == "audio/original.wav"
     assert (repo.song_dir(song.slug) / "audio" / "original.wav").is_file()
+
+
+# ── analyze_after_bind: automatic peaks + best-effort tempo (found live
+#    2026-09-06 -- a song bound with no analysis had no waveform at all
+#    until a separate, manual `woodshed analyze` was run by hand) ────────
+
+
+def test_analyze_after_bind_writes_peaks_regardless_of_librosa(
+    repo: Repo, tmp_path: Path
+) -> None:
+    """Peaks need only ffmpeg (already required) and pure numpy -- no
+    optional dependency at all, so this file's own autouse fixture
+    (librosa "not installed") must not stop it."""
+    source = tmp_path / "raw.wav"
+    _write_wav(source, seconds=2.0)
+    song = cli.bind_song_file(repo, source, title="Peaks Only", tuning="E standard")
+
+    assert (repo.cache_dir(song.slug) / "peaks-1024.json").is_file()
+    assert (repo.cache_dir(song.slug) / "peaks-4096.json").is_file()
+    assert (repo.cache_dir(song.slug) / "peaks-16384.json").is_file()
+
+
+def test_bind_song_file_auto_detects_tempo_when_bpm_not_given_and_librosa_available(
+    repo: Repo, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("woodshed.analyze.librosa_available", lambda: True)
+    detected = Tempo(bpm=128.0, source="refined", grid_offset_s=0.05,
+                      time_signature="4/4", confidence=0.87)
+    monkeypatch.setattr("woodshed.analyze.detect_tempo", lambda path: detected)
+
+    source = tmp_path / "raw.wav"
+    _write_wav(source, seconds=2.0)
+    song = cli.bind_song_file(repo, source, title="Auto Tempo", tuning="E standard")
+
+    assert song.tempo.source == "refined"
+    assert song.tempo.bpm == 128.0
+    assert song.tempo.confidence == 0.87
+
+
+def test_bind_song_file_explicit_bpm_skips_auto_detect_even_when_librosa_available(
+    repo: Repo, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("woodshed.analyze.librosa_available", lambda: True)
+    calls = []
+    monkeypatch.setattr(
+        "woodshed.analyze.detect_tempo",
+        lambda path: calls.append(path) or Tempo(bpm=999.0, source="refined"),
+    )
+
+    source = tmp_path / "raw.wav"
+    _write_wav(source, seconds=2.0)
+    song = cli.bind_song_file(repo, source, title="Manual Tempo", bpm=140.0, tuning="E standard")
+
+    assert calls == []  # detect_tempo never even called -- the explicit choice wins outright
+    assert song.tempo.bpm == 140.0
+    assert song.tempo.source == "manual"
+
+
+def test_bind_song_file_degrades_gracefully_when_detect_tempo_fails(
+    repo: Repo, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A genuine analysis failure (not just a missing package) must not
+    block the bind itself -- peaks and the song still land, tempo just
+    keeps its manual placeholder."""
+    monkeypatch.setattr("woodshed.analyze.librosa_available", lambda: True)
+
+    def failing_detect(path):
+        raise WoodshedError("simulated analysis failure")
+
+    monkeypatch.setattr("woodshed.analyze.detect_tempo", failing_detect)
+
+    source = tmp_path / "raw.wav"
+    _write_wav(source, seconds=2.0)
+    song = cli.bind_song_file(repo, source, title="Failed Tempo", tuning="E standard")
+
+    assert song.tempo.source == "manual"
+    assert song.tempo.bpm == 120.0
+    assert (repo.cache_dir(song.slug) / "peaks-1024.json").is_file()
 
 
 # ── section: add / update / rm, mirroring POST /api/section ─────────────

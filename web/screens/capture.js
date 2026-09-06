@@ -128,15 +128,60 @@ async function mountLiveCapture(container, cancelled) {
                     border-radius:4px;padding:10px 26px;font-size:15px;font-weight:600;cursor:pointer">Stop</button>
       </div>`;
     container.querySelector('[data-stop]').addEventListener('click', async () => {
-      const stopBtn = container.querySelector('[data-stop]');
-      stopBtn.disabled = true;
+      // Found live 2026-09-06 ("capture doesn't stop"): tick()'s own poll
+      // loop kept running independently of this click -- ~300ms later it
+      // would re-fetch status (still `running: true`, since the capture
+      // thread hadn't noticed stop_event yet), call renderRunning() again,
+      // and overwrite this very button with a FRESH, un-disabled one. To
+      // an impatient click it looked exactly like Stop did nothing.
+      // Cancelling the poll HERE, before the request even goes out, is
+      // what actually fixes it -- disabling the button alone was never
+      // enough once something else could still blow the whole view away.
+      if (timer !== null) { clearTimeout(timer); timer = null; }
+      renderStopping();
       try {
         const result = await post('/api/capture/stop', {});
-        await renderStopped(result);
+        await settleStop(result);
       } catch (err) {
         await tick();
       }
     });
+  }
+
+  function renderStopping() {
+    container.innerHTML = `
+      <div style="font-size:13px;color:var(--ink-2,#9CAAA4);text-align:center;max-width:340px">
+        Stopping…
+      </div>`;
+  }
+
+  /** *result* is either POST /api/capture/stop's own response, or a later
+   * GET /api/capture/status poll -- both carry {running, segment_count}.
+   * server.py's own stop() only waits BRIEFLY for the capture thread to
+   * actually finish (found live 2026-09-06, same session: a real device's
+   * chunk read can take a moment to notice stop_event, and blocking the
+   * whole HTTP response on that made a slow stop look identical to a
+   * broken one) -- `running: true` here means "signalled, not confirmed
+   * yet", so this keeps polling status until it genuinely is false rather
+   * than trusting one response. */
+  async function settleStop(result) {
+    if (stopped) return; // unmounted mid-settle -- see mountLiveCapture's own cancelled/stopped doc
+    if (result.running) {
+      timer = setTimeout(async () => {
+        timer = null;
+        if (stopped) return;
+        let status;
+        try {
+          status = await get('/api/capture/status');
+        } catch {
+          await tick();
+          return;
+        }
+        await settleStop(status);
+      }, POLL_MS);
+      return;
+    }
+    await renderStopped(result);
   }
 
   async function renderStopped(result) {

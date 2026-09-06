@@ -110,8 +110,10 @@ the browser can do differs from what a terminal can"). It also makes the whole
 thing testable without a browser.
 
 ```
-woodshed add <file> [--title --artist --spotify <id>]
-woodshed analyze <slug>              # tempo, grid offset, peaks
+woodshed add <file> [--title --artist --spotify <id>]  # peaks + best-effort
+                                      # tempo run automatically -- see below
+woodshed analyze <slug>              # RE-analyze: force a real tempo (--bpm/
+                                      # --tap), or rebuild peaks by hand
 woodshed section <slug> add "Full solo" 178.4 262.9
 woodshed section <slug> add "Solo — tapping" 178.4 201.15   # overlaps, deliberately
 woodshed setlist new <name> --tuning Eb

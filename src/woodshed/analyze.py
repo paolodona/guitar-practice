@@ -64,6 +64,20 @@ def load_mono_audio(path: str | Path, sample_rate: int = 22050) -> tuple[np.ndar
     return samples, sample_rate
 
 
+def librosa_available() -> bool:
+    """Whether `librosa` can be imported in THIS interpreter -- a
+    non-raising check, mirroring `separate.demucs_available()`/
+    `doctor.py`'s own `pyaudiowpatch` check, for a caller (`cli.py`'s
+    `analyze_after_bind`, T1/Group U's automatic post-bind analysis) that
+    wants to ask before attempting `detect_tempo`, without needing to
+    catch `require_module`'s own raise just to find out."""
+    try:
+        import librosa  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
 def detect_tempo(path: str | Path, *, sample_rate: int = 22050) -> Tempo:
     """Measure the tempo and the grid anchor of a recording.
 

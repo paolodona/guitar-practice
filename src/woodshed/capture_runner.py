@@ -126,15 +126,28 @@ class CaptureRunner:
         }
 
     def stop(self) -> dict:
-        """Signal the running capture to stop and wait for its thread to
-        actually finish -- so the response can honestly say the resulting
-        segments are already on disk, not "still finishing up". Refuses if
-        nothing is running."""
+        """Signal the running capture to stop and wait BRIEFLY for its
+        thread to actually finish -- long enough that a normal ~100ms
+        chunk read notices `stop_event` and this can honestly report the
+        resulting segments are already on disk, but not so long that a
+        slow-to-notice thread holds the whole HTTP response hostage.
+
+        **Found live 2026-09-06** ("capture doesn't stop"): the original
+        30s join blocked this call's entire response on the real device
+        thread noticing `stop_event` -- from a plain `fetch()` with no
+        progress indicator, a slow stop and a genuinely stuck one looked
+        identical. `status()['running']` still tells the truth either way
+        -- `screens/capture.js`'s own `settleStop` polls `GET /api/capture/
+        status` until it actually reads false, rather than assuming this
+        one call always finishes the job.
+
+        Refuses if nothing is running.
+        """
         with self._lock:
             if not self._state.running:
                 raise WoodshedError("no capture is running")
             thread = self._thread
             self._stop_event.set()
         if thread is not None:
-            thread.join(timeout=30.0)
+            thread.join(timeout=2.0)
         return self.status()

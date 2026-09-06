@@ -47,6 +47,19 @@ from woodshed.manifest import load_song
 SR = 1000  # a low, convenient sample rate for hand-checkable frame counts
 
 
+@pytest.fixture(autouse=True)
+def _no_auto_analysis(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`bind_segment_to_song`/`bind_segment_as_new_song` now call
+    `cli.analyze_after_bind` automatically (found live 2026-09-06) -- a
+    no-op here by default, since most tests below use `_fake_extract`'s
+    placeholder bytes (`b"fake-flac-bytes"`), not real audio, and a real
+    ffmpeg decode of that would fail for reasons that have nothing to do
+    with what any single test is actually checking. The dedicated
+    `analyze_after_bind` tests further down re-enable it against real
+    synthetic audio instead."""
+    monkeypatch.setattr("woodshed.cli.analyze_after_bind", lambda *a, **k: None)
+
+
 def _tone(n: int, amplitude: float = 0.5) -> np.ndarray:
     return np.full(n, amplitude, dtype=np.float32)
 

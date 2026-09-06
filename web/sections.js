@@ -59,6 +59,17 @@ const MIN_DURATION_S = 0.05;
  * a drag rather than a stray click on empty lane space. */
 const MIN_CREATE_DRAG_PX = 4;
 
+/** Clamp a source-seconds position to *view*'s own [startS, endS] --
+ * unlike `positionAt`/`viewX` themselves (deliberately unclamped, see
+ * timeline.js's module doc), a drag or create-gesture's RESULT becomes a
+ * real start_s/end_s, which can never legitimately fall outside the file
+ * it belongs to. Found live 2026-09-06: a pointer a few px past the
+ * track's edge produced a section end_s past the recording's own
+ * duration, refused server-side with no visible feedback. */
+function clampToView(t, view) {
+  return Math.min(view.endS, Math.max(view.startS, t));
+}
+
 /** The four lane-tile looks, hex-for-hex from design/SongPage.dc.html's
  * `.sect` variants ("Component details: ordinary #1B2422/#26302E;
  * container #1E2724/#3A4844; selected #2A2118/#E0913F ...; dragging
@@ -353,7 +364,17 @@ export function attachDragHandlers(sectionEl, section, view, grid = { bars: [], 
 
       const onMove = (moveEvt) => {
         const pixelX = moveEvt.clientX - trackRect.left;
-        let t = positionAt(pixelX, view);
+        // Found live 2026-09-06: positionAt() is a pure, unclamped linear
+        // map (deliberately -- see timeline.js's own module doc, viewX's
+        // "the caller decides whether to skip it" trap), but a drag handle
+        // is not a mark being drawn: it becomes start_s/end_s, and a
+        // pointer that drifts even a few px past the track's right edge
+        // produced an end_s past the file's own duration, refused by
+        // sections.validate's bounds check (400, "falls outside the
+        // song's duration") with no visible feedback beyond a console
+        // error. Clamping to the view's own [startS, endS] here is the
+        // fix: a drag can reach the file's true edges, never past them.
+        let t = clampToView(positionAt(pixelX, view), view);
         if (section.snapped === 'beat' || section.snapped === 'bar') {
           const marks = section.snapped === 'bar' ? grid.bars : grid.beats;
           t = snapToGrid(t, marks, section.snapped);
@@ -454,8 +475,11 @@ export function attachCreateHandler(laneRoot, view, handlers = {}) {
       const x = upEvt.clientX - rect.left;
       if (Math.abs(x - anchorX) < MIN_CREATE_DRAG_PX) return; // a click, not a drag
 
-      const a = positionAt(Math.min(anchorX, x), view);
-      const b = positionAt(Math.max(anchorX, x), view);
+      // Same clamp, same reason as attachDragHandlers' onMove above -- a
+      // create-drag that ends past the track's edge must not produce a
+      // span past the file's own duration.
+      const a = clampToView(positionAt(Math.min(anchorX, x), view), view);
+      const b = clampToView(positionAt(Math.max(anchorX, x), view), view);
       if (b - a < MIN_DURATION_S) return;
 
       handlers.onCreateCommit?.({

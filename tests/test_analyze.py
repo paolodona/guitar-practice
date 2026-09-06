@@ -96,6 +96,39 @@ def _write_click_track(path: Path, bpm: float, duration_s: float, sample_rate: i
         f.writeframes(pcm.tobytes())
 
 
+# ---------------------------------------------------------------------------
+# librosa_available -- pure (a non-raising import check), runs unconditionally
+# ---------------------------------------------------------------------------
+
+
+def test_librosa_available_is_true_when_the_module_imports(monkeypatch):
+    import sys
+    from types import SimpleNamespace
+
+    from woodshed.analyze import librosa_available
+
+    monkeypatch.setitem(sys.modules, "librosa", SimpleNamespace())
+
+    assert librosa_available() is True
+
+
+def test_librosa_available_is_false_when_the_module_cannot_be_imported(monkeypatch):
+    import builtins
+
+    from woodshed.analyze import librosa_available
+
+    original_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "librosa":
+            raise ImportError("no librosa here")
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+
+    assert librosa_available() is False
+
+
 @pytest.mark.needs_librosa
 def test_detect_tempo_recovers_a_known_click_track(tmp_path):
     from woodshed.analyze import detect_tempo

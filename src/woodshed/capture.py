@@ -556,6 +556,15 @@ def bind_segment_to_song(
     song_path.parent.mkdir(parents=True, exist_ok=True)
     save_song(song, song_path)
 
+    # Lazy, symmetrical import: cli.py already imports FROM capture.py this
+    # same way (inside cmd_capture, not at module top level), so neither
+    # module needs the other at import time. Peaks + best-effort tempo
+    # auto-detection, same as bind_song_file's own callers get -- found
+    # live 2026-09-06, applies here too: a capture-bound song should not
+    # need a separate manual `woodshed analyze` either.
+    from woodshed.cli import analyze_after_bind
+    analyze_after_bind(repo, slug, dest)
+
 
 def bind_segment_as_new_song(
     repo: Repo,
@@ -609,4 +618,7 @@ def bind_segment_as_new_song(
     song_path = repo.song_dir(slug) / "song.yaml"
     song_path.parent.mkdir(parents=True, exist_ok=True)
     save_song(song, song_path)
+
+    from woodshed.cli import analyze_after_bind  # see bind_segment_to_song's own note
+    analyze_after_bind(repo, slug, dest)
     return slug

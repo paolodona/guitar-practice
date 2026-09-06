@@ -116,6 +116,18 @@ def _make_song(repo: Repo, slug: str) -> Song:
     return song
 
 
+@pytest.fixture(autouse=True)
+def _no_auto_analysis(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`bind_song_file`/`bind_segment_to_song`/`bind_segment_as_new_song`
+    now call `cli.analyze_after_bind` automatically (found live
+    2026-09-06) -- a no-op here, same reasoning as `test_capture.py`'s own
+    identically-named fixture (most of the capture tests below use fake
+    placeholder audio bytes a real ffmpeg decode would reject, and the
+    upload tests don't need real peaks/tempo coverage here -- that lives
+    in `test_cli.py`'s own dedicated `analyze_after_bind` tests)."""
+    monkeypatch.setattr("woodshed.cli.analyze_after_bind", lambda *a, **k: None)
+
+
 @pytest.fixture
 def real_repo(tmp_path: Path) -> Repo:
     repo = Repo(root=tmp_path)

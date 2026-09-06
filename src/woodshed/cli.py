@@ -146,6 +146,48 @@ def _read_duration_s(path: Path) -> float:
     return _ffprobe_duration_s(path)
 
 
+def analyze_after_bind(repo: Repo, slug: str, audio_path: Path, *, auto_tempo: bool = True) -> None:
+    """Peaks + best-effort tempo auto-detection for a freshly bound song --
+    called automatically by `bind_song_file` and `capture.py`'s
+    `bind_segment_to_song`/`bind_segment_as_new_song` so a waveform
+    renders and a real tempo grid exists without a separate, manual
+    `woodshed analyze` step (found live 2026-09-06: nothing about this
+    needs an optional dependency except the tempo GUESS itself).
+
+    Peaks are ALWAYS written: decoding is ffmpeg (already a hard
+    requirement -- `_read_duration_s` already uses it for anything that
+    isn't a `.wav`) and bucketing is pure numpy (`peaks.py`, Tier 2), no
+    optional dependency involved. Tempo is auto-detected via librosa only
+    when *auto_tempo* is true (the caller's own signal that nothing more
+    specific was requested -- `bind_song_file` passes `bpm is None`, so an
+    explicit `--bpm`/upload-form tempo is never silently overridden) AND
+    librosa is actually installed; either being false leaves the song's
+    existing tempo alone entirely, same graceful degrade `doctor.py`'s own
+    optional checks use elsewhere -- never a hard failure just because the
+    optional analysis piece is missing or not asked for.
+    """
+    from woodshed import peaks as peaks_module
+    from woodshed.analyze import load_mono_audio
+
+    samples, sr = load_mono_audio(audio_path)
+    peaks_module.write_peaks(repo, slug, peaks_module.multi_resolution(samples, sr))
+
+    if not auto_tempo:
+        return
+    from woodshed.analyze import detect_tempo, librosa_available
+    if not librosa_available():
+        return
+    try:
+        tempo = detect_tempo(audio_path)
+    except WoodshedError as exc:
+        _say(f"  ({slug}: tempo auto-detect skipped -- {exc})")
+        return
+    path = repo.song_dir(slug) / "song.yaml"
+    song = load_song(path)
+    song.tempo = tempo
+    save_song(song, path)
+
+
 def bind_song_file(
     repo: Repo,
     source: Path,
@@ -155,23 +197,28 @@ def bind_song_file(
     album: str | None = None,
     tuning: str = "E standard",
     slug: str | None = None,
-    bpm: float = 120.0,
+    bpm: float | None = None,
     grid_offset_s: float = 0.0,
     time_signature: str = "4/4",
     dest_filename: str | None = None,
 ) -> Song:
     """Bind *source* as a new song: hash it, read its duration (ffprobe for
     anything that isn't a `.wav`), write `songs/<slug>/audio/<file>` plus a
-    minimal `song.yaml`. Shared by `cmd_add` (CLI) and `POST
-    /api/song/upload` (T1, Phase 1.5 -- the first thing that can do this
-    from a browser) -- CLAUDE.md's "one action table" instinct extended to
-    "one binding function," not a second copy that can drift.
+    minimal `song.yaml`, then run `analyze_after_bind` automatically.
+    Shared by `cmd_add` (CLI) and `POST /api/song/upload` (T1, Phase 1.5 --
+    the first thing that can do this from a browser) -- CLAUDE.md's "one
+    action table" instinct extended to "one binding function," not a
+    second copy that can drift.
 
     Refuses a slug that already exists, same as `cmd_add` always did.
     *dest_filename* is the name to give the copied file under `audio/` when
     it differs from `source.name` -- the upload endpoint writes the
     incoming bytes to a generated temp file first, so `source.name` there
-    is not the browser's own filename.
+    is not the browser's own filename. *bpm* left as `None` (its own
+    default) means "no explicit tempo was requested" -- `analyze_after_bind`
+    reads exactly that to decide whether auto-detection is even allowed to
+    run; an explicit `bpm` always wins outright, written as the song's
+    tempo and never touched afterward.
     """
     if not source.is_file():
         raise WoodshedError(f"no such file: {source}")
@@ -203,13 +250,16 @@ def bind_song_file(
             tuning=tuning,
         ),
         tempo=Tempo(
-            bpm=bpm, source="manual", grid_offset_s=grid_offset_s,
-            time_signature=time_signature,
+            bpm=bpm if bpm is not None else 120.0, source="manual",
+            grid_offset_s=grid_offset_s, time_signature=time_signature,
         ),
         sections=[whole_song_section(duration_s)],
     )
-    save_song(song, repo.song_dir(resolved_slug) / "song.yaml")
-    return song
+    song_path = repo.song_dir(resolved_slug) / "song.yaml"
+    save_song(song, song_path)
+
+    analyze_after_bind(repo, resolved_slug, dest, auto_tempo=(bpm is None))
+    return load_song(song_path)  # re-read: analyze_after_bind may have updated tempo
 
 
 def cmd_add(args: argparse.Namespace) -> int:
@@ -227,9 +277,13 @@ def cmd_add(args: argparse.Namespace) -> int:
     )
     path = repo.song_dir(song.slug) / "song.yaml"
     _say(f"added {song.slug!r}: {path}")
-    _say(f"  {song.recording.duration_s:.1f}s, {song.recording.tuning}, "
-         f"bpm {song.tempo.bpm:g} (source: manual -- run `woodshed analyze "
-         f"{song.slug}` to refine it, or edit song.yaml by hand)")
+    if song.tempo.source == "manual":
+        _say(f"  {song.recording.duration_s:.1f}s, {song.recording.tuning}, "
+             f"bpm {song.tempo.bpm:g} (placeholder -- pass --bpm/--tap, or "
+             f"`woodshed doctor` names the installer for auto-detection)")
+    else:
+        _say(f"  {song.recording.duration_s:.1f}s, {song.recording.tuning}, "
+             f"bpm {song.tempo.bpm:g} (source: {song.tempo.source}, peaks cached)")
     return 0
 
 
@@ -585,14 +639,22 @@ def cmd_capture(args: argparse.Namespace) -> int:
             source="capture",
         ),
         tempo=Tempo(
-            bpm=args.bpm, source="manual",
+            bpm=args.bpm if args.bpm is not None else 120.0, source="manual",
             grid_offset_s=args.grid_offset, time_signature=args.time_signature,
         ),
+        sections=[whole_song_section(segment.duration_s)],
     )
     path = repo.song_dir(slug) / "song.yaml"
     save_song(song, path)
+
+    analyze_after_bind(repo, slug, dest, auto_tempo=(args.bpm is None))
+    song = load_song(path)  # re-read: analyze_after_bind may have updated tempo
     _say(f"captured {segment.duration_s:.1f}s -> {slug!r}: {path}")
-    _say(f"  run `woodshed analyze {slug}` to detect the real tempo")
+    if song.tempo.source == "manual":
+        _say(f"  bpm {song.tempo.bpm:g} (placeholder -- pass --bpm, or "
+             "`woodshed doctor` names the installer for auto-detection)")
+    else:
+        _say(f"  bpm {song.tempo.bpm:g} (source: {song.tempo.source}, peaks cached)")
     return 0
 
 
@@ -658,8 +720,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--tuning", choices=KNOWN_TUNINGS, default="E standard",
                     help="what the RECORDING is in -- not what you play it in")
     p.add_argument("--slug", default=None, help="override the derived slug")
-    p.add_argument("--bpm", type=float, default=120.0,
-                    help="placeholder tempo -- `woodshed analyze` will refine it")
+    p.add_argument("--bpm", type=float, default=None,
+                    help="tempo, if known -- omit to auto-detect (needs librosa) "
+                         "or fall back to a 120bpm placeholder")
     p.add_argument("--grid-offset", dest="grid_offset", type=float, default=0.0,
                     help="where bar 1 beat 1 lands in the file, in seconds")
     p.add_argument("--time-signature", dest="time_signature", default="4/4")
@@ -792,8 +855,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--tuning", choices=KNOWN_TUNINGS, default="E standard",
                     help="what the RECORDING is in -- not what you play it in")
     p.add_argument("--slug", default=None, help="override the derived slug")
-    p.add_argument("--bpm", type=float, default=120.0,
-                    help="placeholder tempo -- `woodshed analyze` will refine it")
+    p.add_argument("--bpm", type=float, default=None,
+                    help="tempo, if known -- omit to auto-detect (needs librosa) "
+                         "or fall back to a 120bpm placeholder")
     p.add_argument("--grid-offset", dest="grid_offset", type=float, default=0.0)
     p.add_argument("--time-signature", dest="time_signature", default="4/4")
     p.add_argument("--device", default=None, help="substring match on the device name "
