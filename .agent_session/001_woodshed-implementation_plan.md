@@ -2781,6 +2781,20 @@ instead.
   tests (2 lint + 7 parametrised node scripts, one already-existing script per
   case). Full suite 1005 passed (was 996); ruff clean; no-extras gate 1002
   passed, 3 deselected.
+- **J4, not in the plan's own list, added because without it Group J is
+  unreachable**: `screens/practice.js` now actually PRACTISES from the cache.
+  `createEngine(ctx, {kind})` picks the engine (docs/03-audio-engine.md's own
+  table: exploring gets the stretcher, practising gets the buffer), and the
+  practice screen asks for `"buffer"` first, falling back to `"realtime"` if the
+  render will not load — a machine with no `rubberband` binary should still be
+  able to practise, just with a seam you can hear. The fallback is **shown**, in
+  the small status line beside the guitar toggle ("live stretch — no render
+  cache"): a silent fallback looks exactly like the cache working and sounds
+  exactly like it isn't, which is the one thing the manual gate is listening for.
+  `sectionLoadParams()` gained the three fields the buffer engine needs (slug,
+  source, crossfade) rather than growing a second parameter object that could
+  drift from the first. Speed and shift are set BEFORE `loadSection` now, since
+  for the buffer engine they decide which file is fetched.
 - **Still open, and it is the honest half**: nothing here has been *heard*.
   Phase 2's gate ("loop a real solo at 55% for twenty passes and listen for a
   tick at the seam") needs a room, a record and a human, and this run had none of

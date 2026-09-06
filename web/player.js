@@ -1018,14 +1018,21 @@ export class BufferEngine extends EventTarget {
 }
 
 /**
- * Factory, D0's judgement call per the plan's brief: screens/practice.js
- * always wants RealtimeEngine this phase (BufferEngine has no body yet),
- * but routing construction through one function rather than importing the
- * class directly means Phase 2 can switch the default engine without
- * every caller's import changing.
+ * Factory, D0's judgement call per the plan's brief: routing construction
+ * through one function rather than importing a class directly means a
+ * caller never has to change its import to change engine.
+ *
+ * `kind` picks which of the two docs/03-audio-engine.md describes:
+ * `"realtime"` (the default) for EXPLORING — dragging the speed slider,
+ * scrubbing, auditioning a boundary, where instant response matters and
+ * seams do not — and `"buffer"` for PRACTISING, where the seam is the
+ * whole point and the speed is one of a handful of discrete rungs. The
+ * table in that document is the decision; this parameter is only how it
+ * gets expressed.
  * @param {AudioContext} [audioContext]
- * @returns {RealtimeEngine}
+ * @param {{kind?: "realtime" | "buffer"}} [options]
+ * @returns {RealtimeEngine | BufferEngine}
  */
-export function createEngine(audioContext) {
-  return new RealtimeEngine(audioContext);
+export function createEngine(audioContext, { kind = 'realtime' } = {}) {
+  return kind === 'buffer' ? new BufferEngine(audioContext) : new RealtimeEngine(audioContext);
 }

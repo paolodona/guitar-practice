@@ -15,6 +15,8 @@
 import assert from 'node:assert/strict';
 import {
   BufferEngine,
+  createEngine,
+  RealtimeEngine,
   equalPowerCurve,
   renderClock,
   renderUrl,
@@ -371,6 +373,16 @@ await test('equalPowerCurve is sin/cos of one angle, so the pair sums to unit po
   assert.ok(Math.abs(down[0] - 1) < 1e-6);
   assert.ok(Math.abs(down[63]) < 1e-6);
   for (let i = 0; i < 64; i++) assert.ok(Math.abs(up[i] ** 2 + down[i] ** 2 - 1) < 1e-6);
+});
+
+await test('createEngine picks the engine, and still defaults to the real-time one', () => {
+  // docs/03-audio-engine.md's table: exploring gets the stretcher,
+  // practising gets the buffer. Every caller that has not asked for the
+  // buffer engine (song.js's preview, capture.js's audition) keeps exactly
+  // what it had.
+  assert.ok(createEngine({}) instanceof RealtimeEngine);
+  assert.ok(createEngine({}, { kind: 'buffer' }) instanceof BufferEngine);
+  assert.ok(createEngine({}, { kind: 'realtime' }) instanceof RealtimeEngine);
 });
 
 if (failures) process.exitCode = 1;

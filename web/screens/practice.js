@@ -349,6 +349,12 @@ export function mount(el, payload) {
   // speed/semitones for looped, discrete-speed practice, which is Group
   // J's engine, not this one -- here the stretch still happens live, only
   // the SOURCE audio changes.
+  // 'buffer' once the render cache is playing, 'realtime' when this
+  // session fell back to the live stretcher -- shown, because a silent
+  // fallback would look exactly like the render cache working and sound
+  // like it isn't (a tick at the seam), which is the one thing Phase 2's
+  // manual gate is listening for.
+  let engineKind = null;
   let guitarOnly = false;
   let guitarBusy = false; // true only while a loadSection() swap is in flight
   const demucsAvailable = payload.demucs_available !== false; // undefined degrades to "available"
@@ -403,6 +409,14 @@ export function mount(el, payload) {
       preRollS: preRollSourceSeconds(),
       preRollEveryPass: payload.practice.pre_roll_every_pass,
       clipOffsetS: guitarOnly ? guitarClipOffsetS() : 0,
+      // The three fields BufferEngine needs on top of RealtimeEngine's
+      // (Phase 2, Group J): which song's render to ask for, which source
+      // it is cut from, and the crossfade already baked into it. Harmless
+      // extras for RealtimeEngine, which never reads them -- one object
+      // for both engines beats two that can drift apart.
+      slug: payload.slug,
+      source: guitarOnly ? 'guitar' : 'mix',
+      crossfadeMs: payload.practice.loop_crossfade_ms,
     };
   }
 
@@ -416,8 +430,19 @@ export function mount(el, payload) {
     if (guitarStatusEl) {
       guitarStatusEl.textContent = !demucsAvailable
         ? 'install demucs: uv sync --extra separate'
-        : guitarBusy ? 'separating…' : '';
+        : guitarBusy ? 'separating…' : engineStatusText();
     }
+  }
+
+  /** What the small status line says when it has nothing more urgent: which
+   *  engine is actually making the sound. Empty for the buffer engine --
+   *  that is the expected case and does not need announcing. */
+  function engineStatusText() {
+    return engineKind === 'realtime' ? 'live stretch — no render cache' : '';
+  }
+
+  function renderEngineKind() {
+    renderGuitarToggle();
   }
 
   /**
@@ -971,26 +996,56 @@ export function mount(el, payload) {
    * on a genuine 'pass' from the engine, never from the local estimate.
    * @returns {Promise<void>}
    */
+  async function startEngine(kind) {
+    const e = createEngine(undefined, { kind });
+    e.addEventListener('pass', onPass);
+    e.addEventListener('error', (err) => console.error('practice.js: engine error', err.detail?.error));
+    // Speed and shift BEFORE loadSection: for the buffer engine they
+    // decide WHICH file is fetched, so setting them afterwards would
+    // fetch the wrong render and then immediately replace it.
+    e.setSpeedPct(speedPct);
+    e.setSemitones(shift);
+    try {
+      // sectionLoadParams() reads `guitarOnly` fresh -- toggling the
+      // "Guitar only" control before the very first play() lands here
+      // already pointed at the isolated clip, not the mix.
+      await e.loadSection(sectionLoadParams());
+    } catch (err) {
+      try { e.destroy(); } catch { /* never got far enough to have a graph */ }
+      throw err;
+    }
+    return e;
+  }
+
   function ensureEngine() {
     if (!engineInitPromise) {
       engineInitPromise = (async () => {
-        const e = createEngine();
-        e.addEventListener('pass', onPass);
-        e.addEventListener('error', (err) => console.error('practice.js: engine error', err.detail?.error));
-        // sectionLoadParams() reads `guitarOnly` fresh -- toggling the
-        // "Guitar only" control before the very first play() lands here
-        // already pointed at the isolated clip, not the mix.
-        await e.loadSection(sectionLoadParams());
-        e.setSpeedPct(speedPct);
-        e.setSemitones(shift);
-        engine = e;
+        // Phase 2, Group J: PRACTISING plays the pre-rendered cache with a
+        // native, sample-exact loop (CLAUDE.md invariant 9). The real-time
+        // stretcher is the fallback, not the plan -- it cannot put the seam
+        // in the same place twice (docs/03-audio-engine.md, trap 3) -- but
+        // it is a real fallback rather than a failure, because the render
+        // needs the `rubberband` binary and a machine without it should
+        // still be able to practise, just with a seam you can hear.
+        try {
+          engine = await startEngine('buffer');
+          engineKind = 'buffer';
+        } catch (err) {
+          console.warn(
+            `practice.js: no render cache for this section (${err && err.message}) — `
+            + 'falling back to the live stretcher; the loop seam will not be sample-exact.',
+          );
+          engine = await startEngine('realtime');
+          engineKind = 'realtime';
+        }
         engineReady = true;
+        renderEngineKind();
         playClick();
       })().catch((err) => {
-        // player.js/D4's engine may simply not exist yet, or the browser
-        // may refuse AudioWorklet -- degrade to local-only state rather
-        // than fail the whole screen. See module doc.
-        console.warn(`practice.js: RealtimeEngine unavailable (${err && err.message}) — controls update local state only, no audio.`);
+        // Neither engine could load -- the browser may refuse AudioWorklet
+        // outright, or the audio may not be bound. Degrade to local-only
+        // state rather than fail the whole screen. See module doc.
+        console.warn(`practice.js: no audio engine available (${err && err.message}) — controls update local state only, no audio.`);
       });
     }
     return engineInitPromise;
