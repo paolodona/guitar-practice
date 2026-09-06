@@ -113,6 +113,7 @@ import { currentSetlist, get, post } from '../app.js';
 import { drawWave, PRACTICE_WAVE_OPTS } from '../wave.js';
 import { computeGrid, drawGrid, sizeCanvas, computeSeekPosition } from '../timeline.js';
 import { createEngine } from '../player.js';
+import { Ladder, nextRung } from '../ladder.js';
 import { ACTIONS, on, dispatch } from '../actions.js';
 import { KEY_MAP } from '../keys.js';
 
@@ -242,30 +243,12 @@ function slicePeaksToWindow(peaksPayload, startS, endS, durationS) {
   return { level: peaksPayload.level, peaks: peaksPayload.peaks.slice(i0, i1) };
 }
 
-/**
- * A small, deliberate client-side mirror of woodshed.ladder's pure
- * percent-domain maths (rungs()/starting_speed()'s "next rung" logic) —
- * see module doc, decision 1, for why this isn't fetched from the server
- * instead. Kept intentionally tiny: nothing here holds a HISTORICAL count
- * (that would be ledger.clean_by_speed's job and this file never claims
- * to represent it), only "what is the next rung above `speed`".
- */
-function rungs(cfg) {
-  if (cfg.ladderStep <= 0) return [cfg.startSpeed];
-  const result = [];
-  let rung = cfg.startSpeed;
-  while (rung < cfg.targetSpeed) {
-    result.push(rung);
-    rung += cfg.ladderStep;
-  }
-  result.push(cfg.targetSpeed);
-  return result;
-}
-function nextRung(speed, cfg) {
-  const all = rungs(cfg);
-  const found = all.find((r) => r > speed + 1e-9);
-  return found === undefined ? null : found;
-}
+// Phase 2, K1: the client-side ladder mirror that used to live here (a
+// local rungs()/nextRung() pair) has moved to web/ladder.js, which owns
+// the whole of it now -- the rules, the auto-confirm default, and the
+// rule that a rung only ever changes at a loop boundary. It is checked
+// against src/woodshed/ladder.py itself by tests/test_ladder_mirror.py,
+// which is what a mirror needs to stay one.
 // 110, not 100 — Paolo asked to be able to push a section faster than the
 // recording on purpose (found live 2026-09-06). Ladder auto-advance is
 // unaffected: nextRung()/rungs() below only ever return values up to
@@ -338,10 +321,16 @@ export function mount(el, payload) {
   // `rungs()`/`nextRung()` still build from below. Falls back to
   // `cfg.startSpeed` only if an older cached payload has no such field.
   let speedPct = clampSpeed(Math.min(section.starting_speed_pct ?? cfg.startSpeed, cfg.targetSpeed));
+  // K1: the ladder itself lives in web/ladder.js. `speedPct` above stays the
+  // single value every render path reads (it is also allowed above
+  // targetSpeed, which the ladder is not -- see clampSpeed's note), and is
+  // re-synced from `ladder.speed` wherever the ladder is what moved it.
+  // Auto-confirm on by default: see ladder.js's module doc for why the
+  // default falls towards counting, and why that is still a human's
+  // judgement rather than the tool's.
+  const ladder = new Ladder({ cfg, speed: speedPct, autoConfirm: true });
   let shift = clampShift(payload.shift ?? 0);
   let repCount = 0;
-  let cleanAtSpeed = 0;
-  let pendingClean = false;
   let lastRepId = null;
   let lastRepWasClean = false;
   let advancing = false; // true only during the brief "ladder advanced" flourish window
@@ -886,10 +875,10 @@ export function mount(el, payload) {
       speedCellEl.innerHTML = `<div class="num" style="font-size:236px;color:var(--accent,#E0913F)">${speedPct}%</div>`;
       repsValEl.textContent = String(repCount);
       repsValEl.style.color = 'var(--ink,#E8EEEB)';
-      const remaining = Math.max(0, cfg.repsToAdvance - cleanAtSpeed);
+      const remaining = ladder.remaining;
       repsSubEl.textContent = speedPct >= cfg.targetSpeed
         ? 'at target speed'
-        : `${cleanAtSpeed} of ${cfg.repsToAdvance} clean to advance`;
+        : `${ladder.cleanAtSpeed} of ${cfg.repsToAdvance} clean to advance`;
     }
 
     const nxt = nextRung(speedPct, cfg);
@@ -904,7 +893,7 @@ export function mount(el, payload) {
           ${nxt != null ? `&middot; <span>next rung</span> <span style="color:var(--accent,#E0913F);font-weight:600">${nxt}%</span>` : ''}
         </div>`;
     } else {
-      const remaining = Math.max(0, cfg.repsToAdvance - cleanAtSpeed);
+      const remaining = ladder.remaining;
       const text = nxt != null
         ? `Next rung <span style="color:var(--accent,#E0913F);font-weight:600">${nxt}%</span> after ${remaining} more clean rep${remaining === 1 ? '' : 's'}`
         : 'Already at target speed';
@@ -1009,8 +998,12 @@ export function mount(el, payload) {
 
   function onPass() {
     elapsed = 0;
-    const clean = pendingClean;
-    pendingClean = false;
+    // The ladder decides whether this lap counted and whether it moved the
+    // rung -- and it can only ever be asked here, at a seam the ENGINE
+    // reported (player.js owns what a pass is; this screen never counts one
+    // from its own timer). That is what makes "speed changes at the
+    // boundary, never mid-loop" structural rather than remembered.
+    const { clean, advanced } = ladder.pass_();
     repCount += 1;
 
     post('/api/rep', {
@@ -1027,23 +1020,16 @@ export function mount(el, payload) {
       lastRepWasClean = clean;
     }).catch((err) => console.error('practice.js: POST /api/rep failed', err));
 
-    if (clean) {
-      cleanAtSpeed += 1;
-      if (cleanAtSpeed >= cfg.repsToAdvance && speedPct < cfg.targetSpeed) {
-        const nxt = nextRung(speedPct, cfg);
-        if (nxt != null) {
-          advanceInfo = { oldSpeed: speedPct, newSpeed: nxt, earnedAt: new Date() };
-          speedPct = nxt;
-          cleanAtSpeed = 0;
-          if (engineReady) engine.setSpeedPct(speedPct);
-          advancing = true;
-          clearTimeout(advanceTimer);
-          advanceTimer = setTimeout(() => {
-            advancing = false;
-            renderDiscrete();
-          }, 4000);
-        }
-      }
+    if (advanced) {
+      advanceInfo = { oldSpeed: advanced.from, newSpeed: advanced.to, earnedAt: new Date() };
+      speedPct = advanced.to;
+      if (engineReady) engine.setSpeedPct(speedPct);
+      advancing = true;
+      clearTimeout(advanceTimer);
+      advanceTimer = setTimeout(() => {
+        advancing = false;
+        renderDiscrete();
+      }, 4000);
     }
     // A fresh lap starts now (whatever speedPct is in effect this instant --
     // possibly just bumped by the ladder advance above) -- freeze the
@@ -1123,29 +1109,45 @@ export function mount(el, payload) {
     prev_section() { gotoSibling(-1); },
     speed_up() {
       speedPct = clampSpeed(speedPct + cfg.ladderStep);
+      ladder.setSpeed(speedPct);
       if (engineReady) engine.setSpeedPct(speedPct);
       renderDiscrete();
     },
     speed_down() {
       speedPct = clampSpeed(speedPct - cfg.ladderStep);
+      ladder.setSpeed(speedPct);
       if (engineReady) engine.setSpeedPct(speedPct);
       renderDiscrete();
     },
     retract_rep() {
-      if (!lastRepId) return;
+      // Nothing logged yet means the lap in flight is the one being
+      // disowned -- with auto-confirm on, that is the human's "not this
+      // one", and it stops the pass about to fire from counting. Once a
+      // rep IS logged, the same key retracts THAT, which is the ledger's
+      // own append-only retraction (never a deletion).
+      if (!lastRepId) {
+        ladder.dirty();
+        renderDiscrete();
+        return;
+      }
       post('/api/rep', {
         song: payload.slug, section: section.id, speed: speedPct, semitones: shift,
         pass: false, clean: false, loop_s: 0, source: 'ui',
         retracted: true, retracts: lastRepId,
       }).catch((err) => console.error('practice.js: POST /api/rep (retract) failed', err));
       repCount = Math.max(0, repCount - 1);
-      if (lastRepWasClean) cleanAtSpeed = Math.max(0, cleanAtSpeed - 1);
+      if (lastRepWasClean) ladder.retract();
       lastRepId = null;
       lastRepWasClean = false;
       renderDiscrete();
     },
     confirm_clean() {
-      pendingClean = true; // armed for whichever lap is currently in flight
+      // Armed for whichever lap is in flight. With auto-confirm on (the
+      // default) this is a no-op that also un-does a `retract_rep` pressed
+      // a moment too early; with it off, it is the only thing that makes a
+      // lap count.
+      ladder.confirm();
+      renderDiscrete();
     },
     restart_section() {
       if (engineReady) engine.restartSection();

@@ -21,7 +21,15 @@ import { ACTIONS, dispatch } from './actions.js';
  *   ArrowLeft   prev_section    /  the physical left-to-right song order
  *   ArrowUp     speed_up        \ mirrors CC83/84; up/down reads naturally
  *   ArrowDown   speed_down      /  as "more/less" speed
- *   z           retract_rep     — mirrors CC85; z = "undo" in most editors
+ *   z           retract_rep     \ mirrors CC85; z = "undo" in most editors,
+ *   x           retract_rep     /  and 'x' is the key the plan's Group K1
+ *               names for it ("c confirms, x retracts"). Both are mapped
+ *               rather than one replacing the other: 'z' is what has been
+ *               under Paolo's hand since Phase 0, 'x' is what the plan and
+ *               any future written-down shortcut list say. Two keys naming
+ *               ONE action is not a second decision about what a key
+ *               means — that rule is about behaviour living outside
+ *               actions.js, and there is still exactly one retract_rep.
  *   c           confirm_clean   — c = "clean"
  *   r           restart_section — r = "restart"
  *   -           transpose_down  \ CLAUDE.md fixes these two literally:
@@ -51,6 +59,7 @@ export const KEY_MAP = {
   ArrowUp: 'speed_up',
   ArrowDown: 'speed_down',
   z: 'retract_rep',
+  x: 'retract_rep',
   '[': 'nudge_start',
   ']': 'nudge_end',
   c: 'confirm_clean',

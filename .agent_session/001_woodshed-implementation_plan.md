@@ -2790,6 +2790,40 @@ instead.
 **Group K — the ladder in the UI (∥)**
 - **K1** `ladder.js` wiring `ladder.py`'s rules to the loop boundary; auto-confirm default
   on; `c` confirms, `x` retracts
+  - **Done, 2026-09-06.** `web/ladder.js`: the pure rules mirrored from
+    `ladder.py` (`rungs`/`nextRung`/`startingSpeed`/`onClean`/`onRetract`/`hint`),
+    plus a `Ladder` class holding the half the Python has no opinion about — a
+    rung can only move from `pass_()`, which the screen may only call from the
+    engine's own `'pass'` event, so "speed changes at the boundary, never
+    mid-loop" is structural rather than remembered. `screens/practice.js`'s
+    inline `rungs()`/`nextRung()` mirror and its loose `cleanAtSpeed`/
+    `pendingClean` variables are gone, replaced by the one object.
+  - **The mirror is now checked**, which is the part that makes it a mirror
+    rather than a fork: `tests/test_ladder_mirror.py` runs both implementations
+    over four config shapes (including a fractional step and a step that doesn't
+    divide the span evenly) and asserts the JSON matches — rungs, next rung,
+    starting speed for every earned rung, a 40-rep clean sequence, retraction,
+    and the hint strings. The failure it exists to catch is nasty and quiet: a
+    screen advancing you to a rung `ledger.starting_speed` won't put you back on
+    tomorrow.
+  - **Auto-confirm on, and what the human's judgement then is.** A pass is
+    counted clean unless disowned. The tool still never judges the playing
+    (CLAUDE.md) — it cannot hear a fluff — so the only question was which way the
+    default falls, and falling towards counting keeps both hands on the guitar
+    for the common case. `retract_rep` carries the human's "no": pressed with a
+    rep already logged it appends a retraction (the ledger is append-only) and
+    drops one rung-progress; pressed mid-lap, with nothing logged yet, it marks
+    the lap in flight dirty so the pass about to fire doesn't count.
+    `autoConfirm: false` restores Phase 0's "only a confirmed lap counts" and is
+    kept for a section being drilled at the edge of what you can play.
+  - **`x` was added, `z` was kept.** The plan names `x` for retract; `z` has been
+    under Paolo's hand since Phase 0. Both map to the one `retract_rep` action —
+    two keys naming one action is not a second place a key's meaning is decided
+    (that rule is about behaviour living outside `actions.js`), and silently
+    moving a key he already has muscle memory for is worse than an extra row in
+    the map.
+  - 12 new node tests (`web/tests/test_ladder.mjs`), 4 new pytest cases
+    (the mirror). Full suite 1010 passed (was 1005); ruff clean.
 - **K2** `web/screens/progress.js` — sparklines, totals, best sustained, the cold list
 - **K3** `doctor.py` completion + `woodshed status --setlist`
 
