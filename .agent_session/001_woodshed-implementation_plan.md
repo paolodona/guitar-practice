@@ -538,7 +538,7 @@ its tests while breaking one of these has failed.
 | 4 | Transpose lives on `setlist.songs[].shift`; the derivation only supplies a default | A record already in E♭ getting moved anyway |
 | 5 | `practice/reps.jsonl` is **append-only**; a retraction is an appended line | An unreconstructible loss of the only irreplaceable file |
 | 6 | **Never write a summary into `song.yaml`** | Two counts that disagree with nothing to arbitrate |
-| 7 | The repo is the database; the server writes exactly three things | UI and disk drifting apart |
+| 7 | The repo is the database; the server writes exactly four things (Phase 1.5 amends this from three — see Group U) | UI and disk drifting apart |
 | 8 | **Never resample** to change speed or pitch | The whole record an octave down at 50% |
 | 9 | Practice loops play from a **pre-rendered decoded buffer**, never a live stretcher | A tick at the seam, once per pass, forever |
 | 10 | Layering: pure core needs **pyyaml + numpy and nothing else** | A test suite that needs librosa to run |
@@ -1453,11 +1453,24 @@ Both are likely to have moved.
 
 ## Phase 1.5 — a real transport, a real add-song path, and one isolated string
 
-**Goal**: five things Paolo asked for after actually practising with the app, sized and
+**Goal**: six things Paolo asked for after actually practising with the app, sized and
 contracted the same way every other phase here is, so a fresh session can implement
 against this document without re-deriving the design. Inserted ahead of Phase 2 because
-none of it depends on the render cache, and two of the five groups touch the same files
+none of it depends on the render cache, and two of the groups touch the same files
 Phase 2's Group J will — see the ordering note at the end.
+
+**Sixth thing, added 2026-09-06, after Groups O/P/R had already landed**: Paolo hit the
+dashboard and found Capture reachable only through the "Needs audio" stat card — gone
+if a setlist has nothing needing audio, and there is no door to it at all for a
+brand-new, empty setlist. Fixed immediately (a small, uncontroversial nav-link addition,
+already committed — see Group T's note below) — but raised a real, larger gap while
+fixing it: **capture is currently one-song-at-a-time and tied to a song that already
+exists** (H2's `woodshed capture "<title>"`, T2's planned `/api/capture/*`). Paolo's
+actual workflow is the opposite order — record a whole set (ten songs, say) in one
+pass with an empty setlist, THEN split the recording and name each piece, creating the
+song entries from the split rather than the other way around. **Group U, below,** is
+that — spec'd here, not yet built; see its own "Before starting" for what it changes
+about CLAUDE.md's own invariants.
 
 **Before starting**: this phase requires companion edits to three files outside
 `.agent_session/`, already made alongside this plan update, not left for the
@@ -1724,16 +1737,109 @@ S: it already names the destination ("an isolated guitar track... is what `demuc
   *Test contract*: a second `start` while one is running is refused, not silently
   dropped or queued; the status shape is asserted; the background-thread wrapper is
   tested against a mocked `capture()` generator — never a real device in this suite.
+  **T2 is incomplete as written** — it never says how a finished segment actually
+  becomes the target song's bound audio. Group U's `bind_segment_to_song` (U1, below)
+  is that missing step; T2 and U share it rather than each inventing a copy.
+
+**Group U — capture-first: split now, name later** (spec'd 2026-09-06, not yet built —
+see this phase's own "sixth thing" note above for why). Paolo's actual workflow:
+capture a whole set with an empty setlist, THEN split and name each piece — the reverse
+of T2's "song already exists, needs only its audio" order. `capture.py`'s `capture()`
+already yields one `Segment` per detected track from a single continuous recording
+(H1/H2, Phase 1) — nothing about the device/silence-splitting half needs to change;
+what's missing is everything **after** a segment exists and before it is a bound song.
+- **U0** (design — Group O extension, same sign-off discipline as every other screen)
+  A new `Capture.dc.html` state: a list of the raw, not-yet-bound segments from the most
+  recent capture (index, duration, an overflow badge when H3's flag is set), each with a
+  play/preview control and an inline title/artist/tuning form, plus Add-to-setlist and
+  Discard actions per row. Not covered by the existing artboard (which depicts a
+  tracklist MATCHED by duration — Phase 3's M1 dependency) or by `AddSong.dc.html`'s two
+  states (one song at a time, title known up front) — this is genuinely a third shape:
+  N unnamed segments, named after the fact.
+- **U1** `capture.py` gains the shared extraction primitive and two bind functions —
+  ```python
+  def extract_segment(raw_audio_path: Path, segment: Segment, dest_path: Path) -> None
+      # ffmpeg-cuts [start_frame/sr, end_frame/sr) into dest_path (FLAC) -- same
+      # subprocess-cut pattern render.py already uses for section spans, not a
+      # manual sample copy, so the output is real, playable audio.
+
+  def bind_segment_to_song(repo: Repo, slug: str, raw_audio_path: Path,
+                            segment: Segment, *, tuning: str | None = None) -> None
+      # T2's missing finishing step. `slug` must already exist and be
+      # needs_audio (no `recording` block yet) -- refuses otherwise, so this
+      # can never silently overwrite a song that already has real audio.
+      # `tuning` defaults to the setlist's own tuning when not given (`add`'s
+      # existing default). Refuses an overflowed segment, unconditionally --
+      # bind_segments' own rule, not relaxed just because the caller is new.
+
+  def bind_segment_as_new_song(repo: Repo, raw_audio_path: Path, segment: Segment,
+                                *, title: str, artist: str, tuning: str) -> str
+      # Group U's own step. slugify(title) must NOT already exist -- refuses
+      # otherwise, naming the collision rather than silently colliding.
+      # Writes songs/<slug>/audio/<file> + a fresh song.yaml
+      # (recording.source: "capture"). Returns the new slug. Same
+      # unconditional overflow refusal as above.
+  ```
+  *Test contract*: `extract_segment`'s ffmpeg argv asserted, subprocess mocked (mirrors
+  `render.py`'s own test style); `bind_segment_to_song` refuses a slug that already has
+  a `recording`; `bind_segment_as_new_song` refuses a title that slugifies to an
+  existing song; both refuse an overflowed segment unconditionally; both accept an
+  explicit `tuning` and default to the setlist's own when none is given.
+- **U2** Server: capture-session bookkeeping + endpoints. Storage decision, made here
+  so U2 doesn't have to re-derive it: one raw file per capture-and-stop cycle under
+  `capture/<timestamp>.<ext>` (extension matches whatever `capture()`'s own device-write
+  path already produces) — kept until every segment split from it is resolved (bound or
+  discarded), then deleted. This is CLAUDE.md's fourth server-write category (already
+  amended, alongside this plan update, in `CLAUDE.md` and `docs/01-architecture.md` —
+  same "companion doc edits made now, not left for the implementer" pattern Group S's
+  own "Before starting" note used).
+  - `GET /api/capture/segments` — the still-unresolved segments from the most recent raw
+    file (ephemeral 0-based index, `duration_s`, `overflowed`); `[]` once every segment
+    from it is resolved (and the raw file gone).
+  - `GET /api/capture/segment-audio/<index>` — range-served preview audio for one
+    unresolved segment (mirrors `_audio`'s range-serving; cut on the fly or via a small
+    per-segment temp extract — implementer's call, name it).
+  - `POST /api/capture/bind` — body `{index, mode: "existing"|"new", slug?, title?,
+    artist?, tuning, setlist?}`. `"existing"` calls `bind_segment_to_song` — this is
+    also how T2's own single-song live capture actually finishes, the same code path,
+    not a second one; `"new"` calls `bind_segment_as_new_song` and, when `setlist` is
+    given, adds the new song to it (mirrors `POST /api/setlist/<slug>/songs`'s existing
+    add-by-slug behaviour). Removes the segment from the pending list; deletes the raw
+    file once none remain.
+  - `POST /api/capture/discard` — body `{index}` — drops a segment (a false positive
+    from noise, say) without creating anything. Same cleanup-when-none-remain rule.
+  *Test contract*: binding an already-resolved index refuses; discarding then binding
+  the same index refuses; the raw file is deleted exactly when the last pending segment
+  resolves (bound or discarded), asserted against a temp dir, never the real repo.
+- **U3** `screens/capture.js` gains U0's segment-review UI: one row per pending segment,
+  a preview-play control reusing `player.js`'s `loop: false` engine from **R1** —
+  literally the same "audition, no rep" mechanism, pointed at `segment-audio` instead of
+  `/api/audio/<slug>` — plus the inline title/artist/tuning form and Add/Discard
+  actions. Degrades to nothing (no new UI at all) when `GET /api/capture/segments` is
+  empty, the same "show only what's real" instinct H2's own screen already follows.
+  *Test contract*: `node --check`; the same lint-style "never `/api/rep`, never
+  `addEventListener('pass', ...)`" assertion R1's test added for `song.js`, copied for
+  this file rather than reimplemented by hand.
+- **U4** (lower priority — may be cut without blocking this phase's gate) CLI parity:
+  `woodshed capture --split` records until stopped and prints one line per detected
+  segment (index/duration/overflow) instead of trying to bind anything; `woodshed
+  capture bind <index> "<title>" --artist "..." --tuning "..." [--setlist <slug>]` calls
+  the same `bind_segment_as_new_song` the server endpoint uses. Both read the same
+  on-disk raw-file/pending-segment state U2 defines — not a second bookkeeping scheme.
 
 ### Ordering
 
-Group O blocks the UI-facing halves of P/Q/S/T (icon placement, toggle placement, the
-add-song form layout) but not their engine/server halves, which can start immediately
-against the contracts fixed above — same "the contract is in this plan, not in the code"
-rule Phase 2 already relies on. **P1 and Group J (Phase 2) both touch `player.js`** —
-sequence P1 before J, or have one person own both, rather than two units editing the
-same file's seek/loop-boundary logic in parallel. S and T are the two large, mutually
-independent subsystems and may run fully in parallel with each other and with P/Q/R.
+Group O blocks the UI-facing halves of P/Q/S/T/U (icon placement, toggle placement, the
+add-song form layout, U0's segment-review layout) but not their engine/server halves,
+which can start immediately against the contracts fixed above — same "the contract is
+in this plan, not in the code" rule Phase 2 already relies on. **P1 and Group J
+(Phase 2) both touch `player.js`** — sequence P1 before J, or have one person own both,
+rather than two units editing the same file's seek/loop-boundary logic in parallel.
+**U3 depends on R1** (it reuses R1's `loop: false` preview engine for segment audition)
+— sequence U3 after R1, which is already done. S, T and U's backend halves (U1/U2) are
+otherwise independent of everything else and may run in parallel with each other and
+with P/Q/R; U2 and T2 should be built by the same person or in sequence, since T2's own
+"finish the capture" step is U1's `bind_segment_to_song`, not a separate function.
 
 **Phase 1.5 gate**
 - Automated: `uv run pytest` green; the no-extras gate green and unaffected by
@@ -1746,7 +1852,11 @@ independent subsystems and may run fully in parallel with each other and with P/
   actually plays it; toggle "Guitar only" on a section never isolated before, watch the
   two-stage progress state, toggle off and back on and confirm the second time is
   instant; add a new song through the dashboard's real form, by file; start and stop one
-  real capture from the Capture screen.
+  real capture from the Capture screen; **and (Group U) capture several songs in one
+  pass against a brand-new, empty setlist, split them into segments, preview each before
+  naming it, and add all of them to the setlist with distinct titles and tunings** —
+  this is the workflow Group U exists for, and the gate should exercise it for real, not
+  just each endpoint in isolation.
 
 ---
 
@@ -1857,9 +1967,11 @@ The plan is shaped for fan-out. The rules that make it safe:
    phase starts — and the next phase begins by re-reading what actually shipped, because
    these signatures will have moved.
 5. **Model allocation**: B3 (`sections.py` coverage maths), I2 (the crossfade), J2 (the
-   boundary swap), P1 (the worklet seek/pass-qualification interaction) and S2 (threading
+   boundary swap), P1 (the worklet seek/pass-qualification interaction), S2 (threading
    `source` through the render cache's fingerprint without breaking the existing mix path)
-   carry the most subtle risk — give those the strongest model. Everything else is
+   and U2 (the raw-file lifecycle — exactly-once deletion when the last pending segment
+   resolves, shared correctly between T2's finishing path and U's own bind-as-new-song
+   path) carry the most subtle risk — give those the strongest model. Everything else is
    mechanical against a fixed contract and a cheaper model is appropriate.
 
 ---

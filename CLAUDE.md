@@ -65,10 +65,13 @@ appended line, not a deletion. Every count on every screen is an aggregate of it
 files they can disagree and nothing says which is right.
 
 **The repo is the database.** Every screen is derived from disk per request. The
-server writes exactly three things: deliberate `song.yaml` / `setlist.yaml`
-edits, one appended ledger line per rep, and files under `cache/` that are always
-safe to delete. If the UI and the files disagree, the files are right and the UI
-has a bug.
+server writes exactly four things: deliberate `song.yaml` / `setlist.yaml`
+edits, one appended ledger line per rep, files under `cache/` that are always
+safe to delete, and — Phase 1.5, Group U — a raw capture recording under
+`capture/`, which is **not** cache: it is real, unrepeatable audio (you played
+it once, live) kept until every segment split from it has been bound to a song
+or explicitly discarded, at which point it is deleted to free the disk. If the
+UI and the files disagree, the files are right and the UI has a bug.
 
 **Never resample to change speed or pitch.** That is `rambass-live`'s
 `warp_samples` bug, and here the ratios are large enough that it drops the whole

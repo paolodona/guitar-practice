@@ -92,7 +92,10 @@ request; the only things the server *writes* are:
 
 1. `song.yaml` / `setlist.yaml` edits you made deliberately in the UI,
 2. one appended line per rep in the ledger,
-3. cache files under `cache/`, which are always safe to delete.
+3. cache files under `cache/`, which are always safe to delete,
+4. (Phase 1.5, Group U) a raw capture recording under `capture/` — **not**
+   cache, since it is real, unrepeatable audio kept until every segment split
+   from it has been bound to a song or explicitly discarded.
 
 So editing a YAML by hand, running the CLI, or letting a Claude session write a
 finding all show up on the next refresh, with no sync step. If the UI and the
