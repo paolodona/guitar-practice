@@ -2595,6 +2595,17 @@ the double-click Add/Discard guard. Nothing here is touched or suspected broken 
 `onceGuard`'s own unit tests (U3's "Done" note above) already cover the guard's pure
 half — it is simply unexercised hands-on, same as before.
 
+**Phase 1.5 gate — CLOSED, close enough (Paolo, 2026-09-06).** Item 6 is a real,
+hands-on pass through the exact workflow Group U exists for (capture → bind → analyse
+→ setlist, no manual follow-up step) and it surfaced and closed a genuine hardware-
+level bug in the process — that is more signal than a clean first try would have
+been. Items 1-5's three "not yet re-confirmed" flags and items 7-9's hands-on split/
+merge/double-click exercise are explicitly **not** being chased further right now,
+same kind of call as the Phase 1 gate's own click-accuracy ceiling: every one of them
+is already covered by its own unit's automated tests, nothing is suspected broken, and
+re-confirming a screen Paolo already uses for real is lower value than moving on.
+Phase 2 (Groups J/K, the parts of I not already pulled forward) can start.
+
 **A sixth thing, out of scope for this gate but requested live in the same
 session and built anyway**: screens/song.js's own preview transport gained a
 live, speed-scaled seconds counter (Paolo: "I need... to see the precise moment
