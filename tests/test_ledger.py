@@ -25,7 +25,7 @@ DOCS_PATH = Path(__file__).resolve().parents[1] / "docs" / "02-data-model.md"
 # example (its two physical lines joined -- the line break there is only
 # markdown wrapping of one JSON object).
 DOC_EXAMPLE = (
-    '{"t":"2026-09-05T19:22:41Z","song":"cant-stop","section":"solo","speed":55,'
+    '{"t":"2026-09-05T19:22:41Z","song":"can-t-stop","section":"solo","speed":55,'
     '"semitones":-1,"pass":true,"clean":true,"loop_s":31.2,"setlist":"gig","source":"midi"}'
 )
 
@@ -49,7 +49,7 @@ def make_rep(**overrides) -> ledger.Rep:
     values = dict(
         id=uuid4().hex,
         t="2026-09-05T19:22:41Z",
-        song="cant-stop",
+        song="can-t-stop",
         section="solo",
         speed=55,  # matches docs/02-data-model.md's example bytes exactly ("55", not "55.0")
         semitones=-1,

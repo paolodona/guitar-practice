@@ -76,7 +76,11 @@ def test_docs_song_yaml_parses(song_yaml_text: str, tmp_path: Path) -> None:
     path = tmp_path / "song.yaml"
     path.write_text(song_yaml_text, encoding="utf-8")
     song = load_song(path)
-    assert song.slug == "cant-stop"
+    # `can-t-stop`, not `cant-stop`: slugify makes an apostrophe a separator
+    # and that is settled (see library.slugify's docstring -- a slug is a
+    # permanent identity because the ledger names it and is never rewritten).
+    # The docs' example says so too, which is what this test reads.
+    assert song.slug == "can-t-stop"
     assert song.title == "Can't Stop"
     assert song.recording.file == "audio/cant-stop.flac"
     assert song.recording.tuning == "E standard"
@@ -112,7 +116,7 @@ def test_docs_setlist_yaml_parses(setlist_yaml_text: str, tmp_path: Path) -> Non
     assert str(setlist.date) == "2027-04-17"
     assert setlist.venue == ""
     assert len(setlist.songs) == 3
-    assert setlist.songs[0].slug == "cant-stop"
+    assert setlist.songs[0].slug == "can-t-stop"
     assert setlist.songs[0].shift is None  # bare string -> derive
     assert setlist.songs[1].slug == "manlio"
     assert setlist.songs[1].shift == 0  # explicit zero, not derived
