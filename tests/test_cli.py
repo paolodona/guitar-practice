@@ -85,13 +85,30 @@ def test_no_subcommand_prints_help_and_returns_1(capsys: pytest.CaptureFixture) 
     assert "usage" in out.lower()
 
 
-@pytest.mark.parametrize(
-    "name", ["render"]
-)
-def test_not_yet_implemented_commands_refuse_cleanly(
-    name: str, capsys: pytest.CaptureFixture
+def test_every_command_the_architecture_names_is_real_now(
+    capsys: pytest.CaptureFixture,
 ) -> None:
-    rc = cli.main([name, "whatever", "--extra", "flags", "too"])
+    """docs/01-architecture.md's full command list, all built as of
+    2026-09-06 -- `render` was the last stub. `--help` is the contract a
+    person actually reads, so assert against that."""
+    with pytest.raises(SystemExit):
+        cli.main(["--help"])
+    out = capsys.readouterr().out
+    for name in ("add", "analyze", "section", "setlist", "capture", "render",
+                 "status", "log", "serve", "doctor", "scan"):
+        assert name in out, f"{name} is missing from --help"
+    assert "not yet implemented" not in out
+
+
+def test_the_honest_refusal_machinery_still_works_if_something_is_registered(
+    capsys: pytest.CaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`_NOT_YET_IMPLEMENTED` is empty now, and the machinery around it is
+    kept rather than deleted -- the next command named before it is written
+    should refuse in one line with an exit code, not traceback. Registering
+    one here is how that stays true."""
+    monkeypatch.setitem(cli._NOT_YET_IMPLEMENTED, "teleport", "Phase 9 -- physics")
+    rc = cli.main(["teleport", "whatever", "--extra", "flags", "too"])
     assert rc == 2
     err = capsys.readouterr().err
     assert err.startswith("woodshed: ")
@@ -998,3 +1015,107 @@ def test_import_connect_without_a_client_id_names_config_yaml(
     rc = cli.main(["import", "--connect"])
     assert rc == 2
     assert "client_id" in capsys.readouterr().err
+
+
+# ── render (Phase 2, Group I's CLI surface -- the last stub) ─────────────
+
+
+def _renderable_song(repo: Repo, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> str:
+    """A real song with a real (silent) wav, and rubberband/ffmpeg mocked."""
+    from types import SimpleNamespace
+
+    from woodshed import render as render_module
+
+    source = tmp_path / "source.wav"
+    _write_wav(source, seconds=30.0)
+    rc = cli.main(["add", str(source), "--title", "Test Song", "--artist", "Nobody"])
+    assert rc == 0
+    slug = "test-song"
+    cli.main(["section", slug, "add", "Solo", "5", "15"])
+
+    monkeypatch.setattr(
+        render_module, "locate_tool",
+        lambda name: SimpleNamespace(path=name, route="path"),
+    )
+
+    def fake_run(argv, **kwargs):
+        import numpy as np
+
+        dest = Path(argv[-1])
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if "--time" in argv:
+            render_module._write_wav(
+                dest, np.zeros((8000, 1), dtype=np.float32), 8000
+            )
+        else:
+            dest.write_bytes(b"fake audio bytes")
+        return SimpleNamespace(returncode=0, stderr=b"")
+
+    monkeypatch.setattr(render_module.subprocess, "run", fake_run)
+    return slug
+
+
+def test_render_writes_a_cache_file_for_one_speed(
+    repo: Repo, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+) -> None:
+    slug = _renderable_song(repo, monkeypatch, tmp_path)
+    capsys.readouterr()
+    rc = cli.main(["render", slug, "solo", "--speed", "60"])
+    assert rc == 0
+    cached = sorted(repo.cache_dir(slug).glob("solo@60x*.flac"))
+    assert len(cached) == 1
+    assert "60" in capsys.readouterr().out
+
+
+def test_render_takes_several_speeds_at_once(
+    repo: Repo, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+) -> None:
+    """The whole reason this command is worth having: "render the next three
+    rungs before I get on the train" is one invocation, not three."""
+    slug = _renderable_song(repo, monkeypatch, tmp_path)
+    rc = cli.main(["render", slug, "solo", "--speed", "50", "55", "60"])
+    assert rc == 0
+    assert len(sorted(repo.cache_dir(slug).glob("solo@*.flac"))) == 3
+
+
+def test_render_ladder_renders_every_rung_up_to_the_target(
+    repo: Repo, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    slug = _renderable_song(repo, monkeypatch, tmp_path)
+    cli.main(["section", slug, "update", "solo", "--target-speed", "60"])
+    rc = cli.main(["render", slug, "solo", "--ladder"])
+    assert rc == 0
+    names = sorted(p.name.split("@")[1].split("x")[0]
+                   for p in repo.cache_dir(slug).glob("solo@*.flac"))
+    assert names == ["50", "55", "60"]
+
+
+def test_render_all_sections_when_none_is_named(
+    repo: Repo, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    slug = _renderable_song(repo, monkeypatch, tmp_path)
+    cli.main(["section", slug, "add", "Intro", "0", "4"])
+    rc = cli.main(["render", slug, "--speed", "60"])
+    assert rc == 0
+    assert len(sorted(repo.cache_dir(slug).glob("*@60x*.flac"))) == 3  # + whole song
+
+
+def test_render_evict_trims_the_cache_and_says_what_it_deleted(
+    repo: Repo, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+) -> None:
+    slug = _renderable_song(repo, monkeypatch, tmp_path)
+    cli.main(["render", slug, "solo", "--speed", "60"])
+    capsys.readouterr()
+    # A budget of zero evicts everything -- the point is that the command
+    # reaches render.evict at all, which nothing but the server did before.
+    rc = cli.main(["render", "--evict", "--max-gb", "0"])
+    assert rc == 0
+    assert sorted(repo.cache_dir(slug).glob("*.flac")) == []
+    assert "freed" in capsys.readouterr().out
+
+
+def test_render_unknown_section_refuses(
+    repo: Repo, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    slug = _renderable_song(repo, monkeypatch, tmp_path)
+    assert cli.main(["render", slug, "no-such-section", "--speed", "60"]) == 2

@@ -269,3 +269,38 @@ def test_pre_roll_seconds_zero_when_bpm_absent() -> None:
 
 def test_pre_roll_seconds_zero_when_bpm_negative() -> None:
     assert pre_roll_seconds(4.0, -10.0) == 0.0
+
+
+# ---------------------------------------------------------------------------
+# The speed domain's ceiling (settled 2026-09-06; see Render.speed's comment).
+
+
+def test_a_render_faster_than_the_recording_is_a_legal_render() -> None:
+    """110% is inside the domain, not an edge case to guard against.
+
+    `web/player.js` lets a manual speed_up reach 110% because playing a
+    section faster than the record on purpose is a practice technique. The
+    practice loop plays from the render cache, so if the cache stopped at
+    100% that one range would silently be the only one served by the
+    real-time stretcher instead -- the exact engine the whole cache exists
+    to avoid for looping.
+    """
+    r = Render(start_s=60.0, end_s=90.0, pre_roll_s=2.0, speed=1.10)
+    assert r.total == pytest.approx(32.0 / 1.10)
+    assert r.loop_start == pytest.approx(2.0 / 1.10)
+    assert r.loop_end == pytest.approx(r.total - 0.010)
+    # And the two clocks still round-trip through it.
+    assert to_source(to_playback(75.0, r), r) == pytest.approx(75.0)
+
+
+def test_the_ladder_still_never_climbs_past_the_target_by_itself() -> None:
+    """The other half of that decision: a wider CACHE domain is not a wider
+    ladder. Nothing auto-advances above target_speed; 110% is only ever
+    reached by a deliberate press."""
+    from woodshed.ladder import LadderConfig, LadderState, on_clean, rungs
+
+    cfg = LadderConfig(start_speed=50.0, ladder_step=5.0, reps_to_advance=1,
+                       target_speed=100.0)
+    assert max(rungs(cfg)) == 100.0
+    state = LadderState(speed=100.0, clean_at_speed=0)
+    assert on_clean(state, cfg).speed == 100.0

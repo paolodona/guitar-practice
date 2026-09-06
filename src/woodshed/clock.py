@@ -37,7 +37,21 @@ class Render:
     start_s: float  # source seconds, section start (NOT including pre-roll)
     end_s: float  # source seconds, section end
     pre_roll_s: float  # source seconds of lead-in rendered ahead of start_s
-    speed: float  # 0.40 .. 1.00, a FRACTION -- never a percent in this one field
+    # 0.40 .. 1.10, a FRACTION -- never a percent in this one field.
+    #
+    # The ceiling is 1.10, not 1.00, and that was a real decision (settled
+    # 2026-09-06, BACKLOG): Paolo asked to be able to push a section FASTER
+    # than the recording on purpose -- get comfortable ahead of 100%, then
+    # come back down -- so `web/player.js` allows a manual speed up to 110%.
+    # The practice loop plays from the render CACHE, so a cache capped at
+    # 1.00 would mean the one speed range he asked for is the one range that
+    # silently falls back to the real-time stretcher. The cache follows the
+    # slider.
+    #
+    # What does NOT follow: the ladder. `ladder.rungs()` still stops at
+    # `target_speed` and `on_clean` still never advances past it, so nothing
+    # auto-climbs above 100% -- going there is always a deliberate press.
+    speed: float
     crossfade_ms: float = 10.0
     # Phase 1, G2: docs/02-data-model.md:47's practice.pre_roll_every_pass,
     # made real. False (the default) is Phase 0's only behaviour: the

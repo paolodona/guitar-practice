@@ -24,6 +24,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from woodshed import ledger, practice, sections
+from woodshed.clock import pre_roll_seconds
 from woodshed.errors import WoodshedError
 from woodshed.ledger import Rep
 from woodshed.library import Repo, find_root, slugify
@@ -32,6 +33,7 @@ from woodshed.manifest import (
     Section,
     Song,
     Tempo,
+    effective_pre_roll_beats,
     hash_file,
     load_song,
     save_song,
@@ -48,18 +50,24 @@ _FALLBACK_PORT = 8477
 EPILOGUE = """\
 typical order of work for one song:
   woodshed add "path/to/song.wav" --title "Can't Stop" --artist "..."
-  woodshed section cant-stop add "Full solo" 178.4 262.9
+  woodshed section can-t-stop add "Full solo" 178.4 262.9
   woodshed serve                       # draw the rest, loop, and count reps
+
+before a session away from the machine, warm the cache:
+  woodshed render can-t-stop solo --ladder
 
 or check the toolchain first:
   woodshed doctor
 """
 
 #: name -> the phase that will build it (docs/07-roadmap.md), for the honest
-#: "not built yet" refusal on a command this unit does not implement.
-_NOT_YET_IMPLEMENTED = {
-    "render": "Phase 2 -- the offline render cache",
-}
+#: "not built yet" refusal on a command this unit does not implement. Empty
+#: since 2026-09-06: `add`, `analyze`, `section`, `setlist`, `capture`,
+#: `render`, `status`, `log`, `serve`, `doctor` and `scan` -- the full list
+#: docs/01-architecture.md names -- are all real now. Kept (rather than
+#: deleted) because the honest-refusal machinery below is the right shape
+#: for the next command that gets named before it is written.
+_NOT_YET_IMPLEMENTED: dict[str, str] = {}
 
 
 def use_utf8() -> None:
@@ -494,6 +502,107 @@ def cmd_log(args: argparse.Namespace) -> int:
     verb = "clean pass" if rep.clean else ("pass" if rep.passed else "attempt")
     _say(f"{slug}/{args.section}: logged a {verb} at {rep.speed:g}%")
     return 0
+
+
+# ── commands: render (Phase 2, Group I's CLI surface) ────────────────────
+def cmd_render(args: argparse.Namespace) -> int:
+    """Render sections into the offline cache, or trim the cache to budget.
+
+    The server already renders on demand, so nothing depends on this -- what
+    it buys is doing the waiting BEFORE you sit down: "render the next three
+    rungs of this solo" is one command, and then every loop that evening is
+    a cache hit. `--ladder` renders every rung from the section's start
+    speed to its target.
+
+    `--evict` is the other half: `render.evict` reaps orphans (a dragged
+    boundary leaves its old render behind, unreachable by fingerprint) and
+    then trims oldest-first to the budget. The server runs it after every
+    render; this is how to run it deliberately, e.g. before a trip.
+    """
+    from woodshed import render as render_module
+    from woodshed.config import load_config
+    from woodshed.ladder import LadderConfig, rungs, starting_speed
+
+    repo = _repo()
+
+    if args.evict:
+        max_gb = args.max_gb if args.max_gb is not None else load_config(repo).render.cache_max_gb
+        before = sum(p.stat().st_size for p in _cache_files(repo))
+        deleted = render_module.evict(repo, max_gb)
+        after = sum(p.stat().st_size for p in _cache_files(repo))
+        for path in deleted:
+            _say(f"  deleted {path.name}")
+        _say(f"freed {(before - after) / 1e6:.1f} MB; "
+             f"{after / 1e9:.2f} GB of a {max_gb:g} GB budget still in use")
+        return 0
+
+    if not args.song:
+        raise WoodshedError("render what? pass a song (or --evict to trim the cache)")
+
+    slug, _path, song = _load_song(repo, args.song)
+    if args.section:
+        sections_to_render = [s for s in song.sections if s.id == args.section]
+        if not sections_to_render:
+            raise WoodshedError(
+                f"{slug}: no section {args.section!r} "
+                f"(have: {', '.join(s.id for s in song.sections) or 'none'})"
+            )
+    else:
+        sections_to_render = list(song.sections)
+
+    reps = list(ledger.read(repo))
+    total = 0
+    for section in sections_to_render:
+        cfg = LadderConfig(
+            start_speed=(
+                section.start_speed if section.start_speed is not None
+                else song.practice.start_speed
+            ),
+            ladder_step=(
+                section.ladder_step if section.ladder_step is not None
+                else song.practice.ladder_step
+            ),
+            reps_to_advance=(
+                section.reps_to_advance if section.reps_to_advance is not None
+                else song.practice.reps_to_advance
+            ),
+            target_speed=section.target_speed,
+        )
+        if args.speed:
+            speeds = list(args.speed)
+        elif args.ladder:
+            speeds = rungs(cfg)
+        else:
+            # Neither given: render the rung you would actually practise
+            # next, which is what the ledger already says (the same number
+            # the practice screen mounts at).
+            speeds = [starting_speed(
+                ledger.clean_by_speed(reps, slug, section.id), cfg
+            )]
+        for speed_pct in speeds:
+            dest = render_module.render_section(
+                repo, song, section, speed_pct, args.semitones,
+                crossfade_ms=song.practice.loop_crossfade_ms,
+                pre_roll_s=pre_roll_seconds(
+                    effective_pre_roll_beats(song, section), song.tempo.bpm
+                ),
+                source=args.source, force=args.force,
+            )
+            total += 1
+            _say(f"  {section.id} @ {speed_pct:g}% -> {dest.name}")
+    _say(f"{total} render{'' if total == 1 else 's'} in {repo.cache_dir(slug)}")
+    return 0
+
+
+def _cache_files(repo: Repo) -> list[Path]:
+    """Every file under every song's cache/ -- used only to report how much
+    `--evict` actually freed."""
+    files: list[Path] = []
+    for slug in repo.list_songs():
+        cache_dir = repo.cache_dir(slug)
+        if cache_dir.is_dir():
+            files.extend(p for p in cache_dir.rglob("*") if p.is_file())
+    return files
 
 
 # ── commands: sources (Phase 3, Group M) ─────────────────────────────────
@@ -1320,6 +1429,25 @@ def build_parser() -> argparse.ArgumentParser:
                     help="show this setlist's rows, shifts and next-up pick instead")
     p.set_defaults(func=cmd_status)
 
+    # -- render: the offline cache, on purpose rather than on demand --
+    p = sub.add_parser("render", help="render sections into the offline cache")
+    p.add_argument("song", nargs="?", default=None, help="a song slug or title")
+    p.add_argument("section", nargs="?", default=None,
+                    help="a section id -- omit for every section of the song")
+    p.add_argument("--speed", type=float, nargs="+", default=None, metavar="PCT",
+                    help="one or more speeds, e.g. --speed 50 55 60")
+    p.add_argument("--ladder", action="store_true",
+                    help="every rung from the section's start speed to its target")
+    p.add_argument("--semitones", type=int, default=0, help="transpose, -6..+6")
+    p.add_argument("--source", choices=("mix", "guitar"), default="mix",
+                    help="guitar isolates the stem first (needs the separate extra)")
+    p.add_argument("--force", action="store_true", help="re-render even on a cache hit")
+    p.add_argument("--evict", action="store_true",
+                    help="reap orphans and trim the cache to its budget, then stop")
+    p.add_argument("--max-gb", type=float, default=None,
+                    help="override config.render.cache_max_gb for this eviction")
+    p.set_defaults(func=cmd_render)
+
     # -- scan / import: where songs come from (Phase 3, Group M) --
     p = sub.add_parser(
         "scan", help="scan config.yaml's library_paths for audio to bind"
@@ -1348,12 +1476,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_import)
 
     # -- not yet implemented, registered so `--help` is honest about the
-    #    tool's eventual shape (docs/01-architecture.md's full command list) --
-    stub_help = {
-        "render": "render a section into the offline cache (not yet implemented)",
-    }
+    #    tool's eventual shape (docs/01-architecture.md's full command list).
+    #    Empty today; the help text is derived from the phase name rather
+    #    than kept in a second table that could disagree with it. --
     for name, phase in _NOT_YET_IMPLEMENTED.items():
-        p = sub.add_parser(name, help=stub_help[name])
+        p = sub.add_parser(name, help=f"{phase} (not yet implemented)")
         p.add_argument("rest", nargs=argparse.REMAINDER, help=argparse.SUPPRESS)
         p.set_defaults(func=_make_stub(name, phase))
 
