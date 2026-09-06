@@ -18,7 +18,7 @@ practice:
   reps_to_advance: 3
   pre_roll_beats: 4.0
   pre_roll_every_pass: false
-  click: 'off'
+  click: 'lead-in'
   loop_crossfade_ms: 10.0
 sections:
 - id: whole-song
@@ -38,9 +38,9 @@ sections:
   counts_toward_readiness: true
   full_song: false
 - id: d6f23b46
-  name: New section
-  start_s: 199.7715711612156
-  end_s: 228.87086712414225
+  name: Solo
+  start_s: 219.0
+  end_s: 243.0
   snapped: free
   target_speed: 100.0
   counts_toward_readiness: true

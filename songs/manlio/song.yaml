@@ -1,0 +1,39 @@
+slug: manlio
+title: Manlio
+artist: Ramba SS
+recording:
+  file: audio/09 Manlio.wav
+  sha256: 006c24e82c8285b124e4b6aa473f9d1a1c03152fce3638cd11ff9f63f6bf1dd7
+  duration_s: 319.6865306122449
+  tuning: Eb standard
+tempo:
+  bpm: 60.02
+  source: refined
+  grid_offset_s: 0.782
+  time_signature: 4/4
+  confidence: 0.264
+practice:
+  start_speed: 50.0
+  ladder_step: 5.0
+  reps_to_advance: 3
+  pre_roll_beats: 4.0
+  pre_roll_every_pass: false
+  click: lead-in
+  loop_crossfade_ms: 10.0
+sections:
+- id: db7a6ccd
+  name: New section
+  start_s: 129.4800249532127
+  end_s: 167.17232332234204
+  snapped: free
+  target_speed: 100.0
+  counts_toward_readiness: true
+  full_song: false
+- id: whole-song
+  name: Whole song
+  start_s: 0.0
+  end_s: 319.6865306122449
+  snapped: bar
+  target_speed: 100.0
+  counts_toward_readiness: true
+  full_song: true

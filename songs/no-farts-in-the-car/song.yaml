@@ -18,7 +18,7 @@ practice:
   reps_to_advance: 3
   pre_roll_beats: 4.0
   pre_roll_every_pass: false
-  click: 'off'
+  click: 'lead-in'
   loop_crossfade_ms: 10.0
 sections:
 - id: cba6288b
