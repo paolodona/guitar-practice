@@ -84,10 +84,11 @@ with Group D.
       but this run's scope was Groups A/B/C only and stopped there; Group D is a
       separate piece of work, not started.
 
-**Minor plan citation to correct**: `parse_byte_range`'s lifted test set has **14**
-parametrised cases in the current `rambass-live` working copy, not 15 as the plan and
-its "Citation corrections" table state — C2 verified by reading the sibling file
-directly rather than trusting the remembered count.
+**Minor plan citation, corrected in place 2026-09-06**: `parse_byte_range`'s lifted
+test set has **14** parametrised cases in the current `rambass-live` working copy, not
+15. C2 verified this by reading the sibling file directly rather than trusting the
+remembered count; the plan text and its "Citation corrections" table now say 14, so a
+later reader does not go looking for a fifteenth case that never existed.
 
 - [x] Group D — the front end, code complete. P1 resolved and committed (`63655e6`)
       ahead of this unit. Built 2026-09-05 via a `Workflow` run (dynamic multi-agent
@@ -1098,7 +1099,7 @@ practise the wrong song.
 
 ### Tier 4 — the server and the CLI
 
-**`src/woodshed/server.py`** — lifts `parse_byte_range` (verbatim, plus its 15-case
+**`src/woodshed/server.py`** — lifts `parse_byte_range` (verbatim, plus its 14-case
 parametrised test), `_send`/`_json`/`_error`/`_body`/`_send_file`, `ConsoleServer`
 (`allow_reuse_address = False` and the reason), and `make_server` from
 `rambass-live/src/rambass/console.py`.
@@ -1152,7 +1153,7 @@ single-user tool on a loopback socket and that would be theatre.
 **Phase 1, unit F1**. `/api/render`, its 202 path and `/api/progress/<slug>` are
 **Phase 2, units I3 and K2**. An endpoint with no unit is an endpoint nobody writes.
 
-*Test contract*: the range tests lift verbatim (**15** parametrised cases — see the
+*Test contract*: the range tests lift verbatim (**14** parametrised cases — see the
 citation corrections below); `POST /api/rep` appends exactly one line and the ledger
 grows; `POST /api/section` with an exact-duplicate span is a 400 whose body has an
 `error` key; a traversal attempt on each of the three path-taking routes is a 404;
@@ -1232,7 +1233,7 @@ numbers writes code against a signature that does not exist:
 | `use_utf8` within `cli.py:2827-2884` | `use_utf8` is at `cli.py:71`; only `_remember_group_parsers` and `main()` are in that range |
 | `main()` lifts "verbatim" | it catches `ProjectError` (`cli.py:2865`) — rename to `WoodshedError`; the exit-2 contract itself is unchanged |
 | `locate_tool` at `audio.py:129` | `:129` is `_binary_in`; `locate_tool` is at `:163`. The *range* `:129-214` is right |
-| `parse_byte_range`'s "14-case" test | **15** parametrised cases (`tests/test_console.py:1173`) |
+| `parse_byte_range`'s "14-case" test | **14** is right after all — the "15" this table asserted was itself the miscount, verified against `tests/test_console.py:1173-1198` during C2 and again 2026-09-06; `tests/test_server.py` carries 14 |
 | "lift the 12 tests from `test_audio_tools.py`" | accurate — 15 test functions, of which 12 are tool-location |
 
 ## Phase 0 — a looper that counts

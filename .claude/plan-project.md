@@ -119,18 +119,33 @@ layout that plans should place code into.
 ## Build & verification
 
 - **Build**: no build step — vanilla ES modules served directly, no bundler.
-- **Unit tests**: `uv run pytest` — **TODO: not yet runnable.** There is no `pyproject.toml` in the
-  repo. Until the first plan scaffolds the package, no plan can specify a working automated gate;
-  say so rather than pretending the command passes.
+- **Unit tests**: `uv run pytest` — 1111 passing as of 2026-09-06. Add `--extra dev` if the venv
+  has not synced pytest yet (`uv sync --extra dev`); `--extra analyze` additionally runs the
+  librosa-marked tests rather than failing them.
+- **The no-extras gate**: `uv run --no-project --with pytest --with numpy --with pyyaml --with
+  pydantic pytest tests/ -m "not needs_rubberband and not needs_librosa and not needs_device"` —
+  proves the library/manifest/sections/ladder/ledger/practice/server tier really does run on the
+  three core dependencies alone (CLAUDE.md's "Layering"). Not vacuous any more: three tests carry
+  those markers and get deselected.
+- **Front-end tests**: `web/tests/*.mjs` are plain `node` scripts, and `tests/test_web_lint.py`
+  runs every one of them under pytest, so `uv run pytest` is the single command that says whether
+  the repo is green.
 - **Scoped tests**: `uv run pytest tests/test_<module>.py -k <expr>` — pick the filter from the pure
   module under change (`sections`, `ladder`, `ledger`, tuning maths, snapping).
-- **Lint / format**: `uv run ruff check .` (same TODO — needs the package scaffolded first).
+- **Lint / format**: `uv run ruff check .` — clean, and expected to stay clean.
 - **Warnings as errors**: no convention established.
 - **Do NOT run unprompted**: anything that opens a real audio device (`capture.py`), talks to the
   GX-100 over MIDI, or calls a Spotify endpoint. Never send a Program Change without the toggle.
-- **Quality gate (Stop hook)**: not configured. Deliberate — with no `pyproject.toml` the command
-  would fail on every turn and block the session. Add `uv run pytest` here once Phase 0 scaffolding
-  lands and the suite actually runs.
+- **Quality gate**: `uv run --extra dev pytest -q`. Settled 2026-09-06 — the suite has been real
+  since Phase 0 and green ever since, so the "no pyproject.toml, it would fail every turn" reason
+  for leaving this blank is gone. Every plan should name this as its gate.
+  Whether it is also wired as an actual **Stop hook** in `.claude/settings.json` is Paolo's own
+  call and is deliberately NOT done here: the full suite is ~25 s, and a hook that runs on every
+  single turn is a tax he should choose knowingly rather than find.
+  `--extra dev` rather than a bare `uv run pytest`, because a venv synced without the dev extra has
+  no pytest and the command would fail for the wrong reason. Deliberately NOT the
+  `--extra analyze` or the no-extras variant: the three librosa/rubberband/device-marked tests are
+  slow or environment-dependent, and a Stop hook has to be fast enough to run on every turn.
 
 ## Success-criteria conventions
 

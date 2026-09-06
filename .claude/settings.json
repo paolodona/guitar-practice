@@ -2,7 +2,11 @@
   "permissions": {
     "allow": [
       "Bash(uv run pytest:*)",
+      "Bash(uv run --extra dev pytest:*)",
+      "Bash(uv run --extra dev --extra analyze pytest:*)",
       "Bash(uv run ruff:*)",
+      "Bash(uv run --extra dev ruff:*)",
+      "Bash(node --check:*)",
       "Bash(uv run woodshed:*)",
       "Bash(uv sync:*)",
       "Bash(uv add:*)",
