@@ -317,14 +317,16 @@ function render(el, payload) {
           <div style="flex:1;background:var(--surface,#131B19);border:1px solid var(--hairline,#1C2523);border-radius:5px;padding:14px 18px">
             ${weeksBlock}
           </div>
-          <div style="flex:1;background:var(--surface,#131B19);border:1px solid var(--hairline,#1C2523);border-radius:5px;padding:14px 18px">
+          <a href="#/capture" style="flex:1;display:block;text-decoration:none;color:inherit;
+                      background:var(--surface,#131B19);border:1px solid var(--hairline,#1C2523);
+                      border-radius:5px;padding:14px 18px">
             <div class="lbl" style="font-size:10px">Needs audio</div>
             <div style="display:flex;align-items:baseline;gap:8px;margin-top:4px">
               <div class="num" style="font-size:34px;font-weight:600;color:var(--ink-2,#9CAAA4)">${payload.needs_audio_count}</div>
               <div style="font-size:15px;color:var(--ink-2,#9CAAA4)">songs</div>
             </div>
             <div class="mono" style="font-size:12px;color:var(--ink-3,#6A7873);margin-top:4px">BIND A FILE &rarr;</div>
-          </div>
+          </a>
         </div>
       </div>
 
