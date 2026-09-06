@@ -17,7 +17,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { boundaryMoveOrder, onceGuard } from '../screens/capture.js';
+import { boundaryMoveOrder, formatElapsed, onceGuard } from '../screens/capture.js';
 
 function test(name, fn) {
   try {
@@ -88,4 +88,17 @@ test("U3's own test contract, enforced as a lint-style check (same pattern R1's 
     !/addEventListener\(\s*['"]pass['"]/.test(src),
     "capture.js must never addEventListener('pass', ...) -- it only ever loads loop:false sections"
   );
+});
+
+test('formatElapsed says "unknown" rather than NaN:NaN', () => {
+  // Found live 2026-09-06 on the review screen. The duration was missing
+  // for an unrelated reason (a stale server with no raw-audio route), but a
+  // clock that renders "NaN:NaN" is its own bug whatever fed it.
+  assert.equal(formatElapsed(41.2), '0:41');
+  assert.equal(formatElapsed(125), '2:05');
+  assert.equal(formatElapsed(0), '0:00');
+  assert.equal(formatElapsed(-3), '0:00');
+  assert.equal(formatElapsed(NaN), '--:--');
+  assert.equal(formatElapsed(undefined), '--:--');
+  assert.equal(formatElapsed(Infinity), '--:--');
 });

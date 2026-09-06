@@ -194,6 +194,19 @@ async function responseError(res) {
   } catch {
     // body wasn't JSON (or was empty) -- keep the status-line message.
   }
+  // FOUND LIVE 2026-09-06 and diagnosed the slow way: a long-running
+  // `woodshed serve` keeps the Python it started with, but serves web/*.js
+  // fresh off disk on every request. So after a pull, the PAGE can know
+  // about routes the SERVER has never heard of, and the only symptom is a
+  // 404 on a route that is plainly right there in server.py. The page
+  // cannot tell that case apart from a genuine typo -- but the advice is
+  // sound either way, and it is the difference between a puzzling
+  // afternoon and a restart.
+  if (res.status === 404 && new URL(res.url, location.href).pathname.startsWith('/api/')) {
+    message += ' — if this endpoint should exist, the running `woodshed serve` '
+      + 'predates it (it serves web/ from disk but keeps the Python it started '
+      + 'with). Restart it.';
+  }
   return new Error(message);
 }
 

@@ -102,7 +102,13 @@ function captureCommand(row) {
   return `woodshed capture "${title}"`;
 }
 
-function formatElapsed(seconds) {
+export function formatElapsed(seconds) {
+  // FOUND LIVE 2026-09-06: a review screen showed "NaN:NaN / NaN:NaN".
+  // The immediate cause was a stale `woodshed serve` (started before the
+  // raw-audio/raw-peaks routes existed, so both 404'd and the duration had
+  // nothing to come from) -- but a clock that renders "NaN" is its own bug
+  // whatever fed it. An unknown duration is unknown, and should say so.
+  if (!Number.isFinite(seconds)) return '--:--';
   const total = Math.max(0, Math.floor(seconds));
   const m = Math.floor(total / 60);
   const s = total % 60;
@@ -460,8 +466,13 @@ async function mountSegmentReview(container, activeSetlistSlug, defaultTuning) {
   } catch {
     peaks = null; // 404 -- degrades to no ticks, per wave.js's own contract
   }
-  const durationS = peaks ? peaks.duration_s
+  // Belt and braces with formatElapsed's own guard: whatever the peaks
+  // payload or the segment list turns out to be missing, the length of a
+  // recording is a number or it is zero -- never NaN propagating into the
+  // waveform's own view maths, where it would silently draw nothing.
+  const rawDurationS = peaks ? peaks.duration_s
     : segments.reduce((m, s) => Math.max(m, s.end_frame / s.sample_rate), 0);
+  const durationS = Number.isFinite(rawDurationS) ? rawDurationS : 0;
 
   let destroyed = false;
 
