@@ -22,17 +22,32 @@
  *    audio engine (see decision 2 below) to re-pitch live; the number is
  *    the whole of what changes here.
  *
- * 2. The transport bar is visual scaffolding, not a second audio engine.
- *    D6's brief assigns instantiating `player.RealtimeEngine` to
- *    practice.js only ("the hero" — where pass-counting lives). Building
- *    a second, independent playback consumer here — for a plain unlooped
- *    scrub preview with no rep semantics — is not required by the D0/D6
- *    contract and risks a second, divergent notion of "playing" before
- *    the engine itself is even built (player.js/D4 is still throw-stubbed
- *    at the time of writing). The transport's play/rung controls update
- *    local UI state only (documented per-control below); auditioning a
- *    section for real happens by pressing "Practise this" and reaching
- *    practice.js, which owns the one RealtimeEngine this phase.
+ * 2. **Phase 1.5, R1**: the transport bar now plays real audio. Through
+ *    Phase 1 it was visual scaffolding only — D6's brief assigned
+ *    instantiating `player.RealtimeEngine` to practice.js alone, and
+ *    player.js/D4 was still throw-stubbed when this file was written. Both
+ *    are no longer true, and P1 (Phase 1.5) added exactly the piece this
+ *    screen needed: `RealtimeEngine.loadSection`'s `loop: false` option,
+ *    which plays a section once and fires `'ended'` instead of wrapping —
+ *    never `'boundary'`, so this screen's engine **cannot** produce a
+ *    `'pass'` event by construction (see player.js's own class doc and
+ *    worklet.js's module doc). Pressing play loads whatever is currently
+ *    selected (or the whole recording, with nothing selected) fresh, at
+ *    `previewSpeed`/`shift`, and plays it through once; pressing pause (or
+ *    reaching the end) stops it. Selection can change between presses —
+ *    unlike practice.js, which owns one section for its whole mount — so
+ *    the engine reloads the section on every press rather than once at
+ *    mount, mirroring practice.js's own lazy-engine-creation reasoning
+ *    (`ensureEngine`, called only from inside a user-gesture handler) for
+ *    the SAME reason: a fresh `AudioContext` is suspended until resumed
+ *    from a user gesture's own call stack. This still owns no rep
+ *    semantics and writes nothing to the ledger — practice.js remains the
+ *    one screen that does that, and "Practise this" is still how you get
+ *    there for the looped, counted version. Deliberately NOT wired: a live
+ *    playhead/elapsed-time readout — `RealtimeEngine` has no position
+ *    accessor (D6's own report on practice.js flagged this as a future D4
+ *    gap; still open, not this unit's job to add) — so the transport clock
+ *    stays the static total-duration display it already was.
  *
  * 3. The inspector's rep/readiness footer (31 REPS / BEST 75% / YESTERDAY
  *    in the artboard) is omitted. Reading historical reps needs a ledger
@@ -90,6 +105,7 @@ import { drawWave, SONG_WAVE_OPTS } from '../wave.js';
 import { renderSections, attachCreateHandler } from '../sections.js';
 import { computeGrid, drawGrid, sizeCanvas, viewX } from '../timeline.js';
 import { on } from '../actions.js';
+import { createEngine } from '../player.js';
 
 const STYLE_ID = 'song-screen-style';
 
@@ -174,6 +190,69 @@ export function mount(el, payload) {
   }
   let previewSpeed = closestRung(payload.practice.start_speed);
   let transportPlaying = false;
+
+  // ---- the preview engine (Phase 1.5, R1) ----
+  // One RealtimeEngine, lazily created on the first press (never at mount
+  // -- see module doc, decision 2, for why: a fresh AudioContext stays
+  // suspended until resumed inside a user gesture's own call stack).
+  // loadSection() is NOT hoisted into engine creation, unlike practice.js's
+  // ensureEngine: the section this screen plays can change between presses
+  // (a different lane tile gets selected), so every press loads whatever
+  // is currently selected fresh.
+  let engine = null;
+  let engineReady = false;
+  let engineInitPromise = null;
+  function ensureEngine() {
+    if (!engineInitPromise) {
+      engineInitPromise = (async () => {
+        const e = createEngine();
+        e.addEventListener('ended', onPreviewEnded);
+        e.addEventListener('error', (err) => console.error('song.js: engine error', err.detail?.error));
+        engine = e;
+        engineReady = true;
+      })().catch((err) => {
+        // Same degrade practice.js's ensureEngine makes: player.js/D4's
+        // engine may be unavailable in this browser -- the transport still
+        // toggles its own icon, it just plays nothing.
+        console.warn(`song.js: RealtimeEngine unavailable (${err && err.message}) — transport updates local state only, no audio.`);
+      });
+    }
+    return engineInitPromise;
+  }
+
+  function setTransportIcon(playing) {
+    transportPlayBtn.innerHTML = playing
+      ? '<svg width="14" height="16" viewBox="0 0 14 16"><rect x="1" y="1" width="4" height="14" fill="var(--ground,#0C1211)"/><rect x="9" y="1" width="4" height="14" fill="var(--ground,#0C1211)"/></svg>'
+      : '<svg width="14" height="16" viewBox="0 0 14 16"><path d="M1 1l12 7-12 7z" fill="var(--ground,#0C1211)"/></svg>';
+  }
+
+  function onPreviewEnded() {
+    transportPlaying = false;
+    setTransportIcon(false);
+  }
+
+  // References `durationS`/`transportPlayBtn`, both declared further down
+  // in this function body -- safe: playPreview/setTransportIcon are only
+  // ever CALLED from the click handler wired near the end of mount(), long
+  // after both are assigned. Kept here, beside the rest of the engine
+  // lifecycle, rather than moved past its own declaration site.
+  async function playPreview() {
+    await ensureEngine();
+    if (!engineReady || !transportPlaying) return; // unavailable, or paused again before this resolved
+    const sec = sections.find((s) => s.id === selectedId);
+    await engine.loadSection({
+      sectionId: sec ? sec.id : 'full-song',
+      audioUrl: `/api/audio/${encodeURIComponent(slug)}`,
+      startS: sec ? sec.start_s : 0,
+      endS: sec ? sec.end_s : durationS,
+      preRollS: 0,
+      loop: false, // R1: plays once, fires 'ended' -- never 'pass', never a rep
+    });
+    if (!transportPlaying) return; // paused again while loadSection was in flight
+    engine.setSpeedPct(previewSpeed);
+    engine.setSemitones(shift);
+    engine.play();
+  }
 
   let shift = clampShift(payload.shift ?? 0); // interactive — see module doc, decision 1.
   const durationS = payload.recording.duration_s;
@@ -295,11 +374,22 @@ export function mount(el, payload) {
   unsubs.push(on('nudge_end', () => nudgeBoundary('end', NUDGE_S)));
 
   transportPlayBtn.addEventListener('click', () => {
-    // Visual-only toggle — see module doc, decision 2: no engine lives here.
+    // Phase 1.5, R1: a real, non-looping preview — see module doc, decision
+    // 2. Never counts a rep; practice.js's engine is the only one that does.
     transportPlaying = !transportPlaying;
-    transportPlayBtn.innerHTML = transportPlaying
-      ? '<svg width="14" height="16" viewBox="0 0 14 16"><rect x="1" y="1" width="4" height="14" fill="var(--ground,#0C1211)"/><rect x="9" y="1" width="4" height="14" fill="var(--ground,#0C1211)"/></svg>'
-      : '<svg width="14" height="16" viewBox="0 0 14 16"><path d="M1 1l12 7-12 7z" fill="var(--ground,#0C1211)"/></svg>';
+    setTransportIcon(transportPlaying);
+    if (transportPlaying) {
+      playPreview().catch((err) => console.error('song.js: playPreview failed', err));
+    } else if (engineReady) {
+      // playPreview() reloads the section on every press (module doc,
+      // decision 2), so there is a window while that load is in flight
+      // where engine._node has been torn down and not yet replaced --
+      // pause() would throw there. playPreview's own `if (!transportPlaying)
+      // return` checks (before AND after its await) already make this a
+      // no-op-and-abort rather than a real desync; only the throw itself
+      // needs swallowing here.
+      try { engine.pause(); } catch { /* no node between loads -- see above */ }
+    }
   });
 
   rungsHost.innerHTML = RUNGS.map((r) => `<button class="rung${r === previewSpeed ? ' sel' : ''}" data-rung="${r}">${r}</button>`).join('');
@@ -524,5 +614,8 @@ export function mount(el, payload) {
     clearTimeout(shiftPersistTimer);
     clearTimeout(nudgeTimer);
     for (const unsub of unsubs) unsub();
+    if (engine) {
+      try { engine.destroy(); } catch { /* already torn down, or never finished loading */ }
+    }
   };
 }

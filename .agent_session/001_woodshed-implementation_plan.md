@@ -1589,19 +1589,43 @@ S: it already names the destination ("an isolated guitar track... is what `demuc
   *Test contract*: `node --check`; the icon-completeness assertion above.
 
 **Group R — the song page gets a real preview**
-- **R1** `screens/song.js`'s transport currently updates **local UI state only** — a
-  deliberate D6 scope cut ("Building a second, independent playback consumer here... is
-  not required by the D0/D6 contract"), made before `player.js`'s engine existed. It now
-  does, so wire a real, non-looping playback of the selected section (or the whole
-  recording with none selected). This must **never** fire `'pass'` or `POST /api/rep` —
-  it is an audition, not a practice rep, and D6's original "must not duplicate or
-  disagree about who owns pass-counting" concern still holds even though the reason for
-  the cut (no engine yet) doesn't. Implementer's choice how: a `loop: false` option
-  threaded through `RealtimeEngine.loadSection` that fires `'ended'` at the section end
-  instead of wrapping, or a second lightweight non-looping player — either way, only one
-  code path may ever produce a `'pass'` event, and this unit is not it.
-  *Test contract*: a non-looping load that reaches the end fires `'ended'`, never
-  `'pass'`; no ledger write happens from `screens/song.js` under any test in this suite.
+- **R1 — done, 2026-09-06.** Took the `loop: false` option (not a second player):
+  `worklet.js`'s `_feedSource` now branches on `this.loop` (default true, unchanged for
+  practice.js) — `false` flushes Rubber Band once (`rb_process(..., final=1)`, the one
+  call site that ever passes it) instead of wrapping, sets `this.ended`, and never posts
+  `boundary`; `process()` drains what's left and posts `{type:'ended'}` exactly once,
+  gating `playing` false the same way `pause` does. `restart`/`seek` both clear
+  `ended`/`endedPosted` so a non-looping source can be replayed or seeked back into
+  range. `player.js`'s `RealtimeEngine.loadSection` threads `section.loop` through;
+  its port-message handling was pulled out into a named `_onWorkletMessage(msg, onReady)`
+  method specifically so it could be driven directly in a synthetic-worklet test without
+  a real node (same technique P1's `test_seek.mjs` already used for `_onBoundary`) —
+  `'ended'` dispatches a `CustomEvent('ended', ...)` and never touches
+  `_qualified`/`_onBoundary`, so a `loop: false` section cannot produce `'pass'` by a
+  missing check, because there is no check to miss.
+  `screens/song.js`'s transport now creates one engine lazily on first press (same
+  suspended-AudioContext-needs-a-user-gesture reasoning as practice.js's
+  `ensureEngine`), but — unlike practice.js, which owns one section for its whole
+  mount — **reloads the section on every press**, since the selected lane tile can
+  change between presses: `playPreview()` loads whatever `selectedId` currently is (or
+  the whole recording, unselected) at `previewSpeed`/`shift`, `loop: false`, and plays
+  it once; `'ended'` resets the transport icon. A found-and-fixed race: pausing while a
+  fresh `loadSection` is still in flight would throw (`engine._node` is briefly torn
+  down between loads) — `playPreview`'s own `if (!transportPlaying) return` checks
+  (before and after its `await`) already abort the load correctly, so only the throw
+  itself needed swallowing in the click handler. `engine.destroy()` added to `unmount()`.
+  Deliberately not wired: a live playhead/elapsed-time readout — `RealtimeEngine` has no
+  position accessor (D6's own flagged gap on practice.js, still open, not this unit's
+  job) — so the transport clock stays its existing static total-duration display.
+  Test-first, in `web/tests/test_ended.mjs`: a synthetic-worklet test (same technique as
+  `test_seek.mjs`) asserting `'ended'` fires and `'pass'` never does, that `'ended'`
+  doesn't touch `_qualified`, and that `'boundary'`/`'ready'` still route correctly
+  through the same dispatch table — plus the test contract's other half enforced as a
+  permanent lint-style check (the same pattern the plan's own Phase 2 J2 bullet already
+  proposes for `playbackRate`): a regex assertion that `screens/song.js`'s source never
+  calls `addEventListener('pass', ...)` and never contains `/api/rep`. 5 assertions, all
+  passing; `node --check` clean on every touched file; `uv run pytest` (789, unaffected)
+  and the no-extras gate (786, unaffected) still green.
 
 **Group S — guitar-only isolation (∥ with T)**
 - **S1** `src/woodshed/separate.py` (Demucs, optional heavy dependency — the third

@@ -78,6 +78,12 @@
  *   lead-in plays once, on load/restart, and every natural wrap loops from
  *   AFTER it (loopStartFrame = preRollS in sample frames). true: every
  *   wrap loops from sample 0 instead, replaying the lead-in each pass.
+ * @property {boolean} [loop] - Phase 1.5, R1. true (default): loops
+ *   forever, fires 'pass' — practice.js's engine. false: plays through
+ *   once and fires 'ended' instead of wrapping — screens/song.js's plain
+ *   preview player. Never fires 'pass' by construction (see worklet.js's
+ *   own module doc): this is the mechanism that lets that screen's
+ *   transport never write a rep, not a check either file has to remember.
  */
 
 // tuning.MAX_SHIFT (Python, src/woodshed/tuning.py) mirrored here — this
@@ -176,7 +182,15 @@ function ensureWorkletModule(ctx) {
  *
  * Fires:
  *   - 'pass' — CustomEvent<{sectionId: string}> — see the module doc's
- *     pass-detection contract above.
+ *     pass-detection contract above. Only ever fires for a `loop: true`
+ *     section (the default; SectionLoad's own doc).
+ *   - 'ended' — CustomEvent<{sectionId: string}> — Phase 1.5, R1: fires
+ *     once when a `loop: false` section's single playthrough reaches its
+ *     end. Structurally separate from 'pass' (the worklet's 'boundary'
+ *     message, the only thing _onBoundary() reads, is never posted for a
+ *     non-looping section — see worklet.js's own module doc) — a preview
+ *     player cannot produce a 'pass' by forgetting a check here, because
+ *     there is no check to forget.
  *   - 'error' — CustomEvent<{error: Error}> — NOT in D0's fixed contract;
  *     added here so a worklet crash (an AudioWorkletProcessor throwing
  *     after construction) is observable rather than silent. D6 is not
@@ -288,20 +302,13 @@ export class RealtimeEngine extends EventTarget {
       numberOfInputs: 0,
       numberOfOutputs: 1,
       outputChannelCount: [channels],
-      processorOptions: { module, source, channels, loopStartFrame, timeRatio, pitchScale },
+      processorOptions: { module, source, channels, loopStartFrame, timeRatio, pitchScale, loop: section.loop },
     });
     const gain = this.ctx.createGain();
     node.connect(gain).connect(this.ctx.destination);
 
     const ready = new Promise((resolve, reject) => {
-      node.port.onmessage = (e) => {
-        const msg = e.data;
-        if (msg.type === 'ready') {
-          resolve();
-        } else if (msg.type === 'boundary') {
-          this._onBoundary();
-        }
-      };
+      node.port.onmessage = (e) => this._onWorkletMessage(e.data, resolve);
       node.onprocessorerror = () => {
         const err = new Error('RealtimeEngine: AudioWorkletProcessor crashed');
         reject(err); // no-op if `ready` already settled
@@ -413,6 +420,32 @@ export class RealtimeEngine extends EventTarget {
       this.dispatchEvent(new CustomEvent('pass', { detail: { sectionId: this._section.sectionId } }));
     }
     this._qualified = true;
+  }
+
+  /**
+   * Dispatch table for the worklet's port messages, pulled out of
+   * loadSection() so it can be driven directly in a synthetic-worklet
+   * test without a real AudioWorkletNode (see web/tests/test_ended.mjs and
+   * test_seek.mjs, which do exactly that for _onBoundary/seek already).
+   * @param {{type: string, [key: string]: any}} msg
+   * @param {() => void} onReady - resolves loadSection's `ready` promise;
+   *   only ever called once (the worklet posts 'ready' exactly once).
+   */
+  _onWorkletMessage(msg, onReady) {
+    if (msg.type === 'ready') {
+      onReady();
+    } else if (msg.type === 'boundary') {
+      this._onBoundary();
+    } else if (msg.type === 'ended') {
+      // 'ended' never touches _qualified/_onBoundary -- see the class
+      // doc's Fires list and worklet.js's own module doc: a `loop: false`
+      // section cannot produce a 'pass' event, because nothing here reads
+      // 'ended' as a boundary. This section is done; a fresh loadSection()
+      // is required to play again (screens/song.js's ensureEngine reloads
+      // per press, matching its own selection, which can change between
+      // presses).
+      this.dispatchEvent(new CustomEvent('ended', { detail: { sectionId: this._section.sectionId } }));
+    }
   }
 
   _requireNode(method) {

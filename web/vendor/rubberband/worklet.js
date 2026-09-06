@@ -83,7 +83,8 @@
  *   {type:'setRatio', ratio} {type:'setPitch', scale} {type:'destroy'}
  *   {type:'seek', frame} (Phase 1.5, P1 -- see below)
  * Worklet -> main: {type:'ready'} (once, after construction succeeds)
- *   {type:'boundary', contextTime} (once per completed lap)
+ *   {type:'boundary', contextTime} (once per completed lap, `loop: true` only)
+ *   {type:'ended'} (once, `loop: false` only -- see below)
  *
  * ---- seek (Phase 1.5, P1) ----
  * player.js converts the clicked position from absolute source seconds to
@@ -100,6 +101,24 @@
  * a `boundary` itself -- a seek is not a completed lap, and player.js's
  * RealtimeEngine.seek() disqualifies the in-flight lap on its own side of
  * the port, per the pass-detection contract in player.js's module doc.
+ *
+ * ---- Non-looping playback (Phase 1.5, R1) ----
+ * `processorOptions.loop` (default true) governs what happens when
+ * `readPos` reaches `sourceLen`: `true` wraps to `loopStartFrame` and posts
+ * `boundary`, as above -- unchanged, still what practice.js's looping
+ * engine uses. `false` is screens/song.js's plain preview player: there is
+ * nothing to wrap to, so this processor instead flushes Rubber Band's own
+ * internal buffer once (`rb_process(..., final=1)`, never used by the
+ * looping path, which never finalizes its stream) and stops feeding
+ * (`this.ended`). `process()` keeps draining already-buffered output as
+ * normal until `rb_available()` is genuinely exhausted, then posts
+ * `{type:'ended'}` exactly once and gates `playing` false, the same gate
+ * `pause` uses -- so nothing downstream has to distinguish "paused" from
+ * "reached the end" to know playback has stopped. `ended` is a separate
+ * message from `boundary` on purpose: only `boundary` ever reaches
+ * RealtimeEngine's pass-qualification bookkeeping, so a non-looping
+ * preview cannot produce a `pass` event by construction, not by a check
+ * someone has to remember to add on the main-thread side.
  */
 
 const OPT = {
@@ -118,6 +137,9 @@ class RubberBandLooper extends AudioWorkletProcessor {
     this.sourceLen = o.source[0].length;
     this.loopStartFrame = o.loopStartFrame; // index into `source` where the pre-roll ends
     this.blockSize = o.blockSize || 1024;
+    this.loop = o.loop !== false; // Phase 1.5, R1: false -> plays once, posts 'ended', never 'boundary'
+    this.ended = false; // set once the non-looping source has been fully fed
+    this.endedPosted = false; // 'ended' fires exactly once, when rb_available() also finally drains
     this.playing = false; // gate: while false, process() emits silence and consumes nothing
     this.destroyed = false;
 
@@ -192,12 +214,18 @@ class RubberBandLooper extends AudioWorkletProcessor {
   }
 
   /**
-   * Feed up to n frames from `source`, wrapping `readPos` to
-   * `loopStartFrame` (never back to 0 -- the pre-roll is a first-lap-only
-   * lead-in) each time it reaches `sourceLen`, and posting the boundary
-   * that is this file's half of the pass-detection contract.
+   * Feed up to n frames from `source`. When `loop` is true (unchanged,
+   * looping practice engine): wraps `readPos` to `loopStartFrame` (never
+   * back to 0 -- the pre-roll is a first-lap-only lead-in) each time it
+   * reaches `sourceLen`, and posts the boundary that is this file's half
+   * of the pass-detection contract. When `loop` is false (Phase 1.5, R1's
+   * plain preview player): there is nowhere to wrap to, so reaching
+   * `sourceLen` instead flushes Rubber Band's own buffer once (`final=1`,
+   * the one call site that ever passes it) and sets `this.ended` -- see
+   * the module doc's "Non-looping playback" section.
    */
   _feedSource(n) {
+    if (this.ended) return; // non-looping source already fully fed
     while (n > 0) {
       const k = Math.min(n, this.blockSize, this.sourceLen - this.readPos);
       this._heaps();
@@ -206,11 +234,17 @@ class RubberBandLooper extends AudioWorkletProcessor {
         this.HEAPF32.set(src, this.inBuf[c] >> 2);
       }
       this.readPos += k;
-      this.x.rb_process(this.rb, this.inPtrs, k, 0); // never final -- see module doc on looping
+      this.x.rb_process(this.rb, this.inPtrs, k, 0); // final only below, once, on non-loop exhaustion
       n -= k;
       if (this.readPos >= this.sourceLen) {
-        this.readPos = this.loopStartFrame;
-        this.port.postMessage({ type: 'boundary', contextTime: currentTime });
+        if (this.loop) {
+          this.readPos = this.loopStartFrame;
+          this.port.postMessage({ type: 'boundary', contextTime: currentTime });
+        } else {
+          this.x.rb_process(this.rb, this.inPtrs, 0, 1); // final -- flush what's left inside Rubber Band
+          this.ended = true;
+        }
+        return;
       }
     }
   }
@@ -230,6 +264,8 @@ class RubberBandLooper extends AudioWorkletProcessor {
         this.x.rb_reset(this.rb);
         this.readPos = 0;
         this.toDrop = this.startDelay;
+        this.ended = false; // R1: a restarted non-looping source can end again
+        this.endedPosted = false;
         this._feedSilence(this.preferredStartPad);
         this.playing = true;
         break;
@@ -242,6 +278,8 @@ class RubberBandLooper extends AudioWorkletProcessor {
         this.x.rb_reset(this.rb);
         this.readPos = clamped;
         this.toDrop = this.startDelay;
+        this.ended = false; // R1: seeking back into range un-ends a non-looping source
+        this.endedPosted = false;
         this._feedSilence(this.preferredStartPad);
         break;
       }
@@ -287,12 +325,23 @@ class RubberBandLooper extends AudioWorkletProcessor {
     // "ensure something is available" (feeding the stretcher from `source`)
     // is common to either. guard bounds it against ever spinning forever.
     while ((this.toDrop > 0 || filled < need) && guard++ < 512) {
-      while (this.x.rb_available(this.rb) <= 0 && guard++ < 512) {
+      while (this.x.rb_available(this.rb) <= 0 && !this.ended && guard++ < 512) {
         const req = this.x.rb_get_samples_required(this.rb);
         this._feedSource(Math.min(this.blockSize, Math.max(req, 128)));
       }
       const avail = this.x.rb_available(this.rb);
-      if (avail <= 0) break; // should not happen (the section loops forever) -- guard, not expected
+      if (avail <= 0) {
+        // For a looping section this should not happen (it loops forever)
+        // -- guard, not expected. For a non-looping one (R1) this is the
+        // normal, expected way playback finishes: Rubber Band has nothing
+        // left to give after the final=1 flush in _feedSource().
+        if (this.ended && !this.endedPosted) {
+          this.endedPosted = true;
+          this.playing = false; // same gate pause() uses -- nothing more to fill after this
+          this.port.postMessage({ type: 'ended' });
+        }
+        break;
+      }
       const want = this.toDrop > 0
         ? Math.min(avail, this.blockSize, this.toDrop)
         : Math.min(avail, this.blockSize, need - filled);
