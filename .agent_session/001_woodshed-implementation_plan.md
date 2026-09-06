@@ -1782,6 +1782,55 @@ architectural calls get raised for Paolo rather than asserted.
   **T2 is incomplete as written** — it never says how a finished segment actually
   becomes the target song's bound audio. Group U's `bind_segment_to_song` (U1, below)
   is that missing step; T2 and U share it rather than each inventing a copy.
+  - **Done, 2026-09-06.** A second, real gap found and fixed the same way U1's was:
+    `capture()`'s `while True:` loop had NO way to stop from another thread at all --
+    only `KeyboardInterrupt`, which a background thread never receives (Ctrl-C is
+    main-thread-only), so a server-run capture could never actually be stopped as
+    specced. Fixed at the root: `capture()` gained `stop_event: threading.Event | None`
+    (checked once per ~100ms chunk, `None` preserving the CLI's original Ctrl-C-only
+    behaviour exactly) and a symmetrical `on_overflow: Callable[[], None] | None`
+    (T2's own "whether an overflow was seen" needs to be live, not only baked into a
+    finished `Segment.overflowed` after the fact). Both are exercised in
+    `test_capture.py` against a FAKE `pyaudiowpatch` module installed into
+    `sys.modules` -- still no real hardware, but the loop's own control flow (does a
+    stop request actually stop it, does the overflow callback actually fire) is now
+    tested rather than merely asserted in a docstring.
+    New module `capture_runner.py`'s `CaptureRunner` is the background-thread wrapper
+    itself: `start()`/`stop()`/`status()`, one shared instance per server (a class
+    attribute on the dynamic handler subclass, same binding trick `repo` already
+    uses). `stop()` blocks until the thread actually finishes, so its response can
+    honestly say the resulting segments are already visible via `GET /api/capture/
+    segments` -- and it IS the same bridge into Group U's bookkeeping the plan
+    expected: once segments exist, `capture_session.start_session` is called directly
+    (not `bind_segment_to_song`, since nothing has a target song yet in this
+    capture-first order -- U2's own bind endpoints are what a human uses afterward).
+    A capture that yields zero segments (stopped instantly, or pure silence) deletes
+    its own raw file rather than leaving uncatalogued debris under `capture/`, since
+    nothing exists to bind or discard it later.
+    Tested exactly per the plan's own contract, mocking `capture_runner.capture`
+    itself (never a real device): idle/running/error status shapes, a second `start`
+    refused while one runs, `stop` refused with nothing running, a background
+    exception surfacing via `status().error` without crashing the thread and without
+    blocking a fresh `start` afterward. `GET /api/capture/status` also carries an
+    `available` flag (`importlib.util.find_spec`, the same non-importing technique
+    `doctor.py`'s own loopback check already uses) -- `capture.js` reads this BEFORE
+    ever offering the arm button, not only after a failed `start`.
+    `screens/capture.js`'s live panel: arm -> running (elapsed timer, level bar,
+    overflow note, Stop) -> stopped (a real segment count from `GET /api/capture/
+    segments`, not a placeholder -- explicitly notes that naming/adjusting those
+    segments is U3's still-unbuilt job, rather than pretending to do it). Falls back
+    to a plain note, no arm button, when `available` is false. A found-and-fixed race,
+    same class as R1's own: `mount()` returns its unmount callback synchronously but
+    the live panel's own cleanup closure does not exist until its first `await`
+    resolves -- closed with a `{current: bool}` box `mount()` flips immediately,
+    checked before the panel's poll loop ever starts. The existing needs-audio
+    terminal-command list (H2) is unchanged, shown unconditionally below the live
+    panel. `node --check` clean; no dedicated JS test added for the DOM-heavy panel
+    itself, same precedent as T1's `dashboard.js` change.
+    13 new Python tests (4 `capture.py`, 9 `capture_runner.py`) + 6 new `server.py`
+    tests (start/status/stop, refusal cases) + `test_server_writes_nothing_else`
+    extended with a zero-segment start/stop cycle. Full suite 873 passed (was 856);
+    ruff clean; no-extras gate 870 passed, 3 deselected.
 
 **Group U — capture-first: split now, name later** (spec'd 2026-09-06, not yet built —
 see this phase's own "sixth thing" note above for why). Paolo's actual workflow:

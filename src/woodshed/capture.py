@@ -57,6 +57,7 @@ risk" reasoning the module docstring above already gives for
 from __future__ import annotations
 
 import subprocess
+import threading
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -272,10 +273,24 @@ def capture(
     floor_db: float = -50.0,
     gap_s: float = 1.2,
     on_level: Callable[[float], None] | None = None,
+    on_overflow: Callable[[], None] | None = None,
     raw_path: str | Path | None = None,
+    stop_event: threading.Event | None = None,
 ) -> Iterator[Segment]:
-    """Arm *device*, record until Ctrl-C (or the stream ends on its own),
-    then split on silence and yield one `Segment` per track found.
+    """Arm *device*, record until Ctrl-C, *stop_event* is set, or the stream
+    ends on its own, then split on silence and yield one `Segment` per
+    track found.
+
+    **`stop_event`, added for Phase 1.5's T2** (`POST /api/capture/stop`):
+    the CLI's own `KeyboardInterrupt` handling below only ever stops a
+    capture running in the process's own MAIN thread -- a background
+    thread (`capture_runner.py`'s whole reason to exist) never receives a
+    Ctrl-C at all, and there is no safe way to raise one into it from
+    outside. Checked once per ~100ms chunk (`stop_event.is_set()`, top of
+    the loop, same place `while True:` used to be unconditional), so a
+    stop lands within about one chunk, not instantly but never far off
+    either. `None` (the default) preserves H2's original CLI behaviour
+    exactly -- Ctrl-C is still the only way to stop a foreground capture.
 
     Two mutually exclusive output modes, selected by *raw_path* -- see
     `_finish_capture` for exactly what each writes:
@@ -306,6 +321,10 @@ def capture(
 
     *on_level*, if given, is called with each chunk's peak amplitude
     (0..1) -- the capture screen's level meter, and nothing else reads it.
+    *on_overflow*, if given, is called (no arguments) the moment an
+    overflow is caught -- T2's `GET /api/capture/status` "was an overflow
+    seen" flag, reported live rather than only after the fact via a
+    finished `Segment.overflowed`.
 
     Unverified without real hardware -- see the module docstring.
     """
@@ -330,11 +349,13 @@ def capture(
 
     try:
         with open(scratch_path, "wb") as scratch:
-            while True:
+            while stop_event is None or not stop_event.is_set():
                 try:
                     raw = stream.read(chunk_frames, exception_on_overflow=True)
                 except OSError:
                     overflow_positions.append(frame_position)
+                    if on_overflow is not None:
+                        on_overflow()
                     silence = np.zeros(chunk_frames, dtype=np.float32)
                     scratch.write(silence.tobytes())
                     frame_position += chunk_frames

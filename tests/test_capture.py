@@ -7,12 +7,20 @@ anything further out stops and asks... never bind on a guess" and
 (docs/04-sources.md's "What will bite") "a dropout is silent -- refuse to
 bind a segment that reported one" (bind_segments, H3's overflow rule).
 
-Synthetic audio only -- the device half (list_devices/capture) needs real
-hardware and is not exercised here; see capture.py's module doc.
+Synthetic audio only -- `list_devices`/`default_device`/the actual device
+I/O inside `capture()` need real hardware and are not exercised here; see
+capture.py's module doc. Phase 1.5's T2 added one exception: `capture()`'s
+own `stop_event`/`on_overflow` CONTROL FLOW is tested against a fake
+`pyaudiowpatch` module installed into `sys.modules` (just enough surface
+for `PyAudio()`/`.open()`/`paFloat32`) with a synthetic stream -- the real
+device is still never touched, but the loop's own logic (does a stop
+request actually stop it, does an overflow callback actually fire) is.
 """
 
 from __future__ import annotations
 
+import sys
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -21,12 +29,14 @@ import pytest
 
 import woodshed.capture as capture_module
 from woodshed.capture import (
+    Device,
     Segment,
     TracklistEntry,
     _finish_capture,
     bind_segment_as_new_song,
     bind_segment_to_song,
     bind_segments,
+    capture,
     extract_segment,
     split_on_silence,
 )
@@ -413,3 +423,140 @@ def test_bind_segment_as_new_song_writes_song_yaml_and_returns_the_slug(
     assert song.artist == "Someone"
     assert song.recording.tuning == "D standard"
     assert song.recording.source == "capture"
+
+
+# ---------------------------------------------------------------------------
+# capture()'s stop_event/on_overflow control flow (Phase 1.5, T2)
+#
+# Still no real hardware here -- a FAKE `pyaudiowpatch` module (just enough
+# surface for `capture()`'s own calls: `PyAudio()`, `.open()`, `paFloat32`)
+# installed into `sys.modules` so `require_module` finds something to
+# import. This tests the LOOP'S OWN CONTROL FLOW (does it actually stop
+# when told to, does on_overflow actually fire) -- the same "the control
+# flow is pure enough to test with a fake" reasoning P1/R1 already used
+# for a synthetic AudioWorkletNode, applied here to a synthetic stream
+# instead of a real device.
+# ---------------------------------------------------------------------------
+
+
+def _install_fake_pyaudiowpatch(monkeypatch: pytest.MonkeyPatch, stream) -> None:
+    fake_module = SimpleNamespace(
+        paFloat32=1,
+        PyAudio=lambda: SimpleNamespace(open=lambda **kwargs: stream, terminate=lambda: None),
+    )
+    monkeypatch.setitem(sys.modules, "pyaudiowpatch", fake_module)
+
+
+def test_capture_stops_via_stop_event_not_only_keyboardinterrupt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stop_event = threading.Event()
+    chunk = _tone(100, amplitude=0.5).tobytes()  # chunk_frames = 1000 // 10 = 100
+    call_count = 0
+
+    def fake_read(n: int, exception_on_overflow: bool = True) -> bytes:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 3:
+            stop_event.set()  # "the stop button was pressed" during the 3rd chunk
+        return chunk
+
+    fake_stream = SimpleNamespace(read=fake_read, stop_stream=lambda: None, close=lambda: None)
+    _install_fake_pyaudiowpatch(monkeypatch, fake_stream)
+
+    device = Device(index=0, name="Fake Loopback", sample_rate=SR, channels=1)
+    raw_path = tmp_path / "raw.wav"
+
+    segments = list(capture(device, tmp_path, raw_path=raw_path, stop_event=stop_event))
+
+    assert call_count == 3  # stopped after the chunk that set the event, not a 4th read
+    assert raw_path.is_file()
+    assert len(segments) == 1  # one steady tone, no silence gap to split on
+    assert segments[0].end_frame - segments[0].start_frame == 300  # 3 * 100 frames
+    assert segments[0].overflowed is False
+
+
+def test_capture_reports_overflow_live_via_on_overflow(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stop_event = threading.Event()
+    chunk = _tone(100, amplitude=0.5).tobytes()
+    call_count = 0
+
+    def fake_read(n: int, exception_on_overflow: bool = True) -> bytes:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 2:
+            raise OSError("simulated input overflow")
+        if call_count == 3:
+            stop_event.set()
+        return chunk
+
+    fake_stream = SimpleNamespace(read=fake_read, stop_stream=lambda: None, close=lambda: None)
+    _install_fake_pyaudiowpatch(monkeypatch, fake_stream)
+
+    device = Device(index=0, name="Fake Loopback", sample_rate=SR, channels=1)
+    overflow_calls = []
+
+    list(capture(
+        device, tmp_path, raw_path=tmp_path / "raw.wav", stop_event=stop_event,
+        on_overflow=lambda: overflow_calls.append(True),
+    ))
+
+    assert overflow_calls == [True]  # fired exactly once, live, not just baked into the Segment
+
+
+def test_capture_on_level_still_fires_per_chunk_with_stop_event_given(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """stop_event is additive -- it must not disturb on_level, H3's
+    existing live level-meter callback."""
+    stop_event = threading.Event()
+    chunk = _tone(100, amplitude=0.5).tobytes()
+    call_count = 0
+
+    def fake_read(n: int, exception_on_overflow: bool = True) -> bytes:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 2:
+            stop_event.set()
+        return chunk
+
+    fake_stream = SimpleNamespace(read=fake_read, stop_stream=lambda: None, close=lambda: None)
+    _install_fake_pyaudiowpatch(monkeypatch, fake_stream)
+
+    device = Device(index=0, name="Fake Loopback", sample_rate=SR, channels=1)
+    levels = []
+
+    list(capture(
+        device, tmp_path, raw_path=tmp_path / "raw.wav", stop_event=stop_event,
+        on_level=levels.append,
+    ))
+
+    assert levels == [pytest.approx(0.5), pytest.approx(0.5)]
+
+
+def test_capture_stop_event_none_preserves_original_keyboardinterrupt_only_behaviour(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No stop_event at all (the default) -- the loop only ends via
+    KeyboardInterrupt, exactly H2's original CLI behaviour."""
+    chunk = _tone(100, amplitude=0.5).tobytes()
+    call_count = 0
+
+    def fake_read(n: int, exception_on_overflow: bool = True) -> bytes:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 3:
+            raise KeyboardInterrupt
+        return chunk
+
+    fake_stream = SimpleNamespace(read=fake_read, stop_stream=lambda: None, close=lambda: None)
+    _install_fake_pyaudiowpatch(monkeypatch, fake_stream)
+
+    device = Device(index=0, name="Fake Loopback", sample_rate=SR, channels=1)
+    segments = list(capture(device, tmp_path, raw_path=tmp_path / "raw.wav"))
+
+    assert call_count == 3
+    assert len(segments) == 1
+    assert segments[0].end_frame - segments[0].start_frame == 200  # 2 successful reads

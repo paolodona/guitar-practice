@@ -38,6 +38,14 @@ now:
     POST /api/song/upload               -> bind an uploaded audio file
                                             (multipart/form-data) as a
                                             new song                     (T1)
+    POST /api/capture/start             -> arm the default loopback
+                                            device, record on a
+                                            background thread            (T2)
+    GET  /api/capture/status            -> elapsed time, level, overflow
+                                            seen, pyaudiowpatch availability
+                                                                          (T2)
+    POST /api/capture/stop              -> stop the running capture,
+                                            wait for it to finish         (T2)
     GET  /api/capture/segments          -> pending segments from the most
                                             recent raw capture recording  (U2)
     GET  /api/capture/segment-audio/<i> -> one pending segment's audio,
@@ -68,6 +76,7 @@ lock (not needed here -- this unit renders nothing) dropped.
 
 from __future__ import annotations
 
+import importlib.util
 import io
 import json
 import mimetypes
@@ -92,6 +101,7 @@ from woodshed.capture import (
     bind_segment_to_song,
     extract_segment,
 )
+from woodshed.capture_runner import CaptureRunner
 from woodshed.capture_session import (
     STATUS_BOUND,
     STATUS_DISCARDED,
@@ -334,6 +344,8 @@ class WoodshedHandler(BaseHTTPRequestHandler):
                 self._capture_segments()
             elif path.startswith("/api/capture/segment-audio/"):
                 self._capture_segment_audio(path.removeprefix("/api/capture/segment-audio/"))
+            elif path == "/api/capture/status":
+                self._capture_status()
             else:
                 self._error(404, f"no such page: {path}")
         except (WoodshedError, ValidationError) as exc:
@@ -692,6 +704,10 @@ class WoodshedHandler(BaseHTTPRequestHandler):
                 self._post_capture_merge(body)
             elif path == "/api/capture/split":
                 self._post_capture_split(body)
+            elif path == "/api/capture/start":
+                self._post_capture_start(body)
+            elif path == "/api/capture/stop":
+                self._post_capture_stop(body)
             elif path == "/api/shutdown":
                 self._shutdown()
             else:
@@ -955,6 +971,42 @@ class WoodshedHandler(BaseHTTPRequestHandler):
             tmp_path.unlink(missing_ok=True)
         self._json({"slug": song.slug})
 
+    # ── live capture, start/status/stop (Phase 1.5, Group T, T2) ───────────
+
+    def _post_capture_start(self, body: dict) -> None:
+        """`POST /api/capture/start` -- arm the default loopback device and
+        start recording on a background thread (`capture_runner.py`'s
+        `CaptureRunner`, one shared instance per server -- see
+        `make_server`). Refuses (400, via the usual `WoodshedError` ->
+        `_error` path) if one is already running, or if `pyaudiowpatch`
+        itself is missing -- `default_device()`'s own `require_module`
+        names the installer."""
+        self.capture_runner.start(self.repo)
+        self._json({"started": True})
+
+    def _capture_status(self) -> None:
+        """`GET /api/capture/status` -- elapsed time, current level,
+        whether an overflow has been seen so far, and (once one finishes)
+        how many segments it produced -- derived from the runner's own
+        in-memory state, not disk (see `capture_runner.py`'s module doc
+        for why a live-in-progress recording isn't one of CLAUDE.md's four
+        write categories). `available` is a cheap, non-importing check
+        (`importlib.util.find_spec`, the same technique `doctor.py`'s own
+        loopback check already uses) -- `screens/capture.js` reads it
+        BEFORE ever offering the live-arm UI, rather than only discovering
+        `pyaudiowpatch` is missing on the first failed `start`."""
+        status = self.capture_runner.status()
+        status["available"] = importlib.util.find_spec("pyaudiowpatch") is not None
+        self._json(status)
+
+    def _post_capture_stop(self, body: dict) -> None:
+        """`POST /api/capture/stop` -- signal the running capture to stop
+        and wait for its thread to actually finish, so the response can
+        honestly say the resulting segments are already visible via
+        `GET /api/capture/segments`. Refuses (400) if nothing is
+        running."""
+        self._json(self.capture_runner.stop())
+
     # ── capture-first: split now, name later (Phase 1.5, Group U) ──────────
 
     def _pending_capture_entry(self, index: int):
@@ -1153,6 +1205,15 @@ class WoodshedServer(ThreadingHTTPServer):
 
 
 def make_server(repo: Repo, *, port: int = DEFAULT_PORT) -> WoodshedServer:
-    """A configured server, not yet serving. Tests bind port 0."""
-    handler = type("BoundWoodshedHandler", (WoodshedHandler,), {"repo": repo})
+    """A configured server, not yet serving. Tests bind port 0.
+
+    `capture_runner` is ONE `CaptureRunner` shared across every request
+    (a class attribute, same binding trick as `repo`) -- there is exactly
+    one background capture thread per running server, matching
+    `CaptureRunner`'s own "one capture at a time" contract.
+    """
+    handler = type(
+        "BoundWoodshedHandler", (WoodshedHandler,),
+        {"repo": repo, "capture_runner": CaptureRunner()},
+    )
     return WoodshedServer(("127.0.0.1", port), handler)

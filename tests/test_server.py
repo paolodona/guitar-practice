@@ -26,6 +26,7 @@ import http.client
 import io
 import json
 import threading
+import time
 import urllib.error
 import urllib.request
 import wave as wave_module
@@ -35,7 +36,8 @@ from urllib.parse import urlsplit
 import pytest
 import yaml
 
-from woodshed.capture import Segment
+import woodshed.capture_runner as capture_runner_module
+from woodshed.capture import Device, Segment
 from woodshed.capture_session import start_session
 from woodshed.errors import WoodshedError
 from woodshed.ledger import read as read_ledger
@@ -938,6 +940,17 @@ def test_server_writes_nothing_else(served, monkeypatch):
         pass
 
     # every mutating endpoint this unit implements
+    # (start/stop with zero segments -- so it never disturbs the 5-segment
+    # session already seeded above, which the capture/adjust|merge|split|bind
+    # calls below still need to find as the CURRENT session)
+    monkeypatch.setattr(capture_runner_module, "capture", _blocking_fake_capture([]))
+    monkeypatch.setattr(
+        capture_runner_module, "default_device",
+        lambda: Device(index=0, name="Fake", sample_rate=48_000, channels=1),
+    )
+    _post(base, "/api/capture/start", {})
+    _get(base, "/api/capture/status")
+    _post(base, "/api/capture/stop", {})
     _post(
         base, "/api/rep",
         {"song": slug, "section": "solo-full", "speed": 60.0, "semitones": 0,
@@ -1303,6 +1316,87 @@ def test_post_song_upload_refuses_an_existing_slug(served) -> None:
             base, "/api/song/upload", {"title": "Test Song", "tuning": "E standard"},
             file_field="file", filename="a.wav", content=AUDIO_BYTES,
         )
+    assert caught.value.code == 400
+
+
+# ── POST /api/capture/start|status|stop (Phase 1.5, Group T, T2) ──────────
+
+
+def _blocking_fake_capture(segments_after_stop: list[Segment]):
+    """Same technique as test_capture_runner.py's own fake: blocks on the
+    REAL stop_event the runner created, so POST /api/capture/stop is what
+    actually unblocks it."""
+
+    def fake(device, out_dir, *, on_level=None, on_overflow=None, raw_path=None,
+             stop_event=None, **_ignored):
+        if on_level is not None:
+            on_level(0.25)
+        Path(raw_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(raw_path).write_bytes(b"fake raw audio")
+        while not stop_event.is_set():
+            time.sleep(0.005)
+        yield from segments_after_stop
+
+    return fake
+
+
+def test_capture_status_is_idle_before_any_capture_starts(served) -> None:
+    base, _repo, _slug = served
+    status, body = _get_json(base, "/api/capture/status")
+    assert status == 200
+    assert body["running"] is False
+    assert body["segment_count"] == 0
+    assert "available" in body  # a real bool either way -- pyaudiowpatch may not be installed
+
+
+def test_post_capture_start_then_stop_creates_a_pending_session(
+    served, monkeypatch
+) -> None:
+    base, repo, _slug = served
+    segments = [Segment(start_frame=0, end_frame=48_000, sample_rate=48_000)]
+    monkeypatch.setattr(capture_runner_module, "capture", _blocking_fake_capture(segments))
+    monkeypatch.setattr(
+        capture_runner_module, "default_device",
+        lambda: Device(index=0, name="Fake", sample_rate=48_000, channels=1),
+    )
+
+    status, body = _post(base, "/api/capture/start", {})
+    assert status == 200
+    assert body == {"started": True}
+
+    _status, running_body = _get_json(base, "/api/capture/status")
+    assert running_body["running"] is True
+
+    status, stop_body = _post(base, "/api/capture/stop", {})
+    assert status == 200
+    assert stop_body["running"] is False
+    assert stop_body["segment_count"] == 1
+    _status, remaining = _get_json(base, "/api/capture/segments")
+    assert len(remaining) == 1
+
+
+def test_post_capture_start_refuses_while_one_is_already_running(
+    served, monkeypatch
+) -> None:
+    base, _repo, _slug = served
+    monkeypatch.setattr(capture_runner_module, "capture", _blocking_fake_capture([]))
+    monkeypatch.setattr(
+        capture_runner_module, "default_device",
+        lambda: Device(index=0, name="Fake", sample_rate=48_000, channels=1),
+    )
+    _post(base, "/api/capture/start", {})
+
+    with pytest.raises(urllib.error.HTTPError) as caught:
+        _post(base, "/api/capture/start", {})
+    assert caught.value.code == 400
+
+    _post(base, "/api/capture/stop", {})
+
+
+def test_post_capture_stop_refuses_when_nothing_is_running(served) -> None:
+    base, _repo, _slug = served
+    with pytest.raises(urllib.error.HTTPError) as caught:
+        _post(base, "/api/capture/stop", {})
     assert caught.value.code == 400
 
 
