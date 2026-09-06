@@ -86,7 +86,7 @@ def test_no_subcommand_prints_help_and_returns_1(capsys: pytest.CaptureFixture) 
 
 
 @pytest.mark.parametrize(
-    "name", ["render", "scan"]
+    "name", ["render"]
 )
 def test_not_yet_implemented_commands_refuse_cleanly(
     name: str, capsys: pytest.CaptureFixture
@@ -900,3 +900,101 @@ def test_status_writes_nothing(repo: Repo, capsys: pytest.CaptureFixture) -> Non
         for p in repo.root.rglob("*") if p.is_file()
     }
     assert after == before
+
+
+# ── scan / import (Phase 3, Group M's CLI surface) ───────────────────────
+
+
+def _needs_audio_song(repo: Repo, slug: str, title: str, artist: str = "RHCP") -> None:
+    from woodshed.sources import Track, import_tracks
+
+    import_tracks(repo, [Track(spotify_id="x", title=title, artist=artist,
+                               album=None, duration_s=100.0)])
+    assert (repo.song_dir(slug) / "song.yaml").is_file()
+
+
+def test_scan_lists_candidates_and_binds_nothing_on_its_own(
+    repo: Repo, tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
+    library = tmp_path / "library"
+    library.mkdir()
+    source = library / "RHCP - Cant Stop.wav"
+    _write_wav(source, seconds=1.0)
+    (repo.root / "config.yaml").write_text(
+        f"library_paths:\n  - {library.as_posix()}\n", encoding="utf-8"
+    )
+    _needs_audio_song(repo, "can-t-stop", "Can't Stop")
+    capsys.readouterr()
+
+    rc = cli.main(["scan", "can-t-stop"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "Cant Stop.wav" in out
+    # Still needs audio: a scan SUGGESTS, and this one bound nothing.
+    song = load_song(repo.song_dir("can-t-stop") / "song.yaml")
+    assert not (repo.song_dir("can-t-stop") / song.recording.file).is_file()
+
+
+def test_scan_bind_is_an_explicit_index_and_actually_binds(
+    repo: Repo, tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
+    library = tmp_path / "library"
+    library.mkdir()
+    _write_wav(library / "RHCP - Cant Stop.wav", seconds=1.0)
+    (repo.root / "config.yaml").write_text(
+        f"library_paths:\n  - {library.as_posix()}\n", encoding="utf-8"
+    )
+    _needs_audio_song(repo, "can-t-stop", "Can't Stop")
+    capsys.readouterr()
+
+    rc = cli.main(["scan", "can-t-stop", "--bind", "1"])
+    assert rc == 0
+    song = load_song(repo.song_dir("can-t-stop") / "song.yaml")
+    bound = repo.song_dir("can-t-stop") / song.recording.file
+    assert bound.is_file()
+    assert song.recording.sha256  # hashed on binding, empty before it
+    assert song.recording.duration_s == pytest.approx(1.0, abs=0.01)
+    # The Spotify metadata survives the bind -- it is the same song.
+    assert song.recording.spotify_id == "x"
+
+
+def test_scan_with_no_library_paths_says_what_to_configure(
+    repo: Repo, capsys: pytest.CaptureFixture
+) -> None:
+    _needs_audio_song(repo, "can-t-stop", "Can't Stop")
+    capsys.readouterr()
+    rc = cli.main(["scan", "can-t-stop"])
+    assert rc == 0
+    assert "library_paths" in capsys.readouterr().out
+
+
+def test_scan_bind_out_of_range_refuses_rather_than_picking_something(
+    repo: Repo, tmp_path: Path
+) -> None:
+    library = tmp_path / "library"
+    library.mkdir()
+    _write_wav(library / "RHCP - Cant Stop.wav", seconds=1.0)
+    (repo.root / "config.yaml").write_text(
+        f"library_paths:\n  - {library.as_posix()}\n", encoding="utf-8"
+    )
+    _needs_audio_song(repo, "can-t-stop", "Can't Stop")
+    assert cli.main(["scan", "can-t-stop", "--bind", "9"]) == 2
+
+
+def test_import_without_credentials_says_how_to_connect(
+    repo: Repo, capsys: pytest.CaptureFixture, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("WOODSHED_HOME", str(tmp_path / "home"))
+    rc = cli.main(["import", "https://open.spotify.com/track/3n3Ppam7vgaVa1iaRUc9Lp"])
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "--connect" in err
+
+
+def test_import_connect_without_a_client_id_names_config_yaml(
+    repo: Repo, capsys: pytest.CaptureFixture, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("WOODSHED_HOME", str(tmp_path / "home"))
+    rc = cli.main(["import", "--connect"])
+    assert rc == 2
+    assert "client_id" in capsys.readouterr().err

@@ -59,7 +59,6 @@ or check the toolchain first:
 #: "not built yet" refusal on a command this unit does not implement.
 _NOT_YET_IMPLEMENTED = {
     "render": "Phase 2 -- the offline render cache",
-    "scan": "Phase 3 -- library scan and file binding",
 }
 
 
@@ -261,6 +260,46 @@ def bind_song_file(
     return load_song(song_path)  # re-read: analyze_after_bind may have updated tempo
 
 
+def bind_audio_to_song(repo: Repo, slug: str, source: Path) -> Song:
+    """Bind *source* as the audio for a song that already exists.
+
+    The other half of `bind_song_file`: that one creates a song from a file,
+    this one gives a file to a song that was imported metadata-first and has
+    been sitting in the **needs-audio** state (docs/04-sources.md). Copies
+    the file under `songs/<slug>/audio/`, hashes it, reads its real duration
+    (the imported one came from Spotify and is close, not exact), and runs
+    the usual peaks/tempo pass.
+
+    Everything else about the song -- title, artist, `spotify_id`, any
+    sections already drawn on it -- is left exactly as it was. It is the
+    same song; only the bytes are new.
+    """
+    if not source.is_file():
+        raise WoodshedError(f"no such file: {source}")
+    song_path = repo.song_dir(slug) / "song.yaml"
+    if not song_path.is_file():
+        raise WoodshedError(f"no such song: {slug!r}")
+    song = load_song(song_path)
+
+    audio_dir = repo.audio_dir(slug)
+    audio_dir.mkdir(parents=True, exist_ok=True)
+    dest = audio_dir / source.name
+    if dest.resolve() != source.resolve():
+        shutil.copy2(source, dest)
+
+    duration_s = _read_duration_s(dest)
+    song.recording.file = f"audio/{dest.name}"
+    song.recording.sha256 = hash_file(dest)
+    song.recording.duration_s = duration_s
+    song.recording.source = f"library scan: {source}"
+    if not song.sections:
+        song.sections = [whole_song_section(duration_s)]
+    save_song(song, song_path)
+
+    analyze_after_bind(repo, slug, dest, auto_tempo=(song.tempo.source == "manual"))
+    return load_song(song_path)
+
+
 def cmd_add(args: argparse.Namespace) -> int:
     repo = _repo()
     source = Path(args.path)
@@ -455,6 +494,149 @@ def cmd_log(args: argparse.Namespace) -> int:
     verb = "clean pass" if rep.clean else ("pass" if rep.passed else "attempt")
     _say(f"{slug}/{args.section}: logged a {verb} at {rep.speed:g}%")
     return 0
+
+
+# ── commands: sources (Phase 3, Group M) ─────────────────────────────────
+def cmd_scan(args: argparse.Namespace) -> int:
+    """Scan `config.library_paths` for audio that might be a song's recording.
+
+    Prints candidates and stops. Binding is a second, explicit step
+    (`--bind N`) because docs/04-sources.md is emphatic about it: never bind
+    automatically on a fuzzy match. The failure it prevents is a whole album
+    shifted by one, which is invisible until you practise the wrong song.
+    """
+    from woodshed.config import load_config
+    from woodshed.sources import scan_library
+
+    repo = _repo()
+    paths = load_config(repo).library_paths
+    if not paths:
+        _say("no library_paths configured -- add them to config.yaml:")
+        _say("  library_paths:")
+        _say("    - D:/Music")
+        return 0
+
+    slugs = [repo.find_song(args.song)] if args.song else repo.list_songs()
+    for slug in slugs:
+        song_path = repo.song_dir(slug) / "song.yaml"
+        if not song_path.is_file():
+            continue
+        song = load_song(song_path)
+        if (repo.song_dir(slug) / song.recording.file).is_file():
+            if args.song:
+                _say(f"{slug}: already bound to {song.recording.file}")
+            continue
+        candidates = scan_library(paths, title=song.title, artist=song.artist)
+        _say(f"{slug} -- {song.title} ({song.artist or 'no artist'})")
+        if not candidates:
+            _say("  no candidates")
+            continue
+        for index, candidate in enumerate(candidates, start=1):
+            _say(f"  {index}. [{candidate.score:.2f} by {candidate.why}] {candidate.path}")
+        if args.bind is not None and args.song:
+            if not 1 <= args.bind <= len(candidates):
+                raise WoodshedError(
+                    f"--bind {args.bind}: there are {len(candidates)} candidates"
+                )
+            chosen = candidates[args.bind - 1]
+            bound = bind_audio_to_song(repo, slug, chosen.path)
+            _say(f"  bound {chosen.path} -> {bound.recording.file} "
+                 f"({bound.recording.duration_s:.1f}s)")
+        elif not args.song:
+            _say("  (run `woodshed scan <song> --bind N` to bind one)")
+    return 0
+
+
+def cmd_import(args: argparse.Namespace) -> int:
+    """Import a Spotify track/album/playlist as needs-audio songs, or
+    connect this machine to Spotify in the first place.
+
+    The connect flow is a paste, not a local callback server: Spotify
+    redirects to a URL that never has to resolve, the human copies the whole
+    thing back, and the code comes out of the query string. Fewer moving
+    parts than a listening socket, and it works the same over SSH.
+    """
+    from woodshed import sources
+    from woodshed.config import load_config
+
+    repo = _repo()
+    if args.connect:
+        client_id = load_config(repo).spotify.client_id
+        if not client_id:
+            raise WoodshedError(
+                "no spotify.client_id in config.yaml.\n"
+                "  register an app at https://developer.spotify.com/dashboard, "
+                "add the redirect URI below, and put its Client ID (not a secret -- "
+                "there is none with PKCE) in config.yaml:\n"
+                "    spotify:\n      client_id: ...\n"
+                f"  redirect URI: {args.redirect_uri}"
+            )
+        verifier, challenge = sources.new_pkce()
+        _say("open this in a browser, approve, then paste the URL you land on:")
+        _say(sources.authorize_url(client_id, args.redirect_uri, challenge))
+        pasted = input("redirected URL: ").strip()
+        code = _code_from_redirect(pasted)
+        creds = sources.exchange_code(client_id, code, verifier, args.redirect_uri)
+        path = sources.save_credentials(creds)
+        _say(f"connected; token stored in {path} (never in config.yaml)")
+        return 0
+
+    if not args.ref:
+        raise WoodshedError("nothing to import -- pass a link, a search, or --connect")
+
+    creds = sources.load_credentials()
+    if creds is None:
+        raise WoodshedError(
+            "not connected to Spotify -- run `woodshed import --connect` first"
+        )
+    if not creds.is_fresh():
+        creds = sources.refresh_credentials(creds)
+        sources.save_credentials(creds)
+
+    query = " ".join(args.ref)
+    try:
+        kind, spotify_id = sources.parse_ref(query)
+    except WoodshedError:
+        tracks = sources.search_tracks(query, creds, limit=args.limit)
+        if not tracks:
+            _say(f"nothing found for {query!r}")
+            return 0
+        if not args.yes:
+            for index, track in enumerate(tracks, start=1):
+                _say(f"  {index}. {track.title} -- {track.artist} "
+                     f"({track.duration_s / 60:.0f}:{track.duration_s % 60:02.0f})")
+            _say("re-run with --yes to import the first result, or paste a link instead")
+            return 0
+        tracks = tracks[:1]
+        name = tracks[0].title
+    else:
+        name, tracks = sources.fetch_ref(kind, spotify_id, creds)
+
+    result = sources.import_tracks(
+        repo, tracks, tuning=args.tuning, setlist_slug=args.setlist
+    )
+    _say(f"{name}: {len(result.created)} imported, "
+         f"{len(result.already_present)} already here")
+    for slug in result.created:
+        _say(f"  {slug}  (needs audio -- `woodshed scan {slug}` or capture it)")
+    if args.setlist:
+        _say(f"added to setlist {args.setlist!r}")
+    return 0
+
+
+def _code_from_redirect(pasted: str) -> str:
+    """The `code` parameter out of a pasted redirect URL (or the bare code)."""
+    from urllib.parse import parse_qs, urlsplit
+
+    if "code=" not in pasted:
+        if pasted and "://" not in pasted:
+            return pasted
+        raise WoodshedError(f"no ?code= in {pasted!r} -- paste the whole redirected URL")
+    query = parse_qs(urlsplit(pasted).query)
+    code = query.get("code", [""])[0]
+    if not code:
+        raise WoodshedError("the pasted URL has an empty code")
+    return code
 
 
 # ── commands: status (Phase 2, K3) ───────────────────────────────────────
@@ -1138,11 +1320,37 @@ def build_parser() -> argparse.ArgumentParser:
                     help="show this setlist's rows, shifts and next-up pick instead")
     p.set_defaults(func=cmd_status)
 
+    # -- scan / import: where songs come from (Phase 3, Group M) --
+    p = sub.add_parser(
+        "scan", help="scan config.yaml's library_paths for audio to bind"
+    )
+    p.add_argument("song", nargs="?", default=None,
+                    help="a song slug or title -- omit to scan every unbound song")
+    p.add_argument("--bind", type=int, default=None, metavar="N",
+                    help="bind candidate N (1-based) to this song -- never automatic")
+    p.set_defaults(func=cmd_scan)
+
+    p = sub.add_parser(
+        "import", help="import a Spotify track/album/playlist as needs-audio songs",
+    )
+    p.add_argument("ref", nargs="*", help="a Spotify link/URI, or words to search for")
+    p.add_argument("--connect", action="store_true",
+                    help="authorise this machine with Spotify (PKCE, one time)")
+    p.add_argument("--redirect-uri", default="http://127.0.0.1:8477/callback",
+                    help="must match the redirect URI registered on the Spotify app")
+    p.add_argument("--setlist", default=None, metavar="SLUG",
+                    help="also add every imported song to this setlist, in order")
+    p.add_argument("--tuning", choices=KNOWN_TUNINGS, default="E standard",
+                    help="what the RECORDINGS are in -- not what you play them in")
+    p.add_argument("--limit", type=int, default=10, help="search results to show")
+    p.add_argument("--yes", action="store_true",
+                    help="with a search (not a link): import the first result")
+    p.set_defaults(func=cmd_import)
+
     # -- not yet implemented, registered so `--help` is honest about the
     #    tool's eventual shape (docs/01-architecture.md's full command list) --
     stub_help = {
         "render": "render a section into the offline cache (not yet implemented)",
-        "scan": "scan config.yaml's library_paths for audio to bind (not yet implemented)",
     }
     for name, phase in _NOT_YET_IMPLEMENTED.items():
         p = sub.add_parser(name, help=stub_help[name])
