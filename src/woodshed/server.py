@@ -6,12 +6,14 @@ service. Every mutation goes through the same functions the CLI uses
 browser can do differs from what a terminal can, per CLAUDE.md's "the repo
 is the database".
 
-This unit (C2, Phase 0) owned the routes below marked (C2); render/progress
-are later phases and are deliberately not built here (see the plan's
-"Endpoint ownership"). Phase 1's F1 added the setlist-scoped routes and, with
-them, `?setlist=` and `readiness` on `/api/song/<slug>` -- practice.py did
-not exist during C2's pass, so those were placeholders (0 / omitted) until
-now:
+This unit (C2, Phase 0) owned the routes below marked (C2); progress is a
+later phase and is deliberately not built here (see the plan's "Endpoint
+ownership"). Render (Phase 2, Group I) WAS deliberately not built here at
+first, for the same reason -- but was pulled forward into Phase 1.5
+2026-09-06 (marked I3 below; see render.py's own module doc for why).
+Phase 1's F1 added the setlist-scoped routes and, with them, `?setlist=`
+and `readiness` on `/api/song/<slug>` -- practice.py did not exist during
+C2's pass, so those were placeholders (0 / omitted) until now:
 
     GET  /                              -> web/index.html                 (C2)
     GET  /web/*                         -> static files under web/        (C2)
@@ -30,6 +32,13 @@ now:
     GET  /api/audio/<slug>              -> the source file, RANGE-SERVED  (C2)
     GET  /api/click/<slug>/<section>?speed=&mode=lead_in|full
                                         -> a generated click WAV, own gain (G2)
+    GET  /api/render/<slug>/<section>?speed=&semitones=
+                                        -> the cache file, RANGE-SERVED;
+                                           202 + {"rendering": true} if not
+                                           yet built (Phase 2, Group I --
+                                           pulled forward into this phase,
+                                           see render.py's own module doc)
+                                                                          (I3)
     POST /api/rep                       -> appends ONE ledger line        (C2)
     POST /api/section                   -> create/update/delete a span    (C2)
     POST /api/shift                     -> writes setlist.songs[].shift   (F1)
@@ -101,6 +110,7 @@ import numpy as np
 from pydantic import ValidationError
 
 from woodshed import ledger, practice, sections
+from woodshed import render as render_module
 from woodshed.capture import (
     Segment,
     bind_segment_as_new_song,
@@ -122,9 +132,11 @@ from woodshed.click import render_click
 from woodshed.clock import pre_roll_seconds
 from woodshed.config import load_config
 from woodshed.errors import WoodshedError
+from woodshed.ladder import LadderConfig, LadderState
 from woodshed.ledger import Rep
 from woodshed.library import Repo, slugify
 from woodshed.manifest import Section, Setlist, effective_pre_roll_beats, load_song, save_song
+from woodshed.render_runner import RenderRunner
 from woodshed.setlist import add_song, effective_shift, set_shift
 from woodshed.setlist import create as create_setlist
 from woodshed.setlist import load as load_setlist
@@ -346,6 +358,8 @@ class WoodshedHandler(BaseHTTPRequestHandler):
                 self._audio(path.removeprefix("/api/audio/"))
             elif path.startswith("/api/click/"):
                 self._click(path.removeprefix("/api/click/"), parsed.query)
+            elif path.startswith("/api/render/"):
+                self._render(path.removeprefix("/api/render/"), parsed.query)
             elif path == "/api/capture/segments":
                 self._capture_segments()
             elif path.startswith("/api/capture/segment-audio/"):
@@ -685,6 +699,83 @@ class WoodshedHandler(BaseHTTPRequestHandler):
             writer.setframerate(sample_rate)
             writer.writeframes(pcm16.tobytes())
         return buffer.getvalue()
+
+    def _render(self, rest: str, query: str) -> None:
+        """`GET /api/render/<slug>/<section>?speed=&semitones=` -- the
+        cache file, RANGE-SERVED, or 202 `{"rendering": true}` if it is not
+        built yet (Phase 2, Group I3 -- pulled forward into Phase 1.5; see
+        `render.py`'s own module doc for why).
+
+        A cache hit ALSO kicks off `render.plan_ahead` for the ladder rung
+        above the requested speed, on the same `render_runner`,
+        fire-and-forget: this response never waits on it, and a failure
+        there is silent (there is no persisted ladder state to read yet --
+        Phase 2, Group K1 -- so `state`/`cfg` are synthesised straight from
+        this request; a real ladder position, once K1 exists, can only do
+        better than this guess, never worse).
+        """
+        raw_slug, _, raw_section = rest.partition("/")
+        slug = self._resolve_slug(raw_slug)
+        if slug is None:
+            self._error(404, f"no such song: {raw_slug!r}")
+            return
+        song = load_song(self.repo.song_dir(slug) / "song.yaml")
+        section = next((s for s in song.sections if s.id == raw_section), None)
+        if section is None:
+            self._error(404, f"no such section: {raw_section!r}")
+            return
+
+        params = parse_qs(query)
+        try:
+            speed_pct = float(params.get("speed", ["100"])[0])
+        except ValueError:
+            speed_pct = 100.0
+        try:
+            semitones = int(float(params.get("semitones", ["0"])[0]))
+        except ValueError:
+            semitones = 0
+
+        crossfade_ms = song.practice.loop_crossfade_ms
+        pre_roll_s = pre_roll_seconds(effective_pre_roll_beats(song, section), song.tempo.bpm)
+        fp = render_module.span_fingerprint(
+            song, section, pre_roll_s=pre_roll_s, crossfade_ms=crossfade_ms
+        )
+        dest = render_module.cache_path(self.repo, slug, section.id, speed_pct, semitones, fp)
+
+        if dest.is_file():
+            self._send_file(dest, "audio/flac")
+            cfg = LadderConfig(
+                start_speed=song.practice.start_speed,
+                ladder_step=(
+                    section.ladder_step if section.ladder_step is not None
+                    else song.practice.ladder_step
+                ),
+                reps_to_advance=(
+                    section.reps_to_advance if section.reps_to_advance is not None
+                    else song.practice.reps_to_advance
+                ),
+                target_speed=section.target_speed,
+            )
+            state = LadderState(speed=speed_pct, clean_at_speed=0)
+            self.render_runner.ensure_started(
+                f"ahead:{dest}",
+                lambda: render_module.plan_ahead(self.repo, song, section, state, cfg, semitones),
+            )
+            return
+
+        key = str(dest)
+        self.render_runner.ensure_started(
+            key,
+            lambda: render_module.render_section(
+                self.repo, song, section, speed_pct, semitones,
+                crossfade_ms=crossfade_ms, pre_roll_s=pre_roll_s,
+            ),
+        )
+        error = self.render_runner.error(key)
+        if error:
+            self._error(500, f"render failed: {error}")
+            return
+        self._json({"rendering": True}, status=202)
 
     # ── POST ────────────────────────────────────────────────────────────────
     def do_POST(self) -> None:  # noqa: N802 -- stdlib naming
@@ -1301,6 +1392,6 @@ def make_server(repo: Repo, *, port: int = DEFAULT_PORT) -> WoodshedServer:
     """
     handler = type(
         "BoundWoodshedHandler", (WoodshedHandler,),
-        {"repo": repo, "capture_runner": CaptureRunner()},
+        {"repo": repo, "capture_runner": CaptureRunner(), "render_runner": RenderRunner()},
     )
     return WoodshedServer(("127.0.0.1", port), handler)

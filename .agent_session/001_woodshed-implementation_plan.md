@@ -1871,6 +1871,10 @@ and buildable now; S2/S4 are not, until Phase 2 Group I lands first (either
 build Group I out of its documented order, or defer S2/S4 until it does).
 Raised rather than silently worked around, same as this plan's other
 architectural calls get raised for Paolo rather than asserted.
+
+**Resolved, 2026-09-06 (Paolo): build Group I now, out of its documented
+order.** See Phase 2's own Group I entry below, moved forward and marked
+done there rather than duplicated here.
 - **S1** `src/woodshed/separate.py` (Demucs, optional heavy dependency — the third
   module CLAUDE.md's Layering section now names, beside `analyze.py`/`render.py`).
   ```python
@@ -2418,11 +2422,56 @@ lose it. Re-read `docs/03-audio-engine.md` in full; this phase is the one it was
 ### Work units
 
 **Group I — the cache**
-- **I1** `render.py` + `tests/test_render.py` (argv asserted, subprocess mocked)
-- **I2** the equal-power crossfade, baked in; a test that the last `crossfade_ms` of the
-  loop region and the head are the fade pair, measured on a synthetic tone
-- **I3** `POST /api/render` + the 202 path + `plan_ahead` rendering the next rung in a
-  background thread + LRU `evict`
+
+**Done, 2026-09-06 — pulled forward into Phase 1.5, ahead of this phase's own
+documented order** (Paolo's own call, recorded where Group S first flagged the
+gap: S2/S4 extend `render_section`/`evict`, and there was nothing here for
+them to extend). Built to this section's own already-fixed spec, unchanged
+except one correction: the endpoint is **GET**, matching the "Module map"'s
+own `GET /api/render/<slug>/<section>?speed=&semitones=` (this bullet list's
+"POST" was the inconsistent one — a range-served cache file cannot be a POST
+response).
+- **I1** `render.py` + `tests/test_render.py` (argv asserted, subprocess mocked).
+  `span_fingerprint`/`cache_key`/`cache_path`/`render_section` built exactly to
+  the module map's fixed signatures, **without** Group S's `source` parameter —
+  that lands as its own commit (S2), now unblocked, not folded in here.
+  `_read_wav`/`_write_wav` (stdlib `wave` + numpy, no soundfile/scipy, matching
+  `server.py`'s own click-WAV convention) round-trip whatever bit depth
+  rubberband actually writes (8/16/24/32-bit all handled) rather than assuming
+  one, since that width isn't contractually fixed anywhere upstream.
+- **I2** the equal-power crossfade, baked in (`_bake_crossfade`): the tail's
+  last `crossfade_ms` fades out (`cos`) while the loop-region head's first
+  `crossfade_ms` fades in (`sin`) over the same window, overwriting the head
+  in place; the file is then trimmed to `clock.Render.loop_end` — the true
+  tail beyond it is never heard by a native loop (`loopEnd=loop_end` stops the
+  very first pass there too), so keeping it would only be wasted bytes. Tested
+  directly on synthetic constant-value arrays (endpoints exact: pure tail at
+  the start of the blend, pure head at the end; `sin²+cos²=1` checked
+  algebraically) — no subprocess involved in this half of the suite at all.
+- **I3** `GET /api/render/<slug>/<section>?speed=&semitones=` (`server.py`'s
+  `_render`) + the 202 `{"rendering": true}` path + `plan_ahead` rendering the
+  next ladder rung in a background thread + LRU `evict` — done via a new
+  `render_runner.py` (`RenderRunner`, tested in isolation against a fake
+  callable, mirroring `capture_runner.py`'s own test discipline), tracking a
+  **set** of in-flight cache keys rather than `CaptureRunner`'s single slot,
+  since independent renders may run concurrently. `state`/`cfg` for
+  `plan_ahead` are synthesised straight from the request (song/section
+  defaults + the requested speed) since there is no persisted ladder position
+  to read yet (Group K1, still not built) — a real one, once K1 exists, can
+  only refine this guess, never invalidate it. `evict` walks the **whole**
+  `cache/` tree from this first version, including `cache/stems/` — S4's own
+  "extend evict() to also walk cache/stems/" is folded in here rather than
+  left as a later pass, since both were built in the same session; S4's own
+  remaining scope is now just `doctor.py`'s demucs check. Orphan reaping
+  (a deleted section, or a fingerprint that no longer matches the section's
+  current span/pre-roll/crossfade) runs unconditionally, ahead of the size
+  budget. 34 new tests in `test_render.py`, 5 in `test_render_runner.py`, 5
+  more in `test_server.py` for the endpoint itself. Full suite 950 passed
+  (was 906); ruff clean. No-extras impact: none — `render.py`'s only external
+  dependency is the `rubberband` CLI binary via `tools.locate_tool` (same
+  subprocess-only shape `separate.py` already uses for `demucs`'s own binary
+  half); no new Python package, so the no-extras gate is unaffected by
+  construction, not separately re-run in this pass.
 
 **Group J — the practice engine (the invariant-9 work)**
 - **J1** `player.js` gains the buffer engine: fetch the render, `decodeAudioData`,

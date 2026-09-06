@@ -498,6 +498,107 @@ def test_click_unknown_song_is_404(served):
     assert caught.value.code == 404
 
 
+# ── GET /api/render/<slug>/<section> (Phase 2, Group I3 -- pulled forward
+#    into Phase 1.5; see render.py's own module doc) ─────────────────────────
+
+
+def _render_cache_path(
+    repo: Repo, slug: str, section: Section, speed_pct: float, semitones: int
+) -> Path:
+    """The exact path `_render` will look for -- computed the same way the
+    endpoint itself does, from the test song's own tempo/practice
+    defaults (120bpm, 4-beat/2.0s pre-roll, 10ms crossfade)."""
+    from woodshed.clock import pre_roll_seconds
+    from woodshed.manifest import effective_pre_roll_beats
+    from woodshed.render import cache_path, span_fingerprint
+
+    song = load_song(repo.song_dir(slug) / "song.yaml")
+    pre_roll_s = pre_roll_seconds(effective_pre_roll_beats(song, section), song.tempo.bpm)
+    fp = span_fingerprint(
+        song, section, pre_roll_s=pre_roll_s, crossfade_ms=song.practice.loop_crossfade_ms
+    )
+    return cache_path(repo, slug, section.id, speed_pct, semitones, fp)
+
+
+def test_api_render_serves_the_cached_file_range_served(served, monkeypatch):
+    import woodshed.render as render_module
+
+    base, repo, slug = served
+    song = load_song(repo.song_dir(slug) / "song.yaml")
+    section = next(s for s in song.sections if s.id == "solo-full")
+    dest = _render_cache_path(repo, slug, section, 60.0, 0)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(b"FAKE FLAC BYTES")
+    # plan_ahead fires in the background on a cache HIT too -- keep it inert
+    # rather than shelling out to a real rubberband for the next rung.
+    monkeypatch.setattr(render_module, "render_section", lambda *a, **kw: Path("unused"))
+
+    url = base + f"/api/render/{slug}/solo-full?speed=60&semitones=0"
+    with urllib.request.urlopen(url) as response:
+        assert response.status == 200
+        assert response.headers.get("Accept-Ranges") == "bytes"
+        assert response.read() == b"FAKE FLAC BYTES"
+
+
+def test_api_render_kicks_off_plan_ahead_for_the_rung_above_on_a_cache_hit(served, monkeypatch):
+    import woodshed.render as render_module
+
+    base, repo, slug = served
+    song = load_song(repo.song_dir(slug) / "song.yaml")
+    section = next(s for s in song.sections if s.id == "solo-full")
+    dest = _render_cache_path(repo, slug, section, 60.0, 0)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(b"cached")
+
+    seen = []
+    monkeypatch.setattr(
+        render_module, "render_section",
+        lambda repo_, s, sec, speed_pct, semitones, **kw: seen.append(speed_pct) or Path("x"),
+    )
+
+    _get(base, f"/api/render/{slug}/solo-full?speed=60&semitones=0")
+
+    deadline = time.monotonic() + 2.0
+    while not seen and time.monotonic() < deadline:
+        time.sleep(0.01)
+    # song.practice defaults: start_speed=50, ladder_step=5 -- the rung
+    # above the requested 60 is 65.
+    assert seen == [65.0]
+
+
+def test_api_render_returns_202_while_not_yet_cached(served, monkeypatch):
+    import woodshed.render as render_module
+
+    base, _, slug = served
+    release = threading.Event()
+
+    def fake_render_section(repo_, song, section, speed_pct, semitones, **kw):
+        release.wait(timeout=2.0)
+        return Path("fake.flac")
+
+    monkeypatch.setattr(render_module, "render_section", fake_render_section)
+
+    status, data = _get_json(base, f"/api/render/{slug}/solo-full?speed=60&semitones=0")
+
+    assert status == 202
+    assert data == {"rendering": True}
+    release.set()  # let the background thread finish before the fixture tears down
+
+
+def test_api_render_unknown_section_is_404(served):
+    base, _, slug = served
+    with pytest.raises(urllib.error.HTTPError) as caught:
+        _get(base, f"/api/render/{slug}/no-such-section?speed=60")
+    assert caught.value.code == 404
+
+
+def test_api_render_unknown_song_is_404(served):
+    base, _, _ = served
+    with pytest.raises(urllib.error.HTTPError) as caught:
+        _get(base, "/api/render/no-such-song/solo-full?speed=60")
+    assert caught.value.code == 404
+
+
 # ── GET /api/setlists, GET /api/setlist/<slug> ──────────────────────────────
 
 
