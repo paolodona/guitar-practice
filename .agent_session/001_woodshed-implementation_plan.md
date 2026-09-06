@@ -16,6 +16,35 @@ before fanning out — D0 must land before D1–D7, and P1 gates Groups D / F / 
 
 ## Implementation progress (this run started 2026-09-05, unattended)
 
+**Run 4, 2026-09-06 (same session, unattended).** A backlog sweep rather than a
+phase: every item in `BACKLOG.md` that could be decided or built without hardware
+was, and the file now records each outcome with its reasoning instead of being a
+list of open questions. Twelve commits; suite 1097 -> 1117. The judgement calls
+worth knowing about, all of them recorded in full in `BACKLOG.md`:
+
+- **The slug question went to the code, not the docs**: `Can't Stop` is
+  `can-t-stop`, because a slug is a permanent identity — `practice/reps.jsonl`
+  names it on every line and never gets rewritten — so a prettier directory name
+  would cost the one thing this repo promises not to do. The docs were corrected
+  instead, and the doc-example tests caught the change immediately, which is what
+  they exist for.
+- **The render cache follows the 110% slider**; the ladder does not. Capping the
+  cache at 100% would make the one speed range Paolo asked for the only range
+  served by the engine the cache exists to avoid.
+- **Capture gained a level meter, not loudness normalisation.** Monitor mode is
+  the same capture into a scratch directory outside the repo, discarded on stop —
+  no second device path, and `capture/` stays real, unrepeatable audio rather
+  than also being a by-product of looking at a meter. Normalising was rejected on
+  purpose: it would be the tool's first alteration of what it recorded, applied
+  to the one thing it can never record again.
+- **Two bugs the sweep found on the way**: `render.evict` had never been called by
+  anything, so `cache_max_gb` was decoration (the server applies it after every
+  render now, and `woodshed render --evict` runs it deliberately); and mid-rung
+  progress was zeroed on every mount, so three clean reps across two sittings
+  never advanced a rung.
+- **`woodshed render` was the last `_NOT_YET_IMPLEMENTED` stub** — every command
+  `docs/01-architecture.md` names is real now.
+
 **Run 3, 2026-09-06 (unattended, headless container).** Phase 2 Groups **J** and
 **K** in full, then Phase 3 Groups **M** and **N1**. Group L (MIDI) was out of
 scope by instruction — it is blocked on a human at the actual foot pedal — and so
