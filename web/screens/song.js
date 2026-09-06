@@ -18,9 +18,13 @@
  *    `payload.shift`, and `POST /api/shift` persists the change ONLY when
  *    app.js's `currentSetlist()` names one -- with none, there is still no
  *    setlist entry to hold an override, so the number updates locally and
- *    nothing is written, exactly the prior behaviour. This screen has no
- *    audio engine (see decision 2 below) to re-pitch live; the number is
- *    the whole of what changes here.
+ *    nothing is written, exactly the prior behaviour. Written when this
+ *    screen had no audio engine at all, true no longer (see decision 2)
+ *    -- **found live 2026-09-06**: `bumpShift` still only updated the
+ *    number, silent until the next press, the same class of bug the
+ *    rung/speed fix below already names. `engine.setSemitones(shift)` now
+ *    fires immediately when a press lands mid-playback, matching
+ *    practice.js's own transpose handlers exactly.
  *
  * 2. **Phase 1.5, R1**: the transport bar now plays real audio. Through
  *    Phase 1 it was visual scaffolding only — D6's brief assigned
@@ -365,6 +369,13 @@ export function mount(el, payload) {
     shift = clampShift(shift + delta);
     renderShift();
     persistShift();
+    // Found live 2026-09-06, same class of bug as the rung/speed fix
+    // above: this only ever updated the LOCAL `shift` a future
+    // playPreview() would read -- a mid-playback +/- press was silent
+    // until the next play. practice.js's own transpose handlers already
+    // call engine.setSemitones(shift) live on every press; this screen
+    // just never did.
+    if (engineReady) engine.setSemitones(shift);
   }
   root.querySelector('[data-shift-minus]').addEventListener('click', () => bumpShift(-1));
   root.querySelector('[data-shift-plus]').addEventListener('click', () => bumpShift(1));

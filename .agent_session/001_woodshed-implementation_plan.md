@@ -1506,7 +1506,7 @@ tests in `test_capture.py`/`test_server.py` gained an assertion that the default
 is present. Full suite 894 passed (was 892); ruff clean; no-extras gate 891 passed, 3
 deselected.
 
-**Eighth thing, found 2026-09-06, same review pass — four small UI bugs in `song.js`/
+**Eighth thing, found 2026-09-06, same review pass — five small UI bugs in `song.js`/
 `sections.js`/`timeline.js`, none Python-side, no new tests (matching this repo's own
 "no JS framework" convention outside P1/R1's two narrow exceptions — verified by
 `node --check` and reasoning, not a new harness)**:
@@ -1527,6 +1527,13 @@ deselected.
   `engine.setSpeedPct()` takes effect immediately (its own "FOUND LIVE 2026-09-05" note);
   `song.js` just never called it. One line: `if (engineReady) engine.setSpeedPct(previewSpeed)`
   on rung click.
+- **Live pitch change while previewing** — the identical bug, reported separately once
+  Paolo tried the transpose `−`/`+` buttons during playback: `bumpShift` updated `shift`,
+  re-rendered the number, and persisted it, but never touched the live engine.
+  `practice.js`'s transpose handlers already call `engine.setSemitones(shift)` on every
+  press; `song.js`'s own transpose cluster (Phase 1, F3) predates this screen having an
+  engine at all (R1, added later) and was never revisited once it got one. Same one-line
+  fix, same place `bumpShift` already does everything else a press should do.
 - **No playhead during preview.** Named in `song.js`'s own module doc as a still-open D4
   gap (`RealtimeEngine` has no real position accessor) — Paolo's actual need ("I want to
   see where playback is so I know it needs to end here") doesn't require a true
