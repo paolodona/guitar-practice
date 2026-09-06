@@ -202,7 +202,7 @@ function nextUpHtml(nextUp) {
         <div style="font-size:29px;font-weight:600;letter-spacing:-.015em">${escapeHtml(nextUp.song_title)} &mdash; ${escapeHtml(nextUp.section_name)}</div>
         <div class="mono" style="font-size:13px;color:var(--ink-3,#6A7873);letter-spacing:.04em">${speedNote}</div>
       </div>
-      <a class="practise-btn" href="#/practice/${encodeURIComponent(nextUp.song_slug)}/${encodeURIComponent(nextUp.section_id)}">Practise</a>
+      <a class="practise-btn" href="#/practice/${encodeURIComponent(nextUp.song_slug)}/${encodeURIComponent(nextUp.section_id)}">Practice</a>
     </div>`;
 }
 
@@ -354,7 +354,7 @@ function render(el, payload) {
         <div class="lbl" style="font-size:10px">Song</div>
         <div class="lbl" style="font-size:10px">Readiness</div>
         <div class="lbl" style="font-size:10px">Sections</div>
-        <div class="lbl" style="font-size:10px">Practised</div>
+        <div class="lbl" style="font-size:10px">Practiced</div>
         <div class="lbl" style="font-size:10px;text-align:right">Shift</div>
         <div></div>
       </div>

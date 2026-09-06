@@ -91,6 +91,32 @@ test('the SAME scaled container\'s on-screen right edge still maps to the view\'
   assert.equal(frac, 1);
 });
 
+// Found live 2026-09-06, Paolo, on THIS SAME click-to-seek fix once it
+// reached the practice screen for real: `export { computeSeekPosition }
+// from '../timeline.js'` (a bare re-export, added when the pure half moved
+// there) re-exports the name for OTHER importers but does not bind it
+// locally -- seekToClientX's own call to computeSeekPosition threw
+// `ReferenceError: computeSeekPosition is not defined` on every click.
+// Fixed by importing it (alongside computeGrid/drawGrid/sizeCanvas)
+// and exporting the now-local binding. This is a static check rather than
+// a call to computeSeekPosition itself, because the ReferenceError only
+// fires from INSIDE the module's own top-level scope -- importing the name
+// from outside (as the tests above already do) works fine either way and
+// would not have caught this.
+test("practice.js imports computeSeekPosition from timeline.js (not just a bare "
+     + "re-export) -- seekToClientX calls it in the module's own scope, which a "
+     + "re-export alone does not populate", () => {
+  const practiceJsPath = fileURLToPath(new URL('../screens/practice.js', import.meta.url));
+  const src = readFileSync(practiceJsPath, 'utf8');
+  const importLine = src.match(/^import\s*\{[^}]*\}\s*from\s*'\.\.\/timeline\.js';/m);
+  assert.ok(importLine, "no import from '../timeline.js' found in practice.js");
+  assert.ok(
+    /\bcomputeSeekPosition\b/.test(importLine[0]),
+    "computeSeekPosition must be in practice.js's own import from timeline.js, not only "
+    + "re-exported -- a bare `export { x } from 'mod'` never binds `x` locally",
+  );
+});
+
 test("P2's own test contract, enforced as a lint-style check against seekToClientX's own "
      + 'extracted source (practice.js legitimately posts /api/rep elsewhere, in onPass, so '
      + "a whole-file check would be the wrong shape here): a waveform click never counts a "

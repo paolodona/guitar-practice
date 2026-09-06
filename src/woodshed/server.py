@@ -419,7 +419,10 @@ class WoodshedHandler(BaseHTTPRequestHandler):
             last = ledger.last_speed(reps, song.slug, section.id)
             return song.practice.start_speed if last is None else last
         cfg = LadderConfig(
-            start_speed=song.practice.start_speed,
+            start_speed=(
+                section.start_speed if section.start_speed is not None
+                else song.practice.start_speed
+            ),
             ladder_step=(
                 section.ladder_step if section.ladder_step is not None
                 else song.practice.ladder_step
@@ -851,7 +854,10 @@ class WoodshedHandler(BaseHTTPRequestHandler):
         if dest.is_file():
             self._send_file(dest, "audio/flac")
             cfg = LadderConfig(
-                start_speed=song.practice.start_speed,
+                start_speed=(
+                    section.start_speed if section.start_speed is not None
+                    else song.practice.start_speed
+                ),
                 ladder_step=(
                     section.ladder_step if section.ladder_step is not None
                     else song.practice.ladder_step
@@ -1024,6 +1030,7 @@ class WoodshedHandler(BaseHTTPRequestHandler):
                 "end_s": float(body["end_s"]),
                 "snapped": body.get("snapped", "free"),
                 "target_speed": float(body.get("target_speed", 100.0)),
+                "start_speed": body.get("start_speed"),
                 "ladder_step": body.get("ladder_step"),
                 "reps_to_advance": body.get("reps_to_advance"),
                 "notes": body.get("notes"),

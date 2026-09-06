@@ -71,7 +71,8 @@ sections:
     end_s: 201.150
     snapped: bar
     target_speed: 100
-    ladder_step: 2.5              # per-section override of the song default
+    start_speed: 45                # per-section override of the song default
+    ladder_step: 2.5               # per-section override of the song default
     notes: "Right hand from the 12th. Start at 45%, this is the whole problem."
   - id: solo-run
     name: Solo — the descending run

@@ -46,7 +46,7 @@
  *    the SAME reason: a fresh `AudioContext` is suspended until resumed
  *    from a user gesture's own call stack. This still owns no rep
  *    semantics and writes nothing to the ledger — practice.js remains the
- *    one screen that does that, and "Practise this" is still how you get
+ *    one screen that does that, and "Practice this" is still how you get
  *    there for the looped, counted version.
  *
  *    **Found live 2026-09-06**: with no playhead at all, there was no way
@@ -188,6 +188,29 @@ function escapeHtml(s) {
 }
 
 const RUNGS = [50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100];
+
+// Inspector dropdown option lists (Paolo, live 2026-09-06: "change the
+// start, target, step, reps to be dropdown (option) rather than free text
+// so I can select more quickly"). SPEED_OPTIONS backs both Start and Target
+// -- same percent domain, a wider floor than RUNGS above (which only backs
+// the preview transport's OWN speed dial, a separate control) since a
+// genuinely hard passage may start well under 50%. STEP_OPTIONS keeps every
+// value docs/02-data-model.md's own example already uses (2.5, 5) alongside
+// the coarser/finer steps a shorter or longer ladder might want.
+const SPEED_OPTIONS = Array.from({ length: 19 }, (_, i) => 10 + i * 5); // 10..100 by 5
+const STEP_OPTIONS = [1, 2, 2.5, 5, 10, 15, 20];
+const REPS_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
+/** Builds `<option>`s for a fixed preset list, always including `current`
+ *  even when it falls outside the preset (an older or hand-typed value) --
+ *  a plain `<select>` silently shows its first option as "selected" when
+ *  the bound value matches none of them, which would misreport what
+ *  `song.yaml` actually holds rather than just failing to offer it as a
+ *  future choice. */
+function selectOptions(presets, current, fmt = (v) => String(v)) {
+  const values = presets.includes(current) ? presets : [...presets, current].sort((a, b) => a - b);
+  return values.map((v) => `<option value="${v}"${v === current ? ' selected' : ''}>${fmt(v)}</option>`).join('');
+}
 
 /**
  * @param {HTMLElement} el
@@ -383,7 +406,7 @@ export function mount(el, payload) {
           <div style="width:1px;height:26px;background:var(--line,#26302E)"></div>
           <div data-rungs style="display:flex;align-items:center;gap:2px"></div>
           <div style="width:1px;height:26px;background:var(--line,#26302E)"></div>
-          <div class="mono" style="font-size:13px;color:var(--ink-2,#9CAAA4)">PREVIEW ONLY &middot; PRACTISE A SECTION TO LOOP IT</div>
+          <div class="mono" style="font-size:13px;color:var(--ink-2,#9CAAA4)">PREVIEW ONLY &middot; PRACTICE A SECTION TO LOOP IT</div>
           <div data-transport-clock class="mono" style="margin-left:auto;font-size:14px;color:var(--ink-2,#9CAAA4);font-variant-numeric:tabular-nums">${fmtPreciseS(0)} / ${fmtPreciseS(durationS)}</div>
         </div>
       </div>
@@ -697,7 +720,7 @@ export function mount(el, payload) {
     const body = {
       song: slug, id: current.id, name: current.name, start_s: current.start_s,
       end_s: current.end_s, snapped: current.snapped, target_speed: current.target_speed,
-      ladder_step: current.ladder_step, reps_to_advance: current.reps_to_advance,
+      start_speed: current.start_speed, ladder_step: current.ladder_step, reps_to_advance: current.reps_to_advance,
       notes: current.notes, patch: current.patch,
       counts_toward_readiness: current.counts_toward_readiness,
       lead_in_beats: current.lead_in_beats, full_song: current.full_song,
@@ -762,10 +785,23 @@ export function mount(el, payload) {
           ${sec.full_song ? '&#9745;' : '&#9744;'} FULL SONG &mdash; reps count, excluded from next/prev and readiness
         </button>
       </div>
-      <div style="display:flex;gap:10px">
-        <div style="flex:1"><div class="flbl">Target</div><input class="fld mono" data-f="target_speed" value="${sec.target_speed}%" style="font-size:13px"></div>
-        <div style="flex:1"><div class="flbl">Step</div><input class="fld mono" data-f="ladder_step" value="${sec.ladder_step ?? payload.practice.ladder_step}%" style="font-size:13px"></div>
-        <div style="flex:1"><div class="flbl">Reps to adv.</div><input class="fld mono" data-f="reps_to_advance" value="${sec.reps_to_advance ?? payload.practice.reps_to_advance}" style="font-size:13px"></div>
+      <div style="display:flex;gap:6px">
+        <div style="flex:1;min-width:0"><div class="flbl">Start</div>
+          <select class="fld mono" data-f="start_speed" style="font-size:12px;padding:8px 4px">${
+            selectOptions(SPEED_OPTIONS, sec.start_speed ?? payload.practice.start_speed, (v) => `${v}%`)
+          }</select></div>
+        <div style="flex:1;min-width:0"><div class="flbl">Target</div>
+          <select class="fld mono" data-f="target_speed" style="font-size:12px;padding:8px 4px">${
+            selectOptions(SPEED_OPTIONS, sec.target_speed, (v) => `${v}%`)
+          }</select></div>
+        <div style="flex:1;min-width:0"><div class="flbl">Step</div>
+          <select class="fld mono" data-f="ladder_step" style="font-size:12px;padding:8px 4px">${
+            selectOptions(STEP_OPTIONS, sec.ladder_step ?? payload.practice.ladder_step, (v) => `${v}%`)
+          }</select></div>
+        <div style="flex:1;min-width:0"><div class="flbl">Reps</div>
+          <select class="fld mono" data-f="reps_to_advance" style="font-size:12px;padding:8px 4px">${
+            selectOptions(REPS_OPTIONS, sec.reps_to_advance ?? payload.practice.reps_to_advance)
+          }</select></div>
       </div>
       <div>
         <div class="flbl">Notes</div>
@@ -776,7 +812,7 @@ export function mount(el, payload) {
         <input class="fld" data-f="patch" value="${escapeHtml(sec.patch ?? '')}" style="font-size:14px">
       </div>
       <div style="margin-top:auto;display:flex;flex-direction:column;gap:12px">
-        <button class="practise-btn" data-practise>Practise this</button>
+        <button class="practise-btn" data-practise>Practice this</button>
         <button class="practise-btn" data-delete style="background:var(--warn-tint,#2A1D17);color:var(--warn,#C9805E)">Delete section</button>
       </div>
     `;
@@ -789,6 +825,7 @@ export function mount(el, payload) {
     inspector.querySelector('[data-f="name"]').addEventListener('change', (e) => patchSection(sec.id, { name: e.target.value }));
     numField('start_s', parseFloat);
     numField('end_s', parseFloat);
+    numField('start_speed', parseFloat);
     numField('target_speed', parseFloat);
     numField('ladder_step', parseFloat);
     numField('reps_to_advance', (v) => parseInt(v, 10));

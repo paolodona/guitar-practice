@@ -111,7 +111,7 @@
  */
 import { currentSetlist, get, post } from '../app.js';
 import { drawWave, PRACTICE_WAVE_OPTS } from '../wave.js';
-import { computeGrid, drawGrid, sizeCanvas } from '../timeline.js';
+import { computeGrid, drawGrid, sizeCanvas, computeSeekPosition } from '../timeline.js';
 import { createEngine } from '../player.js';
 import { ACTIONS, on, dispatch } from '../actions.js';
 import { KEY_MAP } from '../keys.js';
@@ -223,10 +223,14 @@ export const FOOT_ICONS = {
 // module's own doc on computeSeekPosition): screens/song.js needed the
 // identical scale-aware click->source-seconds math for its own waveform
 // seek, and this repo's rule is one home per shared pixel<->time
-// conversion, not a second copy per screen. Re-exported here so
-// web/tests/test_practice_seek.mjs's existing import path keeps working
-// unchanged, and so `seekToClientX` below reads exactly as it always has.
-export { computeSeekPosition } from '../timeline.js';
+// conversion, not a second copy per screen. Imported above (alongside
+// computeGrid/drawGrid/sizeCanvas) so `seekToClientX` below can actually
+// call it, and re-exported here so web/tests/test_practice_seek.mjs's
+// existing import path keeps working unchanged. A bare `export { x } from
+// 'mod'` re-export does NOT bind a local name — omitting the import above
+// left `seekToClientX` throwing `ReferenceError: computeSeekPosition is not
+// defined` at every click, caught live 2026-09-06.
+export { computeSeekPosition };
 
 /** Slice a whole-song peaks payload down to [startS, endS] — wave.js's own
  *  doc is explicit that this is the caller's job, not its. */
@@ -448,7 +452,19 @@ export function mount(el, payload) {
     const wasPlaying = playing;
     guitarOnly = !guitarOnly;
     guitarBusy = true;
-    renderGuitarToggle();
+    // Separation (a fresh clip, first time) can take many seconds, and no
+    // audio reaches the speakers for the whole `await` below -- engine.play()
+    // below is the first sound once it resolves. `playing` drives BOTH
+    // tick()'s wall-clock `elapsed` advance and the play/pause foot icon
+    // (renderFootIcon's doc, above), so leaving it true here silently
+    // advanced the cosmetic playhead/pass-% ring (and could even cross a
+    // loop boundary) while the room was actually silent -- caught live
+    // 2026-09-06. Drop it to false for the duration; restored to `wasPlaying`
+    // once the swap (or its revert) settles, whether or not it succeeded.
+    if (wasPlaying) {
+      playing = false;
+      renderFootIcon();
+    }
     try {
       await engine.loadSection(sectionLoadParams());
       engine.setSpeedPct(speedPct);
@@ -473,6 +489,10 @@ export function mount(el, payload) {
         console.error('practice.js: could not revert source after a failed switch', revertErr);
       }
     } finally {
+      if (wasPlaying) {
+        playing = true;
+        renderFootIcon();
+      }
       guitarBusy = false;
       renderGuitarToggle();
       renderDiscrete();

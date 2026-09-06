@@ -113,7 +113,13 @@ class PracticeDefaults(BaseModel):
     reps_to_advance: int = 3
     pre_roll_beats: float = 4.0
     pre_roll_every_pass: bool = False
-    click: Literal["off", "lead-in", "always"] = "off"
+    # Default 'lead-in', not 'off': with no audible click, the lead-in
+    # overlay's 3-2-1 count-in sits over the section's own real pre-roll
+    # audio (docs/00-spec.md's "pre_roll_beats ... plays the audio *before*
+    # the section so you enter playing") with nothing to explain why the
+    # recording is already audible under a "counting in" overlay -- Paolo,
+    # live 2026-09-06, reading it as the music starting unannounced.
+    click: Literal["off", "lead-in", "always"] = "lead-in"
     loop_crossfade_ms: float = 10.0
 
 
@@ -133,6 +139,13 @@ class Section(BaseModel):
     end_s: float
     snapped: Literal["beat", "bar", "free"]
     target_speed: float
+    # Per-section override of the song default, same shape as ladder_step/
+    # reps_to_advance below -- None means "use song.practice.start_speed".
+    # Added live 2026-09-06, Paolo: docs/02-data-model.md's own solo-tapping
+    # example already said "Start at 45%" in a *note* with nowhere real to
+    # put the number -- server.py's _section_starting_speed resolved every
+    # section from the flat song-level default until this landed.
+    start_speed: float | None = None
     ladder_step: float | None = None  # per-section override of the song default
     reps_to_advance: int | None = None
     notes: str | None = None

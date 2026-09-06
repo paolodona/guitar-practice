@@ -355,6 +355,30 @@ def test_api_song_starting_speed_pct_is_the_earned_ladder_rung(served):
     assert by_id["solo-part"]["starting_speed_pct"] == 50.0
 
 
+def test_api_song_starting_speed_pct_honours_a_per_section_start_speed_override(served):
+    """Found live 2026-09-06, Paolo: a per-section START override (same shape
+    as ladder_step/reps_to_advance) -- "not all songs OR SECTIONS will be
+    practiced from 50%" applies to the starting rung itself, not just the
+    step/reps-to-advance around it. Before this, `_section_starting_speed`
+    always fed `song.practice.start_speed` into LadderConfig regardless of
+    what an individual section declared."""
+    base, repo, slug = served
+    song_path = repo.song_dir(slug) / "song.yaml"
+    song = load_song(song_path)
+    solo_part = next(s for s in song.sections if s.id == "solo-part")
+    solo_part.start_speed = 70.0
+    save_song(song, song_path)
+
+    # Never practiced -- falls back to ITS OWN start_speed override (70), not
+    # the song's flat default (50), and not the earned-rung math either
+    # (there is nothing earned yet).
+    _, data = _get_json(base, f"/api/song/{slug}")
+    by_id = {s["id"]: s for s in data["sections"]}
+    assert by_id["solo-part"]["starting_speed_pct"] == 70.0
+    # solo-full still falls back to the song default, unaffected.
+    assert by_id["solo-full"]["starting_speed_pct"] == 50.0
+
+
 def test_api_song_starting_speed_pct_is_last_practiced_for_full_song(served):
     """A `full_song` section is a rep counter, not a ladder target
     (manifest.Section.full_song's own docstring) -- it resumes at whatever
@@ -1079,6 +1103,22 @@ def test_post_section_round_trips_full_song_and_lead_in_beats(served):
     whole = next(s for s in data["sections"] if s["id"] == "whole")
     assert whole["full_song"] is True
     assert whole["lead_in_beats"] == 8
+
+
+def test_post_section_round_trips_start_speed(served):
+    base, _, slug = served
+    status, data = _post(
+        base,
+        "/api/section",
+        {
+            "song": slug, "id": "whole", "name": "Whole song",
+            "start_s": 0.0, "end_s": 200.0, "snapped": "free",
+            "target_speed": 100.0, "start_speed": 65.0,
+        },
+    )
+    assert status == 200
+    whole = next(s for s in data["sections"] if s["id"] == "whole")
+    assert whole["start_speed"] == 65.0
 
 
 def test_post_section_updates_an_existing_span(served):

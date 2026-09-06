@@ -90,12 +90,14 @@ def test_docs_song_yaml_parses(song_yaml_text: str, tmp_path: Path) -> None:
     assert whole_song.full_song is True
     # per-section overrides and optional fields survive
     tapping = next(s for s in song.sections if s.id == "solo-tapping")
+    assert tapping.start_speed == 45.0
     assert tapping.ladder_step == 2.5
     assert tapping.notes is not None and "12th" in tapping.notes
     intro = next(s for s in song.sections if s.id == "intro")
     assert intro.patch == "rhythm"
     solo_full = next(s for s in song.sections if s.id == "solo-full")
     assert solo_full.patch is None
+    assert solo_full.start_speed is None
     assert solo_full.ladder_step is None
     # counts_toward_readiness defaults True when absent from the file
     assert all(s.counts_toward_readiness for s in song.sections)
