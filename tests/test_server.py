@@ -33,7 +33,10 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 import pytest
+import yaml
 
+from woodshed.capture import Segment
+from woodshed.capture_session import start_session
 from woodshed.ledger import read as read_ledger
 from woodshed.library import Repo
 from woodshed.manifest import (
@@ -855,12 +858,17 @@ def _hash_tree(root: Path) -> dict[Path, str]:
     return hashes
 
 
-def test_server_writes_nothing_else(served):
+def test_server_writes_nothing_else(served, monkeypatch):
     base, repo, slug = served
     save_setlist(
-        Setlist(name="Gig", tuning="Eb standard", songs=[SetlistEntry(slug=slug)]),
+        Setlist(
+            name="Gig", tuning="Eb standard",
+            songs=[SetlistEntry(slug=slug), SetlistEntry(slug="needs-audio-tune")],
+        ),
         repo.setlists_dir / "gig.yaml",
     )
+    _start_capture(repo, [Segment(start_frame=0, end_frame=48_000, sample_rate=48_000)])
+    _fake_extract(monkeypatch)
     before = _hash_tree(repo.root)
 
     # every GET this unit implements -- harmless, but exercised so a stray
@@ -894,6 +902,12 @@ def test_server_writes_nothing_else(served):
     _post(base, "/api/shift", {"setlist": "gig", "song": slug, "shift": -2})
     _post(base, "/api/setlist", {"name": "Duo", "tuning": "E standard", "slug": "duo"})
     _post(base, "/api/setlist/duo/songs", {"song": slug})
+    _get(base, "/api/capture/segments")
+    _get(base, "/api/capture/segment-audio/0")
+    _post(
+        base, "/api/capture/bind",
+        {"index": 0, "mode": "existing", "slug": "needs-audio-tune", "tuning": "E standard"},
+    )
 
     after = _hash_tree(repo.root)
     all_paths = set(before) | set(after)
@@ -908,8 +922,179 @@ def test_server_writes_nothing_else(served):
             or path.parts[0] == "setlists"
             or path == ledger_rel
             or "cache" in path.parts
+            or path.parts[0] == "capture"
+            # binding a segment writes the song's own audio bytes alongside
+            # its song.yaml -- one deliberate action, same as `woodshed add`/
+            # `woodshed capture` always did from the CLI; U2's bind is the
+            # first thing that does it from the SERVER, not a new category.
+            or "audio" in path.parts
         ), f"unexpected write to {path}"
     assert changed, "the test exercised nothing that writes -- assertion would be vacuous"
+
+
+# ── capture-first: split now, name later (Phase 1.5, Group U) ──────────────
+
+
+def _start_capture(repo: Repo, segments: list[Segment]) -> Path:
+    raw_path = repo.capture_dir / "20260906-120000.wav"
+    raw_path.parent.mkdir(parents=True, exist_ok=True)
+    raw_path.write_bytes(AUDIO_BYTES)
+    start_session(repo, raw_path, segments)
+    return raw_path
+
+
+def _fake_extract(monkeypatch: pytest.MonkeyPatch, content: bytes = b"fake-flac-bytes") -> None:
+    """`extract_segment` is imported by NAME into two separate module
+    namespaces -- `woodshed.server` (the segment-audio GET's own direct
+    call) and `woodshed.capture` (where `bind_segment_to_song`/
+    `bind_segment_as_new_song` call it internally) -- so both copies of
+    the reference need patching, not just one."""
+    import woodshed.capture as capture_module
+    import woodshed.server as server_module
+
+    def fake(raw_audio_path, segment, dest_path):
+        Path(dest_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(dest_path).write_bytes(content)
+
+    monkeypatch.setattr(server_module, "extract_segment", fake)
+    monkeypatch.setattr(capture_module, "extract_segment", fake)
+
+
+def test_capture_segments_empty_when_nothing_captured(served) -> None:
+    base, _repo, _slug = served
+    status, body = _get_json(base, "/api/capture/segments")
+    assert status == 200
+    assert body == []
+
+
+def test_capture_segments_lists_pending_entries(served) -> None:
+    base, repo, _slug = served
+    _start_capture(repo, [
+        Segment(start_frame=0, end_frame=48_000, sample_rate=48_000),
+        Segment(start_frame=48_000, end_frame=96_000, sample_rate=48_000, overflowed=True),
+    ])
+
+    status, body = _get_json(base, "/api/capture/segments")
+
+    assert status == 200
+    assert body == [
+        {"index": 0, "duration_s": 1.0, "overflowed": False},
+        {"index": 1, "duration_s": 1.0, "overflowed": True},
+    ]
+
+
+def test_capture_segment_audio_serves_the_extracted_bytes(served, monkeypatch) -> None:
+    base, repo, _slug = served
+    _start_capture(repo, [Segment(start_frame=0, end_frame=48_000, sample_rate=48_000)])
+    _fake_extract(monkeypatch, b"preview-bytes")
+
+    status, body = _get(base, "/api/capture/segment-audio/0")
+
+    assert status == 200
+    assert body == b"preview-bytes"
+
+
+def test_capture_segment_audio_404_for_an_unknown_index(served) -> None:
+    base, _repo, _slug = served
+    with pytest.raises(urllib.error.HTTPError) as caught:
+        _get(base, "/api/capture/segment-audio/0")
+    assert caught.value.code == 404
+
+
+def test_post_capture_bind_existing_binds_to_a_needs_audio_slug(served, monkeypatch) -> None:
+    base, repo, _slug = served
+    save_setlist(
+        Setlist(name="Gig", tuning="Eb standard", songs=[SetlistEntry(slug="new-tune")]),
+        repo.setlists_dir / "gig.yaml",
+    )
+    _start_capture(repo, [Segment(start_frame=0, end_frame=48_000, sample_rate=48_000)])
+    _fake_extract(monkeypatch)
+
+    status, body = _post(
+        base, "/api/capture/bind",
+        {"index": 0, "mode": "existing", "slug": "new-tune", "tuning": "Eb standard"},
+    )
+
+    assert status == 200
+    assert body["slug"] == "new-tune"
+    assert (repo.song_dir("new-tune") / "song.yaml").is_file()
+    # the lone segment resolved -> the raw file and sidecar are both gone
+    _status, remaining = _get_json(base, "/api/capture/segments")
+    assert remaining == []
+
+
+def test_post_capture_bind_new_creates_a_song_and_adds_it_to_a_setlist(served, monkeypatch) -> None:
+    base, repo, _slug = served
+    save_setlist(
+        Setlist(name="Gig", tuning="Eb standard", songs=[]),
+        repo.setlists_dir / "gig.yaml",
+    )
+    _start_capture(repo, [Segment(start_frame=0, end_frame=48_000, sample_rate=48_000)])
+    _fake_extract(monkeypatch)
+
+    status, body = _post(
+        base, "/api/capture/bind",
+        {
+            "index": 0, "mode": "new", "title": "Brand New Tune", "artist": "Someone",
+            "tuning": "E standard", "setlist": "gig",
+        },
+    )
+
+    assert status == 200
+    assert body["slug"] == "brand-new-tune"
+    assert (repo.song_dir("brand-new-tune") / "song.yaml").is_file()
+    updated_gig = Setlist.model_validate(
+        yaml.safe_load((repo.setlists_dir / "gig.yaml").read_text(encoding="utf-8"))
+    )
+    assert [s.slug for s in updated_gig.songs] == ["brand-new-tune"]
+
+
+def test_post_capture_bind_refuses_an_already_resolved_index(served, monkeypatch) -> None:
+    base, repo, _slug = served
+    _start_capture(repo, [Segment(start_frame=0, end_frame=48_000, sample_rate=48_000)])
+    _fake_extract(monkeypatch)
+    _post(
+        base, "/api/capture/bind",
+        {"index": 0, "mode": "new", "title": "First Bind", "tuning": "E standard"},
+    )
+
+    with pytest.raises(urllib.error.HTTPError) as caught:
+        _post(
+            base, "/api/capture/bind",
+            {"index": 0, "mode": "new", "title": "Second Bind", "tuning": "E standard"},
+        )
+    assert caught.value.code == 400
+
+
+def test_post_capture_discard_drops_the_segment_without_creating_anything(served) -> None:
+    base, repo, _slug = served
+    _start_capture(repo, [Segment(start_frame=0, end_frame=48_000, sample_rate=48_000)])
+    songs_before = set(repo.list_songs())
+
+    status, body = _post(base, "/api/capture/discard", {"index": 0})
+
+    assert status == 200
+    assert body == {"index": 0, "discarded": True}
+    assert set(repo.list_songs()) == songs_before
+    _status, remaining = _get_json(base, "/api/capture/segments")
+    assert remaining == []
+
+
+def test_post_capture_discard_then_bind_the_same_index_refuses(served) -> None:
+    """Plan's own named contract."""
+    base, repo, _slug = served
+    _start_capture(repo, [
+        Segment(start_frame=0, end_frame=48_000, sample_rate=48_000),
+        Segment(start_frame=48_000, end_frame=96_000, sample_rate=48_000),
+    ])
+    _post(base, "/api/capture/discard", {"index": 0})
+
+    with pytest.raises(urllib.error.HTTPError) as caught:
+        _post(
+            base, "/api/capture/bind",
+            {"index": 0, "mode": "new", "title": "Too Late", "tuning": "E standard"},
+        )
+    assert caught.value.code == 400
 
 
 # ── WoodshedError surfaces as 400 ───────────────────────────────────────────

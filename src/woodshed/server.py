@@ -35,6 +35,13 @@ now:
     POST /api/shift                     -> writes setlist.songs[].shift   (F1)
     POST /api/setlist                   -> create a new setlist       (post-Phase-1)
     POST /api/setlist/<slug>/songs      -> add a song to a setlist    (post-Phase-1)
+    GET  /api/capture/segments          -> pending segments from the most
+                                            recent raw capture recording  (U2)
+    GET  /api/capture/segment-audio/<i> -> one pending segment's audio,
+                                            RANGE-SERVED, cut on the fly   (U2)
+    POST /api/capture/bind              -> bind one pending segment to a
+                                            song, existing or new          (U2)
+    POST /api/capture/discard           -> drop one pending segment       (U2)
     POST /api/shutdown                  -> stops the server               (C2)
 
 `/api/peaks/<slug>` still answers 404 with a small body when woodshed.peaks
@@ -56,6 +63,7 @@ import io
 import json
 import mimetypes
 import os
+import tempfile
 import threading
 import uuid
 import wave as wave_module
@@ -68,6 +76,13 @@ import numpy as np
 from pydantic import ValidationError
 
 from woodshed import ledger, practice, sections
+from woodshed.capture import (
+    Segment,
+    bind_segment_as_new_song,
+    bind_segment_to_song,
+    extract_segment,
+)
+from woodshed.capture_session import STATUS_BOUND, STATUS_DISCARDED, current_session, resolve
 from woodshed.click import render_click
 from woodshed.clock import pre_roll_seconds
 from woodshed.config import load_config
@@ -249,6 +264,10 @@ class WoodshedHandler(BaseHTTPRequestHandler):
                 self._audio(path.removeprefix("/api/audio/"))
             elif path.startswith("/api/click/"):
                 self._click(path.removeprefix("/api/click/"), parsed.query)
+            elif path == "/api/capture/segments":
+                self._capture_segments()
+            elif path.startswith("/api/capture/segment-audio/"):
+                self._capture_segment_audio(path.removeprefix("/api/capture/segment-audio/"))
             else:
                 self._error(404, f"no such page: {path}")
         except (WoodshedError, ValidationError) as exc:
@@ -591,6 +610,10 @@ class WoodshedHandler(BaseHTTPRequestHandler):
             elif path.startswith("/api/setlist/") and path.endswith("/songs"):
                 setlist_slug = path.removeprefix("/api/setlist/").removesuffix("/songs")
                 self._post_setlist_songs(setlist_slug, body)
+            elif path == "/api/capture/bind":
+                self._post_capture_bind(body)
+            elif path == "/api/capture/discard":
+                self._post_capture_discard(body)
             elif path == "/api/shutdown":
                 self._shutdown()
             else:
@@ -804,6 +827,124 @@ class WoodshedHandler(BaseHTTPRequestHandler):
         updated = add_song(load_setlist(self.repo, setlist_slug), song_slug, shift=shift)
         save_setlist(self.repo, setlist_slug, updated)
         self._json({"setlist": setlist_slug, "song": song_slug})
+
+    # ── capture-first: split now, name later (Phase 1.5, Group U) ──────────
+
+    def _pending_capture_entry(self, index: int):
+        """The current session's pending entry at *index*, or None -- the
+        one lookup every capture/segment endpoint below needs first."""
+        session = current_session(self.repo)
+        if session is None:
+            return None, None
+        entry = next((e for e in session.entries if e.index == index), None)
+        if entry is None or entry.status != "pending":
+            return session, None
+        return session, entry
+
+    def _capture_segments(self) -> None:
+        """The still-unresolved segments from the most recent raw capture
+        recording -- `[]` once every segment from it is resolved (bound or
+        discarded), same as `current_session` returning `None` then."""
+        session = current_session(self.repo)
+        entries = [] if session is None else session.pending
+        self._json([
+            {"index": e.index, "duration_s": e.duration_s, "overflowed": e.overflowed}
+            for e in entries
+        ])
+
+    def _capture_segment_audio(self, raw_index: str) -> None:
+        """Range-served preview audio for one still-pending segment, cut
+        from the raw recording on the fly into a system-temp file (never
+        under the repo -- this is a throwaway preview extract, not one of
+        CLAUDE.md's four write categories) and deleted again once served."""
+        try:
+            index = int(raw_index)
+        except ValueError:
+            self._error(404, f"no such capture segment: {raw_index!r}")
+            return
+        session, entry = self._pending_capture_entry(index)
+        if entry is None:
+            self._error(404, f"no such pending capture segment: {index}")
+            return
+        segment = Segment(
+            start_frame=entry.start_frame, end_frame=entry.end_frame,
+            sample_rate=entry.sample_rate, overflowed=entry.overflowed,
+        )
+        handle = tempfile.NamedTemporaryFile(suffix=".flac", delete=False)
+        handle.close()
+        tmp_path = Path(handle.name)
+        try:
+            extract_segment(session.raw_path, segment, tmp_path)
+            self._send_file(tmp_path, "audio/flac")
+        finally:
+            tmp_path.unlink(missing_ok=True)
+
+    def _post_capture_bind(self, body: dict) -> None:
+        """Bind one pending segment to a song. Body: `{index, mode:
+        "existing"|"new", slug?, title?, artist?, tuning, setlist?}`.
+
+        `"existing"` calls `bind_segment_to_song` -- also how T2's own
+        single-song live capture finishes, the same code path, not a
+        second one. `"new"` calls `bind_segment_as_new_song` and, when
+        `setlist` is given, adds the new song to it (mirrors
+        `POST /api/setlist/<slug>/songs`'s existing add-by-slug
+        behaviour). Either way, `resolve()` removes the segment from the
+        pending list and deletes the raw file once none remain.
+        """
+        try:
+            index = int(body.get("index"))
+        except (TypeError, ValueError):
+            raise WoodshedError("bind needs an integer 'index'") from None
+        mode = str(body.get("mode", ""))
+        if mode not in ("existing", "new"):
+            raise WoodshedError("'mode' must be 'existing' or 'new'")
+        tuning = str(body.get("tuning", "")).strip()
+        if not tuning:
+            raise WoodshedError("bind needs a 'tuning'")
+
+        session, entry = self._pending_capture_entry(index)
+        if entry is None:
+            raise WoodshedError(f"no such pending capture segment: {index}")
+        segment = Segment(
+            start_frame=entry.start_frame, end_frame=entry.end_frame,
+            sample_rate=entry.sample_rate, overflowed=entry.overflowed,
+        )
+
+        if mode == "existing":
+            slug = str(body.get("slug", "")).strip()
+            if not slug:
+                raise WoodshedError("mode 'existing' needs a 'slug'")
+            bind_segment_to_song(self.repo, slug, session.raw_path, segment, tuning=tuning)
+        else:
+            title = str(body.get("title", "")).strip()
+            if not title:
+                raise WoodshedError("mode 'new' needs a 'title'")
+            artist = str(body.get("artist", "")).strip()
+            slug = bind_segment_as_new_song(
+                self.repo, session.raw_path, segment,
+                title=title, artist=artist, tuning=tuning,
+            )
+            setlist_slug = str(body.get("setlist") or "").strip()
+            if setlist_slug:
+                updated = add_song(load_setlist(self.repo, setlist_slug), slug)
+                save_setlist(self.repo, setlist_slug, updated)
+
+        resolve(self.repo, index, STATUS_BOUND)
+        self._json({"index": index, "slug": slug})
+
+    def _post_capture_discard(self, body: dict) -> None:
+        """Drop a pending segment (a false positive from noise, say)
+        without creating anything. Same cleanup-when-none-remain rule as
+        binding."""
+        try:
+            index = int(body.get("index"))
+        except (TypeError, ValueError):
+            raise WoodshedError("discard needs an integer 'index'") from None
+        _session, entry = self._pending_capture_entry(index)
+        if entry is None:
+            raise WoodshedError(f"no such pending capture segment: {index}")
+        resolve(self.repo, index, STATUS_DISCARDED)
+        self._json({"index": index, "discarded": True})
 
     def _shutdown(self) -> None:
         """Stand down. No build queue in this unit, so nothing to refuse for."""
