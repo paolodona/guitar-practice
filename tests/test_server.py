@@ -1858,7 +1858,7 @@ def test_post_capture_start_then_stop_creates_a_pending_session(
 
     status, body = _post(base, "/api/capture/start", {})
     assert status == 200
-    assert body == {"started": True}
+    assert body == {"started": True, "monitor": False}
 
     _status, running_body = _get_json(base, "/api/capture/status")
     assert running_body["running"] is True
@@ -2294,3 +2294,29 @@ def test_setlist_order_needs_a_list(served):
     with pytest.raises(urllib.error.HTTPError) as excinfo:
         _post(base, "/api/setlist/gig/order", {"order": "c,a"})
     assert excinfo.value.code == 400
+
+
+def test_capture_start_can_arm_the_meter_without_recording(served, monkeypatch):
+    """`{"monitor": true}` reaches CaptureRunner's monitor mode. The device
+    itself is never opened in this suite -- the runner is the thing being
+    checked, and its own tests cover what monitoring does with what it
+    records (throws it away)."""
+    base, _repo, _slug = served
+    seen = {}
+
+    def fake_start(repo, *, device=None, monitor=False):
+        seen["monitor"] = monitor
+
+    from woodshed.server import WoodshedHandler  # noqa: F401 -- import for clarity
+
+    monkeypatch.setattr(
+        "woodshed.capture_runner.CaptureRunner.start", staticmethod(fake_start)
+    )
+    status, data = _post(base, "/api/capture/start", {"monitor": True})
+    assert status == 200
+    assert data["monitor"] is True
+    assert seen["monitor"] is True
+
+    _status, data = _post(base, "/api/capture/start", {})
+    assert data["monitor"] is False
+    assert seen["monitor"] is False

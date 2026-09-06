@@ -4,7 +4,9 @@
  * Two ways to capture, shown together:
  *
  * 1. **Live capture** (T2, new): a real arm/level-meter/elapsed-timer/stop
- *    panel, wired to `POST /api/capture/start`, `GET /api/capture/status`
+ *    panel, wired to `POST /api/capture/start` (with `{monitor: true}` for
+ *    "Check level", which runs the same meter and keeps nothing --
+ *    CaptureRunner.start's own doc has the reasoning), `GET /api/capture/status`
  *    (polled every 300ms while running) and `POST /api/capture/stop` —
  *    `capture_runner.py`'s background-thread wrapper around
  *    `capture.py`'s `capture()`. This is the capture-FIRST workflow
@@ -154,40 +156,59 @@ async function mountLiveCapture(container, cancelled, onStopped) {
         <div style="font-size:13px;color:var(--ink-2,#9CAAA4);text-align:center;max-width:340px">
           Records this machine's own output, a whole set at once — mute notifications first.
         </div>
-        <button data-arm style="background:var(--accent,#E0913F);color:var(--ground,#0C1211);border:none;
-                    border-radius:4px;padding:11px 28px;font-size:15px;font-weight:600;cursor:pointer">Arm</button>
+        <div style="display:flex;gap:10px;align-items:center">
+          <button data-arm style="background:var(--accent,#E0913F);color:var(--ground,#0C1211);border:none;
+                      border-radius:4px;padding:11px 28px;font-size:15px;font-weight:600;cursor:pointer">Arm</button>
+          <button data-monitor style="background:none;color:var(--ink-2,#9CAAA4);
+                      border:1px solid var(--line,#26302E);border-radius:4px;padding:11px 20px;
+                      font-size:15px;cursor:pointer;font-family:inherit">Check level</button>
+        </div>
+        <div style="font-size:12px;color:var(--ink-4,#5B6A64);text-align:center;max-width:340px">
+          "Check level" watches the meter without recording anything &mdash; play the
+          loudest part first, then arm for real.
+        </div>
         ${errorMessage ? `<div style="font-size:12px;color:var(--warn,#C9805E);text-align:center;max-width:340px">${escapeHtml(errorMessage)}</div>` : ''}
       </div>`;
-    container.querySelector('[data-arm]').addEventListener('click', async () => {
-      const armBtn = container.querySelector('[data-arm]');
-      armBtn.disabled = true;
+    async function startCapture(monitor) {
+      for (const button of container.querySelectorAll('button')) button.disabled = true;
       try {
-        await post('/api/capture/start', {});
+        await post('/api/capture/start', { monitor });
         await tick();
       } catch (err) {
         renderIdle(err.message);
       }
-    });
+    }
+    container.querySelector('[data-arm]').addEventListener('click', () => startCapture(false));
+    // Same device, same meter, nothing kept: the server records into a
+    // scratch directory outside the repo and deletes it on stop (see
+    // CaptureRunner.start). Found live 2026-09-06 -- judging input level
+    // meant arm/look/stop/re-arm before every real take.
+    container.querySelector('[data-monitor]').addEventListener('click', () => startCapture(true));
   }
 
   function renderRunning(runningStatus) {
     const pct = Math.min(100, Math.round(runningStatus.level * 100));
+    // A monitor is the same meter under a different word, and the word is
+    // the whole point: nothing is being kept, so it must never look like a
+    // recording in progress.
+    const monitoring = runningStatus.monitor === true;
+    const tone = monitoring ? 'var(--ink-2,#9CAAA4)' : 'var(--warn,#C9805E)';
     container.innerHTML = `
       <div style="display:flex;flex-direction:column;align-items:center;gap:12px">
-        <div style="width:56px;height:56px;border-radius:50%;border:2px solid var(--warn,#C9805E);
+        <div style="width:56px;height:56px;border-radius:50%;border:2px solid ${tone};
                     display:flex;align-items:center;justify-content:center">
-          <div style="width:18px;height:18px;border-radius:3px;background:var(--warn,#C9805E)"></div>
+          <div style="width:18px;height:18px;border-radius:${monitoring ? '50%' : '3px'};background:${tone}"></div>
         </div>
         <div style="font-family:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace;font-size:12px;
-                    letter-spacing:.08em;color:var(--warn,#C9805E)">&#9679; RECORDING</div>
+                    letter-spacing:.08em;color:${tone}">${monitoring ? 'LEVEL ONLY &middot; NOT RECORDING' : '&#9679; RECORDING'}</div>
         <div style="font-family:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace;font-size:30px;
                     font-weight:700;font-variant-numeric:tabular-nums">${formatElapsed(runningStatus.elapsed_s)}</div>
         <div style="width:220px;height:8px;border-radius:2px;background:var(--hairline,#1C2523);overflow:hidden">
           <div style="height:8px;background:var(--accent,#E0913F);width:${pct}%"></div>
         </div>
         ${runningStatus.overflowed ? '<div style="font-size:12px;color:var(--warn,#C9805E)">Overflow seen — a dropout may be in this recording</div>' : ''}
-        <button data-stop style="background:var(--warn,#C9805E);color:var(--ground,#0C1211);border:none;
-                    border-radius:4px;padding:10px 26px;font-size:15px;font-weight:600;cursor:pointer">Stop</button>
+        <button data-stop style="background:${tone};color:var(--ground,#0C1211);border:none;
+                    border-radius:4px;padding:10px 26px;font-size:15px;font-weight:600;cursor:pointer">${monitoring ? 'Done' : 'Stop'}</button>
       </div>`;
     container.querySelector('[data-stop]').addEventListener('click', async () => {
       // Found live 2026-09-06 ("capture doesn't stop"): tick()'s own poll
@@ -272,6 +293,22 @@ async function mountLiveCapture(container, cancelled, onStopped) {
   }
 
   async function renderStopped(result) {
+    if (result.monitor === true) {
+      // A monitor kept nothing, so there is nothing to review and nothing
+      // to tell the review panel about -- saying "0 segments captured"
+      // would read as a failed recording rather than a finished look.
+      container.innerHTML = `
+        <div style="display:flex;flex-direction:column;gap:8px;max-width:360px">
+          <div style="font-size:14px;color:var(--ink,#E8EEEB)">
+            Level checked &mdash; nothing was recorded.
+          </div>
+          <button data-again style="align-self:flex-start;background:var(--raised,#1B2422);
+                      color:var(--ink-2,#9CAAA4);border:none;border-radius:4px;padding:8px 16px;
+                      font-size:13px;cursor:pointer">Back</button>
+        </div>`;
+      container.querySelector('[data-again]').addEventListener('click', () => tick());
+      return;
+    }
     let segmentCount = result.segment_count;
     try {
       const segments = await get('/api/capture/segments');

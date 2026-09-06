@@ -268,3 +268,97 @@ def test_stop_without_a_wedge_never_needs_the_force_close_path(
     status = runner.stop()
 
     assert status["running"] is False
+
+
+# ── monitor mode (2026-09-06): judging the level BEFORE committing ───────
+
+
+def _wait_until(predicate, timeout_s: float = 2.0) -> None:
+    """Poll *predicate* rather than sleeping a guessed interval -- these
+    tests drive a real background thread, and a fixed sleep is either slow
+    or flaky depending on the machine."""
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        if predicate():
+            return
+        time.sleep(0.005)
+    raise AssertionError("condition never became true")
+
+
+def test_monitor_never_writes_into_the_repo(repo: Repo, monkeypatch) -> None:
+    """Paolo's own pain: input level is impossible to judge before pressing
+    start, so arming/stopping/re-arming was the only way to find out.
+    Monitoring runs the SAME capture path -- no second device code to get
+    wrong -- but into a scratch directory outside the repo, and throws it
+    away. `capture/` stays what CLAUDE.md says it is: real, unrepeatable
+    audio, never a by-product of looking at a meter."""
+    monkeypatch.setattr(
+        capture_runner_module, "capture", _blocking_fake_capture([], level=0.42)
+    )
+    runner = CaptureRunner(join_timeout_s=0.5)
+    before = sorted(p for p in repo.root.rglob("*"))
+
+    runner.start(repo, device=FAKE_DEVICE, monitor=True)
+    _wait_until(lambda: runner.status()["level"] > 0)
+    assert runner.status()["monitor"] is True
+    assert runner.status()["level"] == pytest.approx(0.42)
+    runner.stop()
+    _wait_until(lambda: not runner.status()["running"])
+
+    assert sorted(p for p in repo.root.rglob("*")) == before
+
+
+def test_monitor_leaves_no_session_and_no_segments(repo: Repo, monkeypatch) -> None:
+    """Even if the fake hands back segments, a monitor discards them: it
+    was never a recording, and half-becoming one on stop would be the
+    worst of both."""
+    segment = Segment(start_frame=0, end_frame=1000, sample_rate=1000)
+    monkeypatch.setattr(capture_runner_module, "capture", _blocking_fake_capture([segment]))
+    runner = CaptureRunner(join_timeout_s=0.5)
+
+    runner.start(repo, device=FAKE_DEVICE, monitor=True)
+    runner.stop()
+    _wait_until(lambda: not runner.status()["running"])
+
+    assert runner.status()["segment_count"] == 0
+    assert current_session(repo) is None
+
+
+def test_monitor_cleans_up_its_scratch_directory(repo: Repo, monkeypatch) -> None:
+    seen = {}
+
+    def fake(device, out_dir, *, on_level=None, raw_path=None, stop_event=None, **_ignored):
+        seen["dir"] = Path(raw_path).parent
+        Path(raw_path).write_bytes(b"fake raw audio")
+        while not stop_event.is_set():
+            time.sleep(0.005)
+        return iter(())
+
+    monkeypatch.setattr(capture_runner_module, "capture", fake)
+    runner = CaptureRunner(join_timeout_s=0.5)
+    runner.start(repo, device=FAKE_DEVICE, monitor=True)
+    _wait_until(lambda: "dir" in seen)
+    runner.stop()
+    _wait_until(lambda: not runner.status()["running"])
+
+    assert not seen["dir"].exists()
+
+
+def test_a_real_capture_still_reports_monitor_false(repo: Repo, monkeypatch) -> None:
+    monkeypatch.setattr(capture_runner_module, "capture", _blocking_fake_capture([]))
+    runner = CaptureRunner(join_timeout_s=0.5)
+    runner.start(repo, device=FAKE_DEVICE)
+    assert runner.status()["monitor"] is False
+    runner.stop()
+    _wait_until(lambda: not runner.status()["running"])
+
+
+def test_monitoring_and_capturing_cannot_run_at_once(repo: Repo, monkeypatch) -> None:
+    """One device, one reader -- the same refusal a second capture gets."""
+    monkeypatch.setattr(capture_runner_module, "capture", _blocking_fake_capture([]))
+    runner = CaptureRunner(join_timeout_s=0.5)
+    runner.start(repo, device=FAKE_DEVICE, monitor=True)
+    with pytest.raises(WoodshedError, match="already running"):
+        runner.start(repo, device=FAKE_DEVICE)
+    runner.stop()
+    _wait_until(lambda: not runner.status()["running"])

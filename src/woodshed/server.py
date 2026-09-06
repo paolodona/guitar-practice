@@ -1603,9 +1603,17 @@ class WoodshedHandler(BaseHTTPRequestHandler):
         `make_server`). Refuses (400, via the usual `WoodshedError` ->
         `_error` path) if one is already running, or if `pyaudiowpatch`
         itself is missing -- `default_device()`'s own `require_module`
-        names the installer."""
-        self.capture_runner.start(self.repo)
-        self._json({"started": True})
+        names the installer.
+
+        `{"monitor": true}` arms the meter WITHOUT committing to a
+        recording (see `CaptureRunner.start`): the same capture path, into
+        a scratch directory outside the repo, discarded on stop. It exists
+        because input level was impossible to judge before pressing start,
+        so checking it meant arm/look/stop/re-arm before every real take.
+        """
+        monitor = bool(body.get("monitor", False))
+        self.capture_runner.start(self.repo, monitor=monitor)
+        self._json({"started": True, "monitor": monitor})
 
     def _capture_status(self) -> None:
         """`GET /api/capture/status` -- elapsed time, current level,

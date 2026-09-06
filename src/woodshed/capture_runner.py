@@ -31,6 +31,8 @@ addition there.
 
 from __future__ import annotations
 
+import shutil
+import tempfile
 import threading
 import time
 from dataclasses import dataclass
@@ -53,6 +55,9 @@ class _State:
     overflowed: bool = False
     error: str | None = None
     segment_count: int = 0
+    #: True while this run is a MONITOR: the same capture, into a scratch
+    #: directory outside the repo, thrown away on stop. See `start`.
+    monitor: bool = False
 
 
 class CaptureRunner:
@@ -71,30 +76,59 @@ class CaptureRunner:
         self._stream: object | None = None
         self._join_timeout_s = join_timeout_s
 
-    def start(self, repo: Repo, *, device: Device | None = None) -> None:
+    def start(self, repo: Repo, *, device: Device | None = None, monitor: bool = False) -> None:
         """Arm *device* (default: `default_device()`) and start recording
         on a background thread. Refuses outright if one is already
-        running -- a loopback device has one reader, not a queue."""
+        running -- a loopback device has one reader, not a queue.
+
+        **`monitor=True` (2026-09-06)**: run the meter without committing
+        to a recording. Found live -- input level is impossible to judge
+        before pressing start, so the only way to check it was to arm,
+        look, stop, and re-arm, repeatedly, before every real capture.
+
+        A monitor is deliberately the SAME capture, pointed at a scratch
+        directory outside the repo and deleted on stop, rather than a
+        second device path. Two reasons: the device half of `capture.py`
+        is the one part of this repo that no test can cover (there is no
+        loopback device in CI, and its own history is a list of things
+        only a real WASAPI stream revealed), so a parallel implementation
+        would be a second thing that can only be debugged live; and
+        `capture/` stays exactly what CLAUDE.md says it is -- real,
+        unrepeatable audio -- rather than also being a by-product of
+        looking at a meter.
+
+        What a monitor is NOT: loudness normalisation of what was
+        captured. That was the other candidate fix and it is rejected on
+        purpose -- it would be the tool's first ever alteration of
+        recorded audio, applied to the one thing it can never re-record.
+        The meter solves the actual problem (judging level *before*
+        playing), and leaves the recording bit-exact.
+        """
         with self._lock:
             if self._state.running:
                 raise WoodshedError("a capture is already running")
             resolved_device = device if device is not None else default_device()
-            timestamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
-            raw_path = repo.capture_dir / f"{timestamp}.wav"
+            if monitor:
+                scratch_dir = Path(tempfile.mkdtemp(prefix="woodshed-monitor-"))
+                raw_path = scratch_dir / "monitor.wav"
+            else:
+                timestamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+                raw_path = repo.capture_dir / f"{timestamp}.wav"
             stop_event = threading.Event()
             self._stop_event = stop_event
             self._stream = None
-            self._state = _State(running=True, started_at=time.monotonic())
+            self._state = _State(running=True, started_at=time.monotonic(), monitor=monitor)
             thread = threading.Thread(
                 target=self._run,
-                args=(repo, resolved_device, raw_path, stop_event),
+                args=(repo, resolved_device, raw_path, stop_event, monitor),
                 daemon=True,
             )
             self._thread = thread
             thread.start()
 
     def _run(
-        self, repo: Repo, device: Device, raw_path: Path, stop_event: threading.Event
+        self, repo: Repo, device: Device, raw_path: Path, stop_event: threading.Event,
+        monitor: bool = False,
     ) -> None:
         state = self._state  # this run's own state -- fixed for its whole lifetime
 
@@ -113,19 +147,28 @@ class CaptureRunner:
                 device, raw_path.parent, on_level=on_level, on_overflow=on_overflow,
                 raw_path=raw_path, stop_event=stop_event, on_stream_ready=on_stream_ready,
             ))
-            if segments:
+            if monitor:
+                # Never a session, never a segment, whatever came back: it
+                # was a meter, and half-becoming a recording on stop would
+                # be the worst of both.
+                shutil.rmtree(raw_path.parent, ignore_errors=True)
+            elif segments:
                 capture_session.start_session(repo, raw_path, segments)
                 state.segment_count = len(segments)
             else:
                 raw_path.unlink(missing_ok=True)
         except Exception as exc:  # noqa: BLE001 -- surfaced via status(), never crashes silently
             state.error = str(exc)
+            if monitor:
+                shutil.rmtree(raw_path.parent, ignore_errors=True)
         finally:
             state.running = False
 
     def status(self) -> dict:
-        """`{running, elapsed_s, level, overflowed, error, segment_count}`
-        -- derived from in-memory state, not disk (see module doc)."""
+        """`{running, elapsed_s, level, overflowed, error, segment_count,
+        monitor}` -- derived from in-memory state, not disk (see module
+        doc). `monitor` is what lets the screen show the same meter under
+        a different word: nothing is being kept."""
         state = self._state
         elapsed = time.monotonic() - state.started_at if state.running else 0.0
         return {
@@ -135,6 +178,7 @@ class CaptureRunner:
             "overflowed": state.overflowed,
             "error": state.error,
             "segment_count": state.segment_count,
+            "monitor": state.monitor,
         }
 
     def stop(self) -> dict:
