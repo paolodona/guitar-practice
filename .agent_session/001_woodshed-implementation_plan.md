@@ -2936,6 +2936,50 @@ not care which device sent the CC.
 - **L3** optional expression-pedal → speed, snapping to rungs on release
 
 **Group M — sources (∥)**
+
+**Done (M1, M2), 2026-09-06.** `src/woodshed/sources.py` + `tests/test_sources.py`
+(30 tests). Built and verified with **no Spotify app registered and no token**,
+which is the constraint this run actually had and also the shape that makes the
+module testable at all: every network call takes an `opener` (default
+`urllib.request.urlopen`), and the whole suite passes a fake. Nothing here
+touches the network, ever, in a test.
+- **M1**: PKCE (RFC 7636) — `new_pkce`/`authorize_url`/`exchange_code`/
+  `refresh_credentials`; there is no client secret to leak because there never
+  was one. Tokens live in `~/.woodshed/credentials.json` at 0600
+  (`$WOODSHED_HOME` override exists only so a test never writes to a real home
+  directory); `config.yaml` holds the public `client_id` and nothing else,
+  because it is tracked. `parse_ref` takes a URL, a `spotify:` URI or a bare
+  `kind:id`. `search_tracks`/`fetch_ref` cover track/album/playlist, and
+  `import_tracks` writes one **needs-audio** `song.yaml` per track, optionally
+  adding them to a setlist in playlist order.
+  Three things the tests pin down because they are quiet when wrong: a refresh
+  response with no new refresh token must **keep** the old one (else the session
+  silently logs itself out); an album's item list carries no `album` block, so it
+  is filled back in (else every imported album track has `album: null`); and an
+  import **never overwrites** a song already on disk, because re-importing a
+  playlist after binding half of it is a normal thing to do.
+- **M2**: `scan_library(paths, title=..., artist=...)` — **tags first, then
+  filename**, ranked, capped, and it **never binds anything**; a test says so by
+  asserting the whole tree's mtimes are untouched. The tag reader is ~70 lines of
+  pure stdlib (FLAC Vorbis comments, ID3v2.3/2.4 text frames, exercised against
+  headers the tests synthesise byte-by-byte) rather than a `mutagen` dependency:
+  CLAUDE.md allows a heavy dependency in exactly three modules and this is not
+  one of them, and an unreadable file already degrades to filename matching,
+  which is the honest fallback for a match that is only ever a suggestion.
+  Similarity is deliberately crude (Jaccard over word tokens) — a cleverer score
+  would only make a wrong suggestion look more convincing.
+- **Found, deferred (BACKLOG)**: CLAUDE.md prints `cant-stop` as the example
+  slug; `library.slugify` actually produces `can-t-stop`, `songs/can-t-stop/`
+  exists with real history, and a test fixes that behaviour on purpose. The
+  Spotify import is the first thing that derives a slug from a title, which is
+  where the two meet. Doc or code — Paolo's call, and a migration either way.
+  The scan is unaffected: its matching tokens strip apostrophes instead of
+  splitting on them, which is a matching concern rather than a slug one.
+- **Process note, honestly**: for this module the tests were written straight
+  after the module body rather than before it (the rest of this run was
+  test-first). They still earned their keep — the apostrophe finding above and
+  three signature mismatches came out of writing them. Full suite 1066 passed
+  (was 1036).
 - **M1** `sources.py` — Spotify search/import (urllib, PKCE, token in
   `~/.woodshed/credentials.json`, **never** `config.yaml`), track/album/playlist → songs
   and setlists, all badged `needs-audio`

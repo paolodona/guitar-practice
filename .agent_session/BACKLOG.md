@@ -191,6 +191,17 @@ Out-of-scope items discovered while planning or implementing. Format:
       carries `"stage": "separating" | "rendering"` — so this is a matter of
       surfacing it, probably in the same status line the engine-kind fallback uses.
 
+- [ ] **[Plan 001]** CLAUDE.md's "Conventions" prints `cant-stop` as an example slug,
+      but `library.slugify` turns an apostrophe into a separator, so the real slug is
+      `can-t-stop` — and `songs/can-t-stop/` exists on disk with real practice history
+      behind it, plus a test in `tests/test_library.py` fixing the current behaviour
+      deliberately. Found 2026-09-06 building Group M (the Spotify import derives a slug
+      from a track title, which is where the two first meet). One of the two is wrong and
+      it is Paolo's call which: change the doc, or change `slugify` AND migrate the
+      existing song directory + every ledger line naming it. Not guessed at here. The
+      library scan is unaffected either way — its matching tokens strip apostrophes
+      rather than splitting on them, which is a matching concern, not a slug one.
+
 ## Low
 - [ ] **[Plan 001]** Add `uv run pytest` as the Stop-hook quality gate in
       `.claude/plan-project.md` now that Phase 0 has scaffolded the package and the
