@@ -162,12 +162,22 @@ def test_capture_unknown_tuning_refuses(repo: Repo) -> None:
 def test_capture_list_devices_reports_the_missing_extra_cleanly(
     repo: Repo, capsys: pytest.CaptureFixture
 ) -> None:
-    # This dev venv has no pyaudiowpatch installed -- exercises the real
-    # require_module degrade path, not a mocked stand-in.
+    # Exercises the real require_module degrade path when pyaudiowpatch is
+    # absent, or the real device listing when `uv sync --extra capture` has
+    # installed it -- whichever this venv actually has, not a mocked
+    # stand-in either way, so this asserts the shape true of both rather
+    # than pinning one specific machine's state.
+    try:
+        import pyaudiowpatch  # noqa: F401
+        installed = True
+    except ImportError:
+        installed = False
     rc = cli.main(["capture", "--list-devices"])
-    assert rc == 2
-    err = capsys.readouterr().err
-    assert "pyaudiowpatch" in err
+    if installed:
+        assert rc == 0
+    else:
+        assert rc == 2
+        assert "pyaudiowpatch" in capsys.readouterr().err
 
 
 # ── WoodshedError -> one line on stderr, exit 2 ──────────────────────────

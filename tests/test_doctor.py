@@ -34,9 +34,9 @@ def test_run_checks_covers_every_named_tool(repo: Repo) -> None:
 
 
 def test_run_checks_does_not_crash_with_optional_tools_absent(repo: Repo) -> None:
-    # This dev venv has only the three core deps + pytest/ruff installed, so
-    # librosa and pyaudiowpatch are genuinely absent here -- exercising the
-    # "report absent gracefully" path for real, not a mocked stand-in.
+    # Whether librosa/pyaudiowpatch are actually present depends on which
+    # extras this venv has synced (`uv sync --extra analyze --extra
+    # capture`) -- either way, run_checks must report a bool, never raise.
     checks = doctor.run_checks(repo)
     by_name = {c.name: c for c in checks}
     for optional in ("librosa", "pyaudiowpatch"):
@@ -61,14 +61,22 @@ def test_midi_check_is_an_honest_placeholder(repo: Repo) -> None:
     assert "not yet checked" in by_name["midi"].detail.lower()
 
 
-def test_loopback_check_skips_gracefully_with_no_pyaudiowpatch(repo: Repo) -> None:
-    # This dev venv has no pyaudiowpatch installed (same real-absence
-    # reasoning as test_run_checks_does_not_crash_with_optional_tools_absent)
-    # -- H3's loopback-open check must degrade, not fail, when there is
-    # nothing to open yet.
+def test_loopback_check_reports_honestly_either_way(repo: Repo) -> None:
+    # H3's loopback-open check must degrade, not fail, when pyaudiowpatch is
+    # absent -- and actually open/close the device for real when
+    # `uv sync --extra capture` has installed it. Assert the shape true of
+    # both branches rather than pinning one specific machine's state.
+    try:
+        import pyaudiowpatch  # noqa: F401
+        installed = True
+    except ImportError:
+        installed = False
     by_name = {c.name: c for c in doctor.run_checks(repo)}
     assert by_name["loopback"].ok is True
-    assert "pyaudiowpatch not installed" in by_name["loopback"].detail
+    if installed:
+        assert "not installed" not in by_name["loopback"].detail
+    else:
+        assert "pyaudiowpatch not installed" in by_name["loopback"].detail
     assert "loopback" not in doctor._CORE_CHECKS  # never gates core_ok
 
 
