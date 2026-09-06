@@ -29,7 +29,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from woodshed.errors import WoodshedError
-from woodshed.tuning import MAX_SHIFT
+from woodshed.tuning import MAX_SHIFT, pitch_of
 
 if TYPE_CHECKING:
     # Only for type hints -- library.py (B1) owns Repo, and importing it for
@@ -66,6 +66,15 @@ class Recording(BaseModel):
     tuning: str  # what the RECORD is in -- not what you play it in
     spotify_id: str | None = None
     source: str | None = None  # free text: where the bytes came from
+
+    @model_validator(mode="after")
+    def _check_tuning(self) -> Recording:
+        # Fails fast at the model, so `woodshed add`/`--tuning`, a POST body
+        # and a hand-edited song.yaml all go through the identical check --
+        # tuning.pitch_of already knows every valid name and raises
+        # WoodshedError naming them, so nothing here duplicates that list.
+        pitch_of(self.tuning)
+        return self
 
 
 class Tempo(BaseModel):
@@ -231,6 +240,14 @@ class Setlist(BaseModel):
     venue: str = ""
     songs: list[SetlistEntry] = Field(default_factory=list)
     notes: str | None = None
+
+    @model_validator(mode="after")
+    def _check_tuning(self) -> Setlist:
+        # Same reasoning as Recording._check_tuning above: a setlist created
+        # via POST /api/setlist, `woodshed setlist create --tuning`, or a
+        # hand-edited setlists/*.yaml all go through the identical check.
+        pitch_of(self.tuning)
+        return self
 
 
 def load_song(path: str | Path) -> Song:

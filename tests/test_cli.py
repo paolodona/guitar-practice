@@ -95,6 +95,15 @@ def test_setlist_create_then_list(repo: Repo, capsys: pytest.CaptureFixture) -> 
     assert "The Gig" in capsys.readouterr().out
 
 
+def test_setlist_create_unknown_tuning_refuses(repo: Repo) -> None:
+    # argparse's own `choices=` check, not a WoodshedError -- same reasoning
+    # as test_analyze_bpm_and_tap_together_refuses: a fixed list of tuning
+    # names, not free text, is the whole point of this unit.
+    with pytest.raises(SystemExit) as excinfo:
+        cli.main(["setlist", "create", "The Gig", "--tuning", "Eb", "--slug", "gig"])
+    assert excinfo.value.code == 2
+
+
 def test_setlist_add_song_derives_shift_by_default(repo: Repo) -> None:
     cli.main(["setlist", "create", "Gig", "--tuning", "Eb standard", "--slug", "gig"])
     rc = cli.main(["setlist", "add-song", "gig", "cant-stop"])
@@ -142,6 +151,14 @@ def test_capture_queue_names_the_missing_prerequisite(
     assert "Spotify import" in err
 
 
+def test_capture_unknown_tuning_refuses(repo: Repo) -> None:
+    # argparse's own `choices=` check -- rejected before any device work is
+    # attempted, so this doesn't need real hardware either.
+    with pytest.raises(SystemExit) as excinfo:
+        cli.main(["capture", "Some Title", "--tuning", "Eb"])
+    assert excinfo.value.code == 2
+
+
 def test_capture_list_devices_reports_the_missing_extra_cleanly(
     repo: Repo, capsys: pytest.CaptureFixture
 ) -> None:
@@ -185,6 +202,14 @@ def test_add_creates_the_expected_song_yaml(repo: Repo, tmp_path: Path) -> None:
 def test_add_refuses_a_missing_file(repo: Repo) -> None:
     rc = cli.main(["add", "nope.wav"])
     assert rc == 2
+
+
+def test_add_unknown_tuning_refuses(repo: Repo, tmp_path: Path) -> None:
+    source = tmp_path / "source.wav"
+    _write_wav(source, seconds=1.0)
+    with pytest.raises(SystemExit) as excinfo:
+        cli.main(["add", str(source), "--tuning", "Eb"])
+    assert excinfo.value.code == 2
 
 
 def test_add_refuses_a_slug_that_already_exists(repo: Repo, tmp_path: Path) -> None:

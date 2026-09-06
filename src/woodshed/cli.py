@@ -36,6 +36,7 @@ from woodshed.manifest import (
     load_song,
     save_song,
 )
+from woodshed.tuning import KNOWN_TUNINGS
 
 #: Fallback for `woodshed serve --port`'s default if `woodshed.server` cannot
 #: be imported (see `_serve_default_port`) -- docs/01-architecture.md's own
@@ -615,7 +616,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--title", help="song title (default: guessed from the filename)")
     p.add_argument("--artist", default="", help="artist name")
     p.add_argument("--album", default=None)
-    p.add_argument("--tuning", default="E standard",
+    p.add_argument("--tuning", choices=KNOWN_TUNINGS, default="E standard",
                     help="what the RECORDING is in -- not what you play it in")
     p.add_argument("--slug", default=None, help="override the derived slug")
     p.add_argument("--bpm", type=float, default=120.0,
@@ -717,7 +718,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     sp = setlist_sub.add_parser("create", help="create a new setlist")
     sp.add_argument("name", help='the setlist\'s name, e.g. "Ramba S.S. -- the set"')
-    sp.add_argument("--tuning", required=True, help="the BAND's tuning -- what makes the transpose")
+    sp.add_argument("--tuning", choices=KNOWN_TUNINGS, required=True,
+                     help="the BAND's tuning -- what makes the transpose")
     sp.add_argument("--slug", default=None,
                      help="override the derived slug (default: slugified name)")
     sp.add_argument("--date", default=None, help="YYYY-MM-DD, optional; drives the countdown")
@@ -748,7 +750,7 @@ def build_parser() -> argparse.ArgumentParser:
                     help="song title for a single-song capture (omit with --list-devices)")
     p.add_argument("--artist", default="")
     p.add_argument("--album", default=None)
-    p.add_argument("--tuning", default="E standard",
+    p.add_argument("--tuning", choices=KNOWN_TUNINGS, default="E standard",
                     help="what the RECORDING is in -- not what you play it in")
     p.add_argument("--slug", default=None, help="override the derived slug")
     p.add_argument("--bpm", type=float, default=120.0,

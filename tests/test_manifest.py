@@ -162,6 +162,38 @@ def test_setlist_entry_shift_out_of_range_raises(shift: int) -> None:
         SetlistEntry.model_validate({"slug": "s", "shift": shift})
 
 
+# --- tuning is validated at the model, for Recording and Setlist alike ------
+
+
+@pytest.mark.parametrize(
+    "tuning", ["E standard", "Eb standard", "D standard", "Drop D", "Drop C#"],
+)
+def test_recording_known_tuning_parses(tuning: str) -> None:
+    rec = Recording(file="a.flac", sha256="a" * 64, duration_s=10.0, tuning=tuning)
+    assert rec.tuning == tuning
+
+
+def test_recording_unknown_tuning_raises() -> None:
+    # The typo this validator exists to catch: "Eb" is not a tuning name,
+    # "Eb standard" is -- and this must fail at load, not three calls later
+    # when something finally calls tuning.pitch_of on it.
+    with pytest.raises(WoodshedError):
+        Recording(file="a.flac", sha256="a" * 64, duration_s=10.0, tuning="Eb")
+
+
+@pytest.mark.parametrize(
+    "tuning", ["E standard", "Eb standard", "D standard", "Drop D", "Drop C#"],
+)
+def test_setlist_known_tuning_parses(tuning: str) -> None:
+    setlist = Setlist(name="The Gig", tuning=tuning)
+    assert setlist.tuning == tuning
+
+
+def test_setlist_unknown_tuning_raises() -> None:
+    with pytest.raises(WoodshedError):
+        Setlist(name="The Gig", tuning="Eb")
+
+
 # --- a section with end_s <= start_s is refused on load ---------------------
 
 

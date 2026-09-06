@@ -7,6 +7,7 @@ import pytest
 
 from woodshed.errors import WoodshedError
 from woodshed.tuning import (
+    KNOWN_TUNINGS,
     MAX_SHIFT,
     TUNINGS,
     clamp_shift,
@@ -85,3 +86,12 @@ def test_tuning_label_renders_flat_as_unicode_flat_character() -> None:
 
 def test_tuning_label_leaves_sharp_names_unchanged() -> None:
     assert tuning_label("C# standard", -3) == "C# standard  -3"
+
+
+def test_known_tunings_is_the_single_source_every_valid_name_comes_from() -> None:
+    # cli.py's `--tuning` choices and manifest.py's Recording/Setlist
+    # validators both read this constant rather than keeping their own
+    # list -- it must actually cover every name pitch_of accepts.
+    assert set(KNOWN_TUNINGS) == set(TUNINGS) | set(["Drop D", "Drop C#"])
+    for name in KNOWN_TUNINGS:
+        assert pitch_of(name) is not None  # doesn't raise for any listed name

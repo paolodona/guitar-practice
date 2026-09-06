@@ -195,14 +195,29 @@ function nextUpHtml(nextUp) {
     </div>`;
 }
 
+// tuning.KNOWN_TUNINGS (Python, src/woodshed/tuning.py) mirrored here -- this
+// file has no way to import a Python module. A free-text tuning field let a
+// typo ("Eb" instead of "Eb standard") through unnoticed at creation time and
+// only surfaced later as a 400 the first time something needed the shift,
+// blanking the whole dashboard (app.js's router has no error UI) -- a
+// fixed-choice dropdown can't produce that typo in the first place.
+const KNOWN_TUNINGS = [
+  'E standard', 'Eb standard', 'D standard', 'C# standard', 'C standard',
+  'B standard', 'Drop D', 'Drop C#',
+];
+
 /** A name + tuning + submit form, shared by the empty state and the
  * pills row's "+ New setlist" toggle. `onCreated(slug)` runs after a
  * successful POST /api/setlist. */
 function createSetlistFormHtml() {
+  const options = KNOWN_TUNINGS.map((t) => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
   return `
     <form data-form style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
       <input class="fld" data-name placeholder="Setlist name" required style="width:220px">
-      <input class="fld" data-tuning placeholder="Tuning, e.g. Eb standard" required style="width:200px">
+      <select class="fld" data-tuning required style="width:200px">
+        <option value="" disabled selected>Tuning&hellip;</option>
+        ${options}
+      </select>
       <button type="submit" class="go-btn">Create</button>
       <div data-error class="form-error"></div>
     </form>`;
@@ -215,7 +230,7 @@ function wireCreateSetlistForm(container, onCreated) {
     e.preventDefault();
     errorEl.textContent = '';
     const name = form.querySelector('[data-name]').value.trim();
-    const tuning = form.querySelector('[data-tuning]').value.trim();
+    const tuning = form.querySelector('[data-tuning]').value;
     if (!name || !tuning) return;
     try {
       const created = await post('/api/setlist', { name, tuning });

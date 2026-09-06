@@ -50,6 +50,13 @@ _DROP_PARENTS: dict[str, str] = {
     "Drop C#": "Eb standard",
 }
 
+# Every name pitch_of accepts, in the order the error message below lists
+# them -- the single source of truth for anything that wants to offer a
+# fixed choice of tunings instead of free text: cli.py's `--tuning` flags
+# and manifest.py's Recording/Setlist validators both import this rather
+# than each keeping their own copy of "every valid name".
+KNOWN_TUNINGS: tuple[str, ...] = (*TUNINGS, *_DROP_PARENTS)
+
 _FLAT_NOTE_RE = re.compile(r"^([A-G])b(?=\s|$)")
 
 
@@ -67,7 +74,7 @@ def pitch_of(name: str) -> int:
     try:
         return TUNINGS[name]
     except KeyError:
-        known = ", ".join([*TUNINGS, *_DROP_PARENTS])
+        known = ", ".join(KNOWN_TUNINGS)
         raise WoodshedError(f"Unknown tuning {name!r}. Known tunings: {known}") from None
 
 
