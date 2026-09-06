@@ -1773,6 +1773,33 @@ what's missing is everything **after** a segment exists and before it is a bound
   tracklist MATCHED by duration — Phase 3's M1 dependency) or by `AddSong.dc.html`'s two
   states (one song at a time, title known up front) — this is genuinely a third shape:
   N unnamed segments, named after the fact.
+  - **Scope addition, 2026-09-06, raised by Paolo before sign-off**: the automatic
+    silence-splitter can get a cut wrong in both directions — a quiet passage inside a
+    song crossing the floor and over-splitting one song into two segments, or too short a
+    gap between two songs under-splitting them into one — and U0 as drafted had no way to
+    catch or fix either before naming. Resolved (Paolo's pick, of three sketched
+    directions) as ONE combined screen, not a separate "adjust splits" step: the whole
+    pass's own waveform leads the page, drawn once as a single strip with every segment's
+    span highlighted over it (an interactive version of `Capture.dc.html`'s existing "the
+    pass so far" element) — a draggable handle at each boundary to nudge a cut, a "merge"
+    button at each boundary for the over-split case, a "+ split at playhead" action for
+    the under-split case, and a scrubbable playhead (reusing `RealtimeEngine.seek()`, P1,
+    already built) to preview around a boundary before deciding. The per-segment naming
+    cards sit below, unchanged, and always act on whatever the cuts currently are.
+    **This is a real, not-yet-built backend surface**: `capture_session.py` (U2) today can
+    only mark a pending entry bound or discarded — nothing lets a caller adjust a segment's
+    start/end frame, merge two adjacent entries into one, or split one entry into two.
+    U1/U2 as already built do NOT cover this; three new operations are needed (working
+    names: `adjust_boundary`, `merge_segments`, `split_segment`, all in `capture_session.py`,
+    all needing new `/api/capture/*` endpoints) before U3 can wire the real screen — this is
+    additional scope beyond what U1/U2's "done" notes below cover, not something either
+    already secretly handles.
+    Drafted in `design/CaptureReview.dc.html` (a new sibling artboard, same "two flows read
+    better side by side" reasoning O1 already used for `AddSong.dc.html`, not a toggled
+    `Capture.dc.html` state) and republished to the existing canvas. One thing drafted but
+    deliberately left open, not resolved here: every row only creates a brand-new song —
+    there is no picker for matching a segment to an existing needs-audio slug already in
+    the setlist, which `bind_segment_to_song` (below) also supports. Still awaiting sign-off.
 - **U1** `capture.py` gains the shared extraction primitive and two bind functions —
   ```python
   def extract_segment(raw_audio_path: Path, segment: Segment, dest_path: Path) -> None
