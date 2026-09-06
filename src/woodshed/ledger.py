@@ -219,6 +219,24 @@ def last_practised(reps: Iterable[Rep], song: str, section: str | None = None) -
     return max(_parse_t(r.t) for r in matching)
 
 
+def last_speed(reps: Iterable[Rep], song: str, section: str) -> float | None:
+    """The `speed` of the most recently timestamped resolved rep for this
+    song/section, clean or not -- None if never practised.
+
+    Found live 2026-09-06: a `full_song` section is a rep counter, not a
+    ladder target (manifest.Section.full_song's own docstring -- it never
+    earns a rung via `ladder.starting_speed`), so it needs a different
+    "where do I resume" answer -- literally wherever the last pass left
+    off, not the highest earned rung. Deliberately ignores `clean`: an
+    unclean pass still records the speed that was actually being played,
+    and there is nothing else on disk to remember it by.
+    """
+    matching = _matching(reps, song, section)
+    if not matching:
+        return None
+    return max(matching, key=lambda r: _parse_t(r.t)).speed
+
+
 def totals(reps: Iterable[Rep], song: str, section: str | None = None) -> Totals:
     """passes, cleans and minutes practised, aggregated over resolved reps."""
     matching = _matching(reps, song, section)

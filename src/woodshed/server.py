@@ -102,6 +102,7 @@ import json
 import mimetypes
 import os
 import re
+import shutil
 import tempfile
 import threading
 import uuid
@@ -137,7 +138,7 @@ from woodshed.click import render_click
 from woodshed.clock import pre_roll_seconds
 from woodshed.config import load_config
 from woodshed.errors import WoodshedError
-from woodshed.ladder import LadderConfig, LadderState
+from woodshed.ladder import LadderConfig, LadderState, starting_speed
 from woodshed.ledger import Rep
 from woodshed.library import Repo, slugify
 from woodshed.manifest import Section, Setlist, effective_pre_roll_beats, load_song, save_song
@@ -399,6 +400,39 @@ class WoodshedHandler(BaseHTTPRequestHandler):
         content_type = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
         self._send(200, target.read_bytes(), content_type)
 
+    @staticmethod
+    def _section_starting_speed(reps: list[Rep], song, section: Section) -> float:
+        """Where practice.js/song.js should start the speed dial for this
+        section, next time it's opened -- found live 2026-09-06, Paolo:
+        "not all songs or sections will be practiced from 50%".
+
+        `full_song` (manifest.Section.full_song's own docstring: a rep
+        counter, not a ladder target) resumes at whatever speed the most
+        recent pass actually used (`ledger.last_speed`, clean or not) --
+        there is no rung to have earned. Every other section resumes at
+        the highest rung with `reps_to_advance` clean reps already banked
+        (`ladder.starting_speed`, unchanged, just wired in here for the
+        first time) -- exploring a speed without banking the clean reps to
+        earn it must not move next session's starting point.
+        """
+        if section.full_song:
+            last = ledger.last_speed(reps, song.slug, section.id)
+            return song.practice.start_speed if last is None else last
+        cfg = LadderConfig(
+            start_speed=song.practice.start_speed,
+            ladder_step=(
+                section.ladder_step if section.ladder_step is not None
+                else song.practice.ladder_step
+            ),
+            reps_to_advance=(
+                section.reps_to_advance if section.reps_to_advance is not None
+                else song.practice.reps_to_advance
+            ),
+            target_speed=section.target_speed,
+        )
+        clean_counts = ledger.clean_by_speed(reps, song.slug, section.id)
+        return starting_speed(clean_counts, cfg)
+
     def _song(self, raw_slug: str, query: str = "") -> None:
         slug = self._resolve_slug(raw_slug)
         if slug is None:
@@ -465,6 +499,7 @@ class WoodshedHandler(BaseHTTPRequestHandler):
                     **section.model_dump(mode="json"),
                     "lane": lanes[section.id],
                     "ancestors": [a.id for a in sections.ancestors(spans, section.id)],
+                    "starting_speed_pct": self._section_starting_speed(reps, song, section),
                 }
                 for section in song.sections
             ],
@@ -873,6 +908,8 @@ class WoodshedHandler(BaseHTTPRequestHandler):
                 self._post_rep(body)
             elif path == "/api/section":
                 self._post_section(body)
+            elif path == "/api/song/delete":
+                self._post_song_delete(body)
             elif path == "/api/shift":
                 self._post_shift(body)
             elif path == "/api/setlist":
@@ -1020,6 +1057,45 @@ class WoodshedHandler(BaseHTTPRequestHandler):
                 for s in song.sections
             ]
         })
+
+    def _post_song_delete(self, body: dict) -> None:
+        """`POST /api/song/delete`, body `{song: <slug>}` -- irreversibly
+        removes a song: its whole `songs/<slug>/` tree (song.yaml, the
+        bound audio, and its nested `cache/` -- library.Repo.cache_dir is
+        `song_dir(slug)/"cache"`, so one `rmtree` clears all three), and
+        the slug from every setlist that names it (`setlist.songs[]` --
+        left in place, a deleted song would otherwise linger forever as a
+        `needs_audio` placeholder no one asked for and nothing can rebind,
+        since `needs_audio` is derived purely from song.yaml's absence,
+        not a stored flag).
+
+        Deliberately does NOT touch `practice/reps.jsonl`: CLAUDE.md
+        invariant 5, the ledger is append-only and the only irreplaceable
+        file. The song's past reps stay on disk forever, keyed to a slug
+        that no longer resolves to a song -- the same shape a retraction
+        already uses (the ledger never rewrites, only accretes), and
+        exactly why every ledger reader takes reps as raw input rather
+        than assuming the song they name still exists.
+
+        No confirmation step here -- this is a route, not a UI. The actual
+        friction against a misclick belongs to whoever calls this
+        (screens/song.js's own confirm() dialog); the endpoint's job is
+        only to refuse an unknown slug, not to have a change of heart.
+        """
+        raw_slug = str(body.get("song", ""))
+        slug = self._resolve_slug(raw_slug)
+        if slug is None:
+            self._error(404, f"no such song: {raw_slug!r}")
+            return
+
+        for setlist_slug in self.repo.list_setlists():
+            setlist = load_setlist(self.repo, setlist_slug)
+            if any(e.slug == slug for e in setlist.songs):
+                setlist.songs = [e for e in setlist.songs if e.slug != slug]
+                save_setlist(self.repo, setlist_slug, setlist)
+
+        shutil.rmtree(self.repo.song_dir(slug))
+        self._json({"deleted": slug})
 
     def _post_shift(self, body: dict) -> None:
         """Write `setlist.songs[].shift` for one (setlist, song) pair.

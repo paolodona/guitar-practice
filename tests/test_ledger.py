@@ -258,6 +258,52 @@ def test_totals_and_last_practised_scope_by_section_when_given(ledger_repo):
     assert ledger.totals(reps, "cant-stop").passes == 2  # no section -> whole song
 
 
+# --- last_speed -----------------------------------------------------------
+# Found live 2026-09-06, Paolo: "not all songs or sections will be practiced
+# from 50%" -- a full_song section resumes at the LAST speed practiced,
+# not an earned ladder rung (see server.py's `_section_starting_speed`).
+
+
+def test_last_speed_is_the_most_recently_timestamped_reps_speed(ledger_repo):
+    reps = [
+        make_rep(t="2026-09-01T10:00:00Z", speed=50.0),
+        make_rep(t="2026-09-05T19:22:41Z", speed=85.0),
+        make_rep(t="2026-09-03T08:00:00Z", speed=70.0),
+    ]
+    assert ledger.last_speed(reps, "cant-stop", "solo") == 85.0
+
+
+def test_last_speed_returns_none_when_nothing_matches(ledger_repo):
+    assert ledger.last_speed([], "cant-stop", "whole-song") is None
+
+
+def test_last_speed_ignores_clean_flag_unclean_still_counts(ledger_repo):
+    """Full-song practice remembers wherever the last pass left off, clean
+    or not -- there is no rung being earned to gate it on."""
+    reps = [
+        make_rep(t="2026-09-01T10:00:00Z", speed=60.0, clean=True),
+        make_rep(t="2026-09-05T19:22:41Z", speed=92.0, clean=False),
+    ]
+    assert ledger.last_speed(reps, "cant-stop", "solo") == 92.0
+
+
+def test_last_speed_ignores_a_retracted_last_rep(ledger_repo):
+    original = make_rep(t="2026-09-01T10:00:00Z", speed=60.0)
+    later = make_rep(t="2026-09-05T19:22:41Z", speed=92.0)
+    retraction = make_rep(
+        t="2026-09-05T19:23:00Z", speed=92.0, retracted=True, retracts=later.id
+    )
+    assert ledger.last_speed([original, later, retraction], "cant-stop", "solo") == 60.0
+
+
+def test_last_speed_scopes_by_section(ledger_repo):
+    reps = [
+        make_rep(section="solo", speed=90.0, t="2026-09-05T19:22:41Z"),
+        make_rep(section="intro", speed=50.0, t="2026-09-06T09:00:00Z"),
+    ]
+    assert ledger.last_speed(reps, "cant-stop", "solo") == 90.0
+
+
 # --- append() creates the parent directory -------------------------------------
 
 

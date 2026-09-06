@@ -332,6 +332,61 @@ def test_api_song_payload_has_lanes_and_ancestors(served):
     assert by_id["solo-full"]["ancestors"] == []
 
 
+def test_api_song_starting_speed_pct_is_the_earned_ladder_rung(served):
+    """Found live 2026-09-06, Paolo: "not all songs or sections will be
+    practiced from 50%". An ordinary section resumes at the highest rung
+    with reps_to_advance (default 3) clean reps already banked --
+    ladder.starting_speed, wired in via server.py's own
+    `_section_starting_speed`."""
+    base, _, slug = served
+    payload = {
+        "song": slug, "section": "solo-full", "semitones": 0,
+        "pass": True, "clean": True, "loop_s": 12.3, "setlist": None, "source": "ui",
+    }
+    for _ in range(3):
+        _post(base, "/api/rep", {**payload, "speed": 55.0})
+
+    _, data = _get_json(base, f"/api/song/{slug}")
+    by_id = {s["id"]: s for s in data["sections"]}
+    # song.practice.start_speed=50, ladder_step=5 -- 3 clean reps at 55 earns
+    # the rung above it, 60, not 55 itself (re-earning would be punitive).
+    assert by_id["solo-full"]["starting_speed_pct"] == 60.0
+    # solo-part has no reps at all -- falls back to the song's start_speed.
+    assert by_id["solo-part"]["starting_speed_pct"] == 50.0
+
+
+def test_api_song_starting_speed_pct_is_last_practiced_for_full_song(served):
+    """A `full_song` section is a rep counter, not a ladder target
+    (manifest.Section.full_song's own docstring) -- it resumes at whatever
+    speed the last pass actually used, clean or not, never an earned rung."""
+    base, repo, slug = served
+    song_path = repo.song_dir(slug) / "song.yaml"
+    song = load_song(song_path)
+    song.sections.append(
+        Section(
+            id="whole-song", name="Whole song", start_s=0.0, end_s=200.0,
+            snapped="free", target_speed=100.0, full_song=True,
+        )
+    )
+    save_song(song, song_path)
+
+    # Never practiced yet -- falls back to the song's flat start_speed.
+    _, data = _get_json(base, f"/api/song/{slug}")
+    by_id = {s["id"]: s for s in data["sections"]}
+    assert by_id["whole-song"]["starting_speed_pct"] == 50.0
+
+    _post(base, "/api/rep", {
+        "song": slug, "section": "whole-song", "speed": 92.0, "semitones": 0,
+        "pass": True, "clean": False, "loop_s": 180.0, "setlist": None, "source": "ui",
+    })
+
+    _, data = _get_json(base, f"/api/song/{slug}")
+    by_id = {s["id"]: s for s in data["sections"]}
+    # 92 -- exactly the last pass's speed, unclean and not a rung, unlike
+    # solo-full's ladder-quantized result above.
+    assert by_id["whole-song"]["starting_speed_pct"] == 92.0
+
+
 def test_api_song_setlist_query_param_derives_the_shift(served):
     base, repo, slug = served
     save_setlist(
@@ -1103,6 +1158,60 @@ def test_post_section_unknown_song_is_404(served):
             {"song": "no-such-song", "id": "x", "start_s": 0.0, "end_s": 1.0,
              "snapped": "free", "target_speed": 100.0},
         )
+    assert caught.value.code == 404
+
+
+# ── POST /api/song/delete ────────────────────────────────────────────────
+
+
+def test_post_song_delete_removes_the_song_directory(served):
+    base, repo, slug = served
+    song_dir = repo.song_dir(slug)
+    assert song_dir.is_dir()
+
+    status, data = _post(base, "/api/song/delete", {"song": slug})
+    assert status == 200
+    assert data == {"deleted": slug}
+    assert not song_dir.exists()
+
+
+def test_post_song_delete_removes_the_slug_from_every_setlist(served):
+    from woodshed.setlist import load as load_setlist
+
+    base, repo, slug = served
+    save_setlist(
+        Setlist(
+            name="Gig", tuning="E standard",
+            songs=[SetlistEntry(slug=slug), SetlistEntry(slug="other-song")],
+        ),
+        repo.setlists_dir / "gig.yaml",
+    )
+
+    _post(base, "/api/song/delete", {"song": slug})
+
+    updated = load_setlist(repo, "gig")
+    assert [e.slug for e in updated.songs] == ["other-song"]
+
+
+def test_post_song_delete_never_touches_the_ledger(served):
+    """CLAUDE.md invariant 5: the ledger is append-only and the only
+    irreplaceable file. Deleting the song it names must not touch it."""
+    base, repo, slug = served
+    _post(base, "/api/rep", {
+        "song": slug, "section": "solo-full", "speed": 60.0, "semitones": 0,
+        "pass": True, "clean": True, "loop_s": 12.3, "setlist": None, "source": "ui",
+    })
+    before = list(read_ledger(repo))
+
+    _post(base, "/api/song/delete", {"song": slug})
+
+    assert list(read_ledger(repo)) == before
+
+
+def test_post_song_delete_unknown_slug_is_404(served):
+    base, _, _ = served
+    with pytest.raises(urllib.error.HTTPError) as caught:
+        _post(base, "/api/song/delete", {"song": "no-such-song"})
     assert caught.value.code == 404
 
 
