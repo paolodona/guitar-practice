@@ -58,11 +58,18 @@ class _State:
 class CaptureRunner:
     """Owns at most one background capture thread at a time."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, join_timeout_s: float = 2.0) -> None:
         self._lock = threading.Lock()
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
         self._state = _State()
+        #: The raw PyAudio stream `capture()`'s own `on_stream_ready` most
+        #: recently handed us -- `stop()` reaches for this if the capture
+        #: thread never notices `_stop_event` in time. Injectable so tests
+        #: don't have to wait out the real production timeout to exercise
+        #: the force-close path (see `stop()`'s own doc).
+        self._stream: object | None = None
+        self._join_timeout_s = join_timeout_s
 
     def start(self, repo: Repo, *, device: Device | None = None) -> None:
         """Arm *device* (default: `default_device()`) and start recording
@@ -76,6 +83,7 @@ class CaptureRunner:
             raw_path = repo.capture_dir / f"{timestamp}.wav"
             stop_event = threading.Event()
             self._stop_event = stop_event
+            self._stream = None
             self._state = _State(running=True, started_at=time.monotonic())
             thread = threading.Thread(
                 target=self._run,
@@ -96,10 +104,14 @@ class CaptureRunner:
         def on_overflow() -> None:
             state.overflowed = True
 
+        def on_stream_ready(stream: object) -> None:
+            with self._lock:
+                self._stream = stream
+
         try:
             segments = list(capture(
                 device, raw_path.parent, on_level=on_level, on_overflow=on_overflow,
-                raw_path=raw_path, stop_event=stop_event,
+                raw_path=raw_path, stop_event=stop_event, on_stream_ready=on_stream_ready,
             ))
             if segments:
                 capture_session.start_session(repo, raw_path, segments)
@@ -141,13 +153,40 @@ class CaptureRunner:
         status` until it actually reads false, rather than assuming this
         one call always finishes the job.
 
+        **Found live 2026-09-06, same session, a real capture** ("stuck at
+        'Stopping...' forever, no progress at all"): a genuinely WEDGED
+        capture thread -- `capture.py`'s own blocking `stream.read()` never
+        returning once a WASAPI loopback device stops delivering packets
+        (the common trigger: the backing track finished, then Stop was
+        pressed) -- never notices `_stop_event` no matter how long anything
+        waits, because it is not between reads to check it; the ABOVE fix
+        only ever helped a thread that was still polling. If the join below
+        times out, this reaches for the stream `capture()`'s own
+        `on_stream_ready` handed `_run` and force-closes it: PortAudio
+        streams closed from another thread unstick a blocked `read()` (it
+        raises rather than hanging), which `capture()`'s own loop now treats
+        as a clean stop when `_stop_event` is already set (see its module
+        doc) rather than a fabricated overflow. One more short join gives
+        that its own chance to land before this call gives up and reports
+        whatever `status()` honestly is -- possibly still `running: True`,
+        if even the force-close didn't work; `screens/capture.js`'s own
+        polling bound (see its module doc) is what keeps THAT case from
+        hanging the UI forever too.
+
         Refuses if nothing is running.
         """
         with self._lock:
             if not self._state.running:
                 raise WoodshedError("no capture is running")
             thread = self._thread
+            stream = self._stream
             self._stop_event.set()
         if thread is not None:
-            thread.join(timeout=2.0)
+            thread.join(timeout=self._join_timeout_s)
+            if thread.is_alive() and stream is not None:
+                try:
+                    stream.close()
+                except Exception:  # noqa: BLE001 -- best-effort; see this method's own doc
+                    pass
+                thread.join(timeout=self._join_timeout_s)
         return self.status()

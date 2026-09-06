@@ -557,6 +557,101 @@ def test_capture_on_level_still_fires_per_chunk_with_stop_event_given(
     assert levels == [pytest.approx(0.5), pytest.approx(0.5)]
 
 
+def test_capture_calls_on_stream_ready_with_the_open_stream(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`capture_runner.CaptureRunner.stop()`'s force-close path (found live
+    2026-09-06) needs the stream object itself, handed out the moment it
+    opens -- before a single chunk has been read, so a wedge on the very
+    first read is still reachable."""
+    stop_event = threading.Event()
+    chunk = _tone(100, amplitude=0.5).tobytes()
+
+    def fake_read(n: int, exception_on_overflow: bool = True) -> bytes:
+        stop_event.set()
+        return chunk
+
+    fake_stream = SimpleNamespace(read=fake_read, stop_stream=lambda: None, close=lambda: None)
+    _install_fake_pyaudiowpatch(monkeypatch, fake_stream)
+
+    device = Device(index=0, name="Fake Loopback", sample_rate=SR, channels=1)
+    ready_with = []
+
+    list(capture(
+        device, tmp_path, raw_path=tmp_path / "raw.wav", stop_event=stop_event,
+        on_stream_ready=ready_with.append,
+    ))
+
+    assert ready_with == [fake_stream]
+
+
+def test_capture_treats_a_read_error_after_stop_event_as_a_clean_stop_not_an_overflow(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Simulates `CaptureRunner.stop()`'s force-close: `stream.close()` from
+    another thread makes the NEXT `read()` raise OSError, same shape as a
+    real overflow -- but `stop_event` is already set by then (that is the
+    precondition for the force-close to run at all), so this must NOT be
+    recorded as a dropout or padded with fake silence, unlike a genuine
+    mid-recording overflow (see the sibling test above)."""
+    stop_event = threading.Event()
+    chunk = _tone(100, amplitude=0.5).tobytes()
+    call_count = 0
+
+    def fake_read(n: int, exception_on_overflow: bool = True) -> bytes:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 2:
+            stop_event.set()  # the "force-close" landed between reads 2 and 3
+            raise OSError("stream closed")
+        return chunk
+
+    fake_stream = SimpleNamespace(read=fake_read, stop_stream=lambda: None, close=lambda: None)
+    _install_fake_pyaudiowpatch(monkeypatch, fake_stream)
+
+    device = Device(index=0, name="Fake Loopback", sample_rate=SR, channels=1)
+    overflow_calls = []
+
+    segments = list(capture(
+        device, tmp_path, raw_path=tmp_path / "raw.wav", stop_event=stop_event,
+        on_overflow=lambda: overflow_calls.append(True),
+    ))
+
+    assert overflow_calls == []  # not recorded as an overflow
+    assert len(segments) == 1
+    assert segments[0].overflowed is False
+    assert segments[0].end_frame - segments[0].start_frame == 100  # 1 real chunk, no padding
+
+
+def test_capture_finally_tolerates_a_stream_already_force_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The `finally` block's own `stop_stream()`/`close()` must not blow up
+    a capture that otherwise finished cleanly, if `CaptureRunner.stop()`
+    already force-closed the same stream out from under it."""
+    stop_event = threading.Event()
+
+    def fake_read(n: int, exception_on_overflow: bool = True) -> bytes:
+        stop_event.set()
+        return _tone(100, amplitude=0.5).tobytes()
+
+    def raising_stop_stream() -> None:
+        raise OSError("Stream not open")
+
+    def raising_close() -> None:
+        raise OSError("Stream not open")
+
+    fake_stream = SimpleNamespace(
+        read=fake_read, stop_stream=raising_stop_stream, close=raising_close,
+    )
+    _install_fake_pyaudiowpatch(monkeypatch, fake_stream)
+
+    device = Device(index=0, name="Fake Loopback", sample_rate=SR, channels=1)
+    segments = list(capture(device, tmp_path, raw_path=tmp_path / "raw.wav", stop_event=stop_event))
+
+    assert len(segments) == 1  # never raised, despite the "already closed" stream
+
+
 def test_capture_stop_event_none_preserves_original_keyboardinterrupt_only_behaviour(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

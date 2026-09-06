@@ -49,6 +49,40 @@ def _blocking_fake_capture(segments_after_stop: list[Segment], *, level: float =
     return fake
 
 
+class _FakeStream:
+    """Stands in for a real PyAudio stream `on_stream_ready` would hand
+    over -- `.close()` is the one thing `CaptureRunner.stop()`'s force-close
+    path calls on it."""
+
+    def __init__(self) -> None:
+        self.closed = False
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def _wedged_fake_capture(segments_after_stop: list[Segment]):
+    """A fake `capture()` that IGNORES `stop_event` entirely -- as if
+    genuinely wedged inside a real blocked `stream.read()` (found live
+    2026-09-06; see `CaptureRunner.stop()`'s own doc) -- and only ever
+    stops once its own stream has been force-closed. Exercises the ONE
+    thing that can unwedge a capture like this: nothing here ever checks
+    `stop_event`, on purpose."""
+
+    def fake(device, out_dir, *, on_level=None, on_overflow=None, raw_path=None,
+             stop_event=None, on_stream_ready=None, **_ignored):
+        stream = _FakeStream()
+        if on_stream_ready is not None:
+            on_stream_ready(stream)
+        Path(raw_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(raw_path).write_bytes(b"fake raw audio")
+        while not stream.closed:  # deliberately NOT stop_event.is_set()
+            time.sleep(0.005)
+        yield from segments_after_stop
+
+    return fake
+
+
 def test_status_is_idle_before_any_capture_starts() -> None:
     runner = CaptureRunner()
     status = runner.status()
@@ -197,3 +231,40 @@ def test_a_fresh_start_succeeds_after_a_previous_run_errored(
     runner.start(repo, device=FAKE_DEVICE)  # does not raise "already running"
     assert runner.status()["running"] is True
     runner.stop()
+
+
+def test_stop_force_closes_a_stream_wedged_past_stop_event(
+    repo: Repo, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Found live 2026-09-06: a real capture thread stuck forever inside
+    `stream.read()`, never noticing `_stop_event` -- `stop()`'s join alone
+    cannot recover it; only force-closing the stream `on_stream_ready`
+    handed over does. `join_timeout_s` is injected small here so the test
+    doesn't have to wait out the real 2s production default."""
+    segments = [Segment(start_frame=0, end_frame=100, sample_rate=1000)]
+    monkeypatch.setattr(capture_runner_module, "capture", _wedged_fake_capture(segments))
+    runner = CaptureRunner(join_timeout_s=0.05)
+    runner.start(repo, device=FAKE_DEVICE)
+    time.sleep(0.02)
+
+    status = runner.stop()
+
+    assert status["running"] is False
+    assert status["segment_count"] == 1
+    session = current_session(repo)
+    assert session is not None
+
+
+def test_stop_without_a_wedge_never_needs_the_force_close_path(
+    repo: Repo, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The ordinary case (found live 2026-09-06's FIRST fix, unchanged):
+    a capture that notices `stop_event` promptly stops on the first join,
+    with no force-close involved at all."""
+    monkeypatch.setattr(capture_runner_module, "capture", _blocking_fake_capture([]))
+    runner = CaptureRunner(join_timeout_s=0.05)
+    runner.start(repo, device=FAKE_DEVICE)
+
+    status = runner.stop()
+
+    assert status["running"] is False

@@ -276,6 +276,7 @@ def capture(
     on_overflow: Callable[[], None] | None = None,
     raw_path: str | Path | None = None,
     stop_event: threading.Event | None = None,
+    on_stream_ready: Callable[[object], None] | None = None,
 ) -> Iterator[Segment]:
     """Arm *device*, record until Ctrl-C, *stop_event* is set, or the stream
     ends on its own, then split on silence and yield one `Segment` per
@@ -291,6 +292,25 @@ def capture(
     stop lands within about one chunk, not instantly but never far off
     either. `None` (the default) preserves H2's original CLI behaviour
     exactly -- Ctrl-C is still the only way to stop a foreground capture.
+
+    **`on_stream_ready`, found live 2026-09-06** ("capture stuck at
+    'Stopping...' forever"): `stream.read()` below is a BLOCKING call with
+    no timeout, and `stop_event` is only ever checked *between* reads. A
+    real WASAPI loopback device that stops rendering anything (the common
+    case: the backing track finished playing, then Stop was pressed) can
+    stop delivering packets entirely, so the read in progress never
+    returns and `stop_event` is never seen again -- the capture thread is
+    wedged for good, not merely slow. `on_stream_ready`, if given, is
+    called once with the raw PyAudio stream object right after it opens,
+    so `capture_runner.CaptureRunner.stop()` can hold onto it and force-
+    close it from a DIFFERENT thread once a bounded wait shows the capture
+    thread never noticed `stop_event` on its own -- closing a PortAudio
+    stream out from under a blocked `read()` is the standard way to
+    unstick it (the call raises instead of hanging), which the `finally`
+    block below already treats as an ordinary end of capture. This is the
+    device half's own kind of risk the module docstring already names --
+    exercised here only via a fake stream in the test suite, never real
+    hardware.
 
     Two mutually exclusive output modes, selected by *raw_path* -- see
     `_finish_capture` for exactly what each writes:
@@ -342,6 +362,8 @@ def capture(
         input=True,
         input_device_index=device.index,
     )
+    if on_stream_ready is not None:
+        on_stream_ready(stream)
 
     scratch_path = out_dir / "_capture_scratch.f32"
     overflow_positions: list[int] = []
@@ -353,6 +375,14 @@ def capture(
                 try:
                     raw = stream.read(chunk_frames, exception_on_overflow=True)
                 except OSError:
+                    if stop_event is not None and stop_event.is_set():
+                        # A read error arriving AFTER stop_event was set is
+                        # this function's own force-close (on_stream_ready's
+                        # doc above) unsticking a read that was blocked past
+                        # the point stop_event was last checked -- a clean
+                        # stop, not a real overflow. Don't record fake
+                        # silence or flag a dropout for it.
+                        break
                     overflow_positions.append(frame_position)
                     if on_overflow is not None:
                         on_overflow()
@@ -371,8 +401,20 @@ def capture(
     except KeyboardInterrupt:
         pass  # Ctrl-C ends the capture; whatever was recorded still gets split below
     finally:
-        stream.stop_stream()
-        stream.close()
+        # Best-effort, and tolerant of a stream this function's OWN
+        # on_stream_ready caller may already have force-closed from another
+        # thread (see that parameter's doc above) -- a double stop/close on
+        # a PortAudio stream raises, and that is never worth surfacing as
+        # this capture's own error when the recording itself is already
+        # safely on disk.
+        try:
+            stream.stop_stream()
+        except OSError:
+            pass
+        try:
+            stream.close()
+        except OSError:
+            pass
         p.terminate()
 
     if not scratch_path.is_file():
