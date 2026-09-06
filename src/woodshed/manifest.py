@@ -52,6 +52,7 @@ __all__ = [
     "hash_file",
     "check_binding",
     "effective_pre_roll_beats",
+    "whole_song_section",
 ]
 
 
@@ -176,6 +177,25 @@ class Section(BaseModel):
                 f"than start_s ({self.start_s})"
             )
         return self
+
+
+def whole_song_section(duration_s: float) -> Section:
+    """The default "Whole song" section every freshly-bound recording gets
+    (`cli.py`'s `bind_song_file`, `capture.py`'s `bind_segment_to_song`/
+    `bind_segment_as_new_song`) -- `full_song: true`, spanning the entire
+    file, so there is always something to Practice without first having to
+    draw a section by hand. `docs/02-data-model.md`'s own example already
+    shows this exact shape (`id: whole-song`, `name: Whole song`,
+    `full_song: true`, `target_speed: 100`) as what a hand-authored
+    `song.yaml` looks like -- this makes it the default instead of
+    something easy to forget to add. Still just an ordinary `Section`:
+    `woodshed section rm whole-song` (or the inspector's own delete) can
+    remove it like any other, nothing here special-cases it further.
+    """
+    return Section(
+        id="whole-song", name="Whole song", start_s=0.0, end_s=duration_s,
+        snapped="free", target_speed=100.0, full_song=True,
+    )
 
 
 class Song(BaseModel):

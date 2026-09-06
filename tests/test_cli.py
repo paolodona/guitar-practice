@@ -206,7 +206,13 @@ def test_add_creates_the_expected_song_yaml(repo: Repo, tmp_path: Path) -> None:
     assert song.recording.duration_s == pytest.approx(2.0, abs=0.05)
     assert song.recording.tuning == "E standard"
     assert song.tempo.source == "manual"
-    assert song.sections == []
+    # A default "Whole song" section, so there is always something to
+    # Practice without first having to draw a section by hand.
+    assert len(song.sections) == 1
+    assert song.sections[0].id == "whole-song"
+    assert song.sections[0].full_song is True
+    assert song.sections[0].start_s == 0.0
+    assert song.sections[0].end_s == song.recording.duration_s
 
 
 def test_add_refuses_a_missing_file(repo: Repo) -> None:
@@ -281,15 +287,19 @@ def test_bind_song_file_uses_dest_filename_when_given(repo: Repo, tmp_path: Path
 
 
 # ── section: add / update / rm, mirroring POST /api/section ─────────────
+#
+# `_add` now writes a default "whole-song" section (see
+# test_add_creates_the_expected_song_yaml) -- every test below that counts
+# or indexes `song.sections` accounts for that one entry being there
+# already, rather than assuming a fresh song starts with none.
 def test_section_add_writes_a_span(repo: Repo, tmp_path: Path) -> None:
     slug = _add(repo, tmp_path, seconds=30.0)
     rc = cli.main(["section", slug, "add", "Full solo", "10", "20"])
     assert rc == 0
 
     song = load_song(repo.song_dir(slug) / "song.yaml")
-    assert len(song.sections) == 1
-    section = song.sections[0]
-    assert section.id == "full-solo"
+    assert len(song.sections) == 2  # the default whole-song entry, plus this one
+    section = next(s for s in song.sections if s.id == "full-solo")
     assert section.name == "Full solo"
     assert section.start_s == 10.0
     assert section.end_s == 20.0
@@ -299,23 +309,30 @@ def test_section_add_writes_a_span(repo: Repo, tmp_path: Path) -> None:
 
 def test_section_add_full_song_and_lead_in_beats(repo: Repo, tmp_path: Path) -> None:
     slug = _add(repo, tmp_path, seconds=30.0)
+    # A different name AND a different span from the default's own "Whole
+    # song" (0-30): the name alone would slugify to the same "whole-song"
+    # id `_add` already used (refused as a duplicate id), and the same
+    # 0-30 span would ALSO be refused as an exact-duplicate span -- neither
+    # is what this test means to exercise, which is just that --full-song/
+    # --lead-in-beats round-trip.
     rc = cli.main([
-        "section", slug, "add", "Whole song", "0", "30",
+        "section", slug, "add", "Second full pass", "5", "25",
         "--full-song", "--lead-in-beats", "8",
     ])
     assert rc == 0
-    section = load_song(repo.song_dir(slug) / "song.yaml").sections[0]
+    song = load_song(repo.song_dir(slug) / "song.yaml")
+    section = next(s for s in song.sections if s.id == "second-full-pass")
     assert section.full_song is True
     assert section.lead_in_beats == 8
 
 
 def test_section_update_can_clear_full_song(repo: Repo, tmp_path: Path) -> None:
     slug = _add(repo, tmp_path, seconds=30.0)
-    cli.main(["section", slug, "add", "Whole song", "0", "30", "--full-song"])
-    section_id = load_song(repo.song_dir(slug) / "song.yaml").sections[0].id
-    rc = cli.main(["section", slug, "update", section_id, "--no-full-song"])
+    cli.main(["section", slug, "add", "Second full pass", "5", "25", "--full-song"])
+    rc = cli.main(["section", slug, "update", "second-full-pass", "--no-full-song"])
     assert rc == 0
-    section = load_song(repo.song_dir(slug) / "song.yaml").sections[0]
+    song = load_song(repo.song_dir(slug) / "song.yaml")
+    section = next(s for s in song.sections if s.id == "second-full-pass")
     assert section.full_song is False
 
 
@@ -332,7 +349,7 @@ def test_section_add_allows_overlap_and_nesting(repo: Repo, tmp_path: Path) -> N
     rc = cli.main(["section", slug, "add", "Solo, tapping", "10", "15"])
     assert rc == 0
     song = load_song(repo.song_dir(slug) / "song.yaml")
-    assert len(song.sections) == 2
+    assert len(song.sections) == 3  # whole-song (default) + full-solo + solo-tapping
 
 
 def test_section_update_changes_a_field(repo: Repo, tmp_path: Path) -> None:
@@ -341,8 +358,9 @@ def test_section_update_changes_a_field(repo: Repo, tmp_path: Path) -> None:
     rc = cli.main(["section", slug, "update", "full-solo", "--end-s", "25"])
     assert rc == 0
     song = load_song(repo.song_dir(slug) / "song.yaml")
-    assert song.sections[0].end_s == 25.0
-    assert song.sections[0].start_s == 10.0  # untouched fields survive
+    section = next(s for s in song.sections if s.id == "full-solo")
+    assert section.end_s == 25.0
+    assert section.start_s == 10.0  # untouched fields survive
 
 
 def test_section_update_refuses_an_invalid_span(repo: Repo, tmp_path: Path) -> None:
@@ -352,7 +370,8 @@ def test_section_update_refuses_an_invalid_span(repo: Repo, tmp_path: Path) -> N
     assert rc == 2
     # unchanged on refusal
     song = load_song(repo.song_dir(slug) / "song.yaml")
-    assert song.sections[0].end_s == 20.0
+    section = next(s for s in song.sections if s.id == "full-solo")
+    assert section.end_s == 20.0
 
 
 def test_section_update_unknown_id_refuses(repo: Repo, tmp_path: Path) -> None:
@@ -367,7 +386,9 @@ def test_section_rm_removes_a_span(repo: Repo, tmp_path: Path) -> None:
     rc = cli.main(["section", slug, "rm", "full-solo"])
     assert rc == 0
     song = load_song(repo.song_dir(slug) / "song.yaml")
-    assert song.sections == []
+    # "add"'s own default whole-song section is untouched -- only
+    # full-solo was named for removal.
+    assert [s.id for s in song.sections] == ["whole-song"]
 
 
 def test_section_rm_unknown_id_refuses(repo: Repo, tmp_path: Path) -> None:

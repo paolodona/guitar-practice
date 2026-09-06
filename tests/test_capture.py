@@ -367,6 +367,12 @@ def test_bind_segment_to_song_writes_a_fresh_song_yaml(
     assert song.recording.tuning == "Eb standard"
     assert song.recording.source == "capture"
     assert abs(song.recording.duration_s - 123.4) < 0.01
+    # A default "Whole song" section, same as cli.py's bind_song_file --
+    # there is always something to Practice without drawing one by hand.
+    assert len(song.sections) == 1
+    assert song.sections[0].id == "whole-song"
+    assert song.sections[0].full_song is True
+    assert song.sections[0].end_s == song.recording.duration_s
 
 
 def test_bind_segment_to_song_defaults_tuning_when_not_given(
@@ -423,6 +429,8 @@ def test_bind_segment_as_new_song_writes_song_yaml_and_returns_the_slug(
     assert song.artist == "Someone"
     assert song.recording.tuning == "D standard"
     assert song.recording.source == "capture"
+    assert len(song.sections) == 1
+    assert song.sections[0].full_song is True
 
 
 # ---------------------------------------------------------------------------

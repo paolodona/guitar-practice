@@ -35,6 +35,7 @@ from woodshed.manifest import (
     load_song,
     save_setlist,
     save_song,
+    whole_song_section,
 )
 
 DOCS_PATH = Path(__file__).resolve().parents[1] / "docs" / "02-data-model.md"
@@ -298,6 +299,25 @@ def test_section_full_song_round_trips_true() -> None:
         full_song=True,
     )
     assert section.full_song is True
+
+
+def test_whole_song_section_spans_the_full_duration() -> None:
+    section = whole_song_section(194.78)
+    assert section.id == "whole-song"
+    assert section.name == "Whole song"
+    assert section.start_s == 0.0
+    assert section.end_s == 194.78
+    assert section.full_song is True
+    assert section.snapped == "free"
+    assert section.target_speed == 100.0
+
+
+def test_whole_song_section_is_an_ordinary_removable_section() -> None:
+    """Nothing about it is special beyond full_song=True -- it round-trips
+    through Song like any other section."""
+    song = _song_with_section(whole_song_section(60.0))
+    assert song.sections[0].full_song is True
+    assert len(song.sections) == 1
 
 
 def _song_with_section(section: Section, pre_roll_beats: float = 4.0) -> Song:

@@ -35,6 +35,7 @@ from woodshed.manifest import (
     hash_file,
     load_song,
     save_song,
+    whole_song_section,
 )
 from woodshed.tuning import KNOWN_TUNINGS
 
@@ -189,6 +190,7 @@ def bind_song_file(
     if dest.resolve() != source.resolve():
         shutil.copy2(source, dest)
 
+    duration_s = _read_duration_s(dest)
     song = Song(
         slug=resolved_slug,
         title=title,
@@ -197,13 +199,14 @@ def bind_song_file(
         recording=Recording(
             file=f"audio/{dest.name}",
             sha256=hash_file(dest),
-            duration_s=_read_duration_s(dest),
+            duration_s=duration_s,
             tuning=tuning,
         ),
         tempo=Tempo(
             bpm=bpm, source="manual", grid_offset_s=grid_offset_s,
             time_signature=time_signature,
         ),
+        sections=[whole_song_section(duration_s)],
     )
     save_song(song, repo.song_dir(resolved_slug) / "song.yaml")
     return song

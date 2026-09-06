@@ -161,6 +161,14 @@ above and silently replace every other section's contribution with its own.
 One field, so creating one is a single decision rather than two flags that
 have to be remembered together.
 
+**A `full_song: true` section is created automatically** the moment a
+recording is first bound (`woodshed add`, `POST /api/song/upload`, and both
+capture-binding paths — `manifest.whole_song_section`) — every song has
+something to Practice from the moment it exists, with no section drawn by
+hand first. It is an ordinary section in every other respect: `woodshed
+section rm whole-song` (or the inspector's own delete) removes it like any
+other, and nothing refuses that.
+
 **The invariants that remain.** `start < end`; both inside the file; `id` unique
 within the song. Two sections with the *identical* span are refused — that is a
 duplicate, not an overlap, and it makes lanes and ordering ambiguous for no

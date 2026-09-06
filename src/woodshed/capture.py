@@ -66,7 +66,7 @@ import numpy as np
 
 from woodshed.errors import WoodshedError
 from woodshed.library import Repo, slugify
-from woodshed.manifest import Recording, Song, hash_file, save_song
+from woodshed.manifest import Recording, Song, hash_file, save_song, whole_song_section
 from woodshed.tools import locate_tool, require_module
 
 __all__ = [
@@ -551,6 +551,7 @@ def bind_segment_to_song(
             tuning=tuning or _DEFAULT_TUNING,
             source="capture",
         ),
+        sections=[whole_song_section(segment.duration_s)],
     )
     song_path.parent.mkdir(parents=True, exist_ok=True)
     save_song(song, song_path)
@@ -603,6 +604,7 @@ def bind_segment_as_new_song(
             tuning=tuning,
             source="capture",
         ),
+        sections=[whole_song_section(segment.duration_s)],
     )
     song_path = repo.song_dir(slug) / "song.yaml"
     song_path.parent.mkdir(parents=True, exist_ok=True)

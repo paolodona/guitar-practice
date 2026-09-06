@@ -1485,6 +1485,27 @@ Re-read `docs/03-audio-engine.md`'s "What good enough sounds like" section befor
 S: it already names the destination ("an isolated guitar track... is what `demucs` in
 `rambass-live` already does"), Group S is only automating and caching that, in-app.
 
+**Seventh thing, found 2026-09-06 during Paolo's own first hands-on review of T1/T2/S1**:
+a song bound with no sections had no way to Practice at all -- `full_song: true` existed
+as a field but was documented (docs/02-data-model.md) as something a person creates by
+hand, and nothing auto-created one. Paolo's call: every song should be practiceable the
+moment it exists. Fixed at the root, not per-caller: `manifest.whole_song_section
+(duration_s) -> Section` (`id: whole-song`, spanning `[0, duration_s]`, `full_song: true`,
+`target_speed: 100` — matching the doc's own example exactly) is now included by
+`cli.py`'s `bind_song_file` (T1's shared binding function) and `capture.py`'s
+`bind_segment_to_song`/`bind_segment_as_new_song` (Group U) — every path that writes a
+fresh `song.yaml` gets one, CLI or browser. Still an ordinary section afterward: `woodshed
+section rm whole-song` (or the inspector's delete) removes it like any other. Several
+existing `test_cli.py` tests that assumed a freshly-added song started with zero sections
+were updated to account for the new default entry (`git blame` on this commit finds them);
+two that manually created their OWN "Whole song"/`[0, duration]` section for an unrelated
+reason (testing `--full-song`/`--lead-in-beats` round-tripping) now use a different name
+and span so they don't collide with the auto-created one on id or exact-duplicate-span.
+2 new `test_manifest.py` tests for `whole_song_section` itself; existing bind-function
+tests in `test_capture.py`/`test_server.py` gained an assertion that the default section
+is present. Full suite 894 passed (was 892); ruff clean; no-extras gate 891 passed, 3
+deselected.
+
 ### Work units
 
 **Group O — design first (∥ with nothing; everything else in this phase reads it)**

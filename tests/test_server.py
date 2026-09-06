@@ -1297,6 +1297,10 @@ def test_post_song_upload_binds_a_new_song(served) -> None:
     assert song.recording.file == "audio/original-name.wav"
     assert song.recording.duration_s == pytest.approx(2.0, abs=0.05)
     assert (repo.song_dir("uploaded-tune") / song.recording.file).read_bytes() == wav_bytes
+    # A default "Whole song" section -- Practice is reachable immediately,
+    # with no section drawn by hand first.
+    assert len(song.sections) == 1
+    assert song.sections[0].full_song is True
 
 
 def test_post_song_upload_refuses_a_missing_title(served) -> None:
