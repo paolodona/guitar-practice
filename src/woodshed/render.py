@@ -77,12 +77,14 @@ __all__ = [
 #: changes -- see the module docstring and `separate.SEPARATOR_VERSION`.
 RENDERER_VERSION = 1
 
-#: `<section_id>@<speed>x<semitones>st-<fp>.flac`, directly under
+#: `<section_id>@<speed>x<semitones>st[-guitar]-<fp>.flac`, directly under
 #: `cache/<slug>/` (never a subdirectory -- unlike `separate.py`'s
-#: `cache/stems/`, this is the tool's original cache shape).
+#: `cache/stems/`, this is the tool's original cache shape). The `-guitar`
+#: segment is Group S2's own addition -- absent entirely for `source="mix"`,
+#: so a pre-S2 filename is still a perfectly valid match with `source=None`.
 _RENDER_RE = re.compile(
     r"^(?P<section_id>.+)@(?P<speed>-?\d+(?:\.\d+)?)x"
-    r"(?P<semitones>[+-]\d+)st-(?P<fp>[0-9a-f]{8})\.flac$"
+    r"(?P<semitones>[+-]\d+)st(?:-(?P<source>guitar))?-(?P<fp>[0-9a-f]{8})\.flac$"
 )
 #: `<section_id>-guitar-<fp>.flac`, under `cache/stems/` -- separate.py's
 #: own shape, reaped here too (see `evict`'s docstring).
@@ -113,18 +115,33 @@ def span_fingerprint(
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:8]
 
 
-def cache_key(section_id: str, speed_pct: float, semitones: int, fp: str) -> str:
+def cache_key(
+    section_id: str, speed_pct: float, semitones: int, fp: str, *, source: str = "mix"
+) -> str:
     """`"solo@60x-1st-3f9a2c11.flac"` -- the signed semitone count's own
     sign character is the only separator between it and the speed, so
     `-1` reads as `-1st` rather than `--1st`; a positive or zero shift
-    reads `+2st`/`+0st`."""
-    return f"{section_id}@{_fmt_speed(speed_pct)}x{semitones:+d}st-{fp}.flac"
+    reads `+2st`/`+0st`.
+
+    **Group S2**: `source="guitar"` inserts a `-guitar` segment before the
+    fingerprint (`"solo@60x-1st-guitar-3f9a2c11.flac"`), so a guitar-only
+    render never collides with the mix's own -- both may exist, cached,
+    at once. `source="mix"` (the default) is BYTE-FOR-BYTE what `cache_key`
+    produced before S2 existed: every render made before this parameter was
+    added keeps hitting the exact same cache file, not silently orphaned by
+    a format change.
+    """
+    base = f"{section_id}@{_fmt_speed(speed_pct)}x{semitones:+d}st"
+    if source == "guitar":
+        return f"{base}-guitar-{fp}.flac"
+    return f"{base}-{fp}.flac"
 
 
 def cache_path(
-    repo: Repo, slug: str, section_id: str, speed_pct: float, semitones: int, fp: str
+    repo: Repo, slug: str, section_id: str, speed_pct: float, semitones: int, fp: str,
+    *, source: str = "mix",
 ) -> Path:
-    return repo.cache_dir(slug) / cache_key(section_id, speed_pct, semitones, fp)
+    return repo.cache_dir(slug) / cache_key(section_id, speed_pct, semitones, fp, source=source)
 
 
 def _run(argv: list[str], *, action: str) -> None:
@@ -244,6 +261,7 @@ def render_section(
     crossfade_ms: float = 10.0,
     pre_roll_s: float = 0.0,
     force: bool = False,
+    source: str = "mix",
 ) -> Path:
     """Render `section` at `speed_pct`/`semitones`, caching the result under
     `cache_path`. Skips the work entirely when `force=False` and the
@@ -254,17 +272,26 @@ def render_section(
     docs/03-audio-engine.md's "The two knobs": `--time` is `1 / (speed_pct
     / 100)` (**never a resample -- trap 1**), `--pitch` is the raw
     semitone count.
+
+    **Group S2**: `source="guitar"` isolates the guitar first
+    (`separate.isolate_guitar`, itself cached and fingerprinted the same
+    way) and feeds THAT clip into rubberband instead of the original
+    recording -- the isolation happens before the speed/pitch stretch, not
+    after (`separate.py`'s own module doc). `span_fingerprint` does not
+    take `source`: the SPAN's identity (what to cut, from where in time)
+    is the same regardless of which audio it is eventually cut from, only
+    `cache_key`/`cache_path` (the OUTPUT file) need to tell the two apart.
+    `source="mix"` (the default) is unchanged from before this parameter
+    existed -- every assertion in this module's own test suite about the
+    mix path still holds bit-for-bit.
     """
     fp = span_fingerprint(song, section, pre_roll_s=pre_roll_s, crossfade_ms=crossfade_ms)
-    dest = cache_path(repo, song.slug, section.id, speed_pct, semitones, fp)
+    dest = cache_path(repo, song.slug, section.id, speed_pct, semitones, fp, source=source)
     if not force and dest.is_file():
         return dest
 
     ffmpeg = locate_tool("ffmpeg").path
     rubberband = locate_tool("rubberband").path
-    source_path = repo.song_dir(song.slug) / song.recording.file
-    if not source_path.is_file():
-        raise WoodshedError(f"no such audio file: {source_path}")
 
     clip_start_s = max(0.0, section.start_s - pre_roll_s)
     clip_duration_s = section.end_s - clip_start_s
@@ -273,17 +300,26 @@ def render_section(
 
     with tempfile.TemporaryDirectory(prefix="woodshed-render-") as scratch:
         scratch_path = Path(scratch)
-        clip_path = scratch_path / "clip.wav"
-        _run(
-            [
-                ffmpeg, "-v", "error", "-nostdin", "-y",
-                "-ss", f"{clip_start_s:.6f}",
-                "-i", str(source_path),
-                "-t", f"{clip_duration_s:.6f}",
-                str(clip_path),
-            ],
-            action=f"cut section {section.id!r} from {source_path}",
-        )
+
+        if source == "guitar":
+            from woodshed.separate import isolate_guitar  # see the docstring above
+
+            clip_path = isolate_guitar(repo, song, section, pre_roll_s=pre_roll_s, force=force)
+        else:
+            recording_path = repo.song_dir(song.slug) / song.recording.file
+            if not recording_path.is_file():
+                raise WoodshedError(f"no such audio file: {recording_path}")
+            clip_path = scratch_path / "clip.wav"
+            _run(
+                [
+                    ffmpeg, "-v", "error", "-nostdin", "-y",
+                    "-ss", f"{clip_start_s:.6f}",
+                    "-i", str(recording_path),
+                    "-t", f"{clip_duration_s:.6f}",
+                    str(clip_path),
+                ],
+                action=f"cut section {section.id!r} from {recording_path}",
+            )
 
         stretched_path = scratch_path / "stretched.wav"
         _run(

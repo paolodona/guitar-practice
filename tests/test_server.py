@@ -599,6 +599,88 @@ def test_api_render_unknown_song_is_404(served):
     assert caught.value.code == 404
 
 
+def test_api_render_unknown_source_is_400(served):
+    base, _, slug = served
+    with pytest.raises(urllib.error.HTTPError) as caught:
+        _get(base, f"/api/render/{slug}/solo-full?speed=60&source=bass")
+    assert caught.value.code == 400
+
+
+# ── GET /api/render?source=guitar (Group S2) ────────────────────────────────
+
+
+def test_api_render_guitar_source_reports_separating_before_the_stem_is_cached(
+    served, monkeypatch
+):
+    import woodshed.render as render_module
+
+    base, _, slug = served
+    release = threading.Event()
+    monkeypatch.setattr(
+        render_module, "render_section",
+        lambda *a, **kw: release.wait(timeout=2.0) or Path("fake.flac"),
+    )
+
+    status, data = _get_json(
+        base, f"/api/render/{slug}/solo-full?speed=60&semitones=0&source=guitar"
+    )
+
+    assert status == 202
+    assert data == {"rendering": True, "stage": "separating"}
+    release.set()
+
+
+def test_api_render_guitar_source_reports_rendering_once_the_stem_is_cached(
+    served, monkeypatch
+):
+    import woodshed.render as render_module
+    from woodshed.clock import pre_roll_seconds
+    from woodshed.manifest import effective_pre_roll_beats
+    from woodshed.separate import stem_cache_path, stem_fingerprint
+
+    base, repo, slug = served
+    song = load_song(repo.song_dir(slug) / "song.yaml")
+    section = next(s for s in song.sections if s.id == "solo-full")
+    pre_roll_s = pre_roll_seconds(effective_pre_roll_beats(song, section), song.tempo.bpm)
+    stem_fp = stem_fingerprint(song, section, pre_roll_s=pre_roll_s)
+    stem_path = stem_cache_path(repo, slug, section.id, stem_fp)
+    stem_path.parent.mkdir(parents=True, exist_ok=True)
+    stem_path.write_bytes(b"already isolated")
+
+    release = threading.Event()
+    monkeypatch.setattr(
+        render_module, "render_section",
+        lambda *a, **kw: release.wait(timeout=2.0) or Path("fake.flac"),
+    )
+
+    status, data = _get_json(
+        base, f"/api/render/{slug}/solo-full?speed=60&semitones=0&source=guitar"
+    )
+
+    assert status == 202
+    assert data == {"rendering": True, "stage": "rendering"}
+    release.set()
+
+
+def test_api_render_guitar_source_never_collides_with_the_mix_cache(served, monkeypatch):
+    import woodshed.render as render_module
+
+    base, repo, slug = served
+    song = load_song(repo.song_dir(slug) / "song.yaml")
+    section = next(s for s in song.sections if s.id == "solo-full")
+    mix_dest = _render_cache_path(repo, slug, section, 60.0, 0)
+    mix_dest.parent.mkdir(parents=True, exist_ok=True)
+    mix_dest.write_bytes(b"MIX BYTES")
+    monkeypatch.setattr(render_module, "render_section", lambda *a, **kw: Path("unused"))
+
+    status, data = _get_json(
+        base, f"/api/render/{slug}/solo-full?speed=60&semitones=0&source=guitar"
+    )
+
+    assert status == 202  # the guitar variant is NOT cached, even though the mix is
+    assert data["stage"] == "separating"
+
+
 # ── GET /api/setlists, GET /api/setlist/<slug> ──────────────────────────────
 
 

@@ -32,13 +32,15 @@ C2's pass, so those were placeholders (0 / omitted) until now:
     GET  /api/audio/<slug>              -> the source file, RANGE-SERVED  (C2)
     GET  /api/click/<slug>/<section>?speed=&mode=lead_in|full
                                         -> a generated click WAV, own gain (G2)
-    GET  /api/render/<slug>/<section>?speed=&semitones=
+    GET  /api/render/<slug>/<section>?speed=&semitones=&source=mix|guitar
                                         -> the cache file, RANGE-SERVED;
-                                           202 + {"rendering": true} if not
-                                           yet built (Phase 2, Group I --
-                                           pulled forward into this phase,
-                                           see render.py's own module doc)
-                                                                          (I3)
+                                           202 + {"rendering": true,
+                                           "stage"?: "separating"|
+                                           "rendering"} if not yet built
+                                           (Phase 2, Group I -- pulled
+                                           forward into this phase, see
+                                           render.py's own module doc;
+                                           ?source= is Group S2)      (I3, S2)
     POST /api/rep                       -> appends ONE ledger line        (C2)
     POST /api/section                   -> create/update/delete a span    (C2)
     POST /api/shift                     -> writes setlist.songs[].shift   (F1)
@@ -701,10 +703,10 @@ class WoodshedHandler(BaseHTTPRequestHandler):
         return buffer.getvalue()
 
     def _render(self, rest: str, query: str) -> None:
-        """`GET /api/render/<slug>/<section>?speed=&semitones=` -- the
-        cache file, RANGE-SERVED, or 202 `{"rendering": true}` if it is not
-        built yet (Phase 2, Group I3 -- pulled forward into Phase 1.5; see
-        `render.py`'s own module doc for why).
+        """`GET /api/render/<slug>/<section>?speed=&semitones=&source=` --
+        the cache file, RANGE-SERVED, or 202 `{"rendering": true}` if it is
+        not built yet (Phase 2, Group I3 -- pulled forward into Phase 1.5;
+        see `render.py`'s own module doc for why).
 
         A cache hit ALSO kicks off `render.plan_ahead` for the ladder rung
         above the requested speed, on the same `render_runner`,
@@ -712,7 +714,21 @@ class WoodshedHandler(BaseHTTPRequestHandler):
         there is silent (there is no persisted ladder state to read yet --
         Phase 2, Group K1 -- so `state`/`cfg` are synthesised straight from
         this request; a real ladder position, once K1 exists, can only do
-        better than this guess, never worse).
+        better than this guess, never worse). `plan_ahead` always pre-
+        renders the MIX's own next rung regardless of `source` -- its own
+        signature (fixed in the plan's module map) carries no `source`
+        parameter; look-ahead for a guitar-only practice session is not
+        this pass's scope.
+
+        `?source=guitar` (Group S2, default `mix`) isolates the guitar
+        first -- see `render.render_section`'s own docstring. The 202 body
+        gains a coarse `"stage": "separating" | "rendering"` in that case
+        -- two HONEST stages (Demucs has no fine-grained progress readout
+        to report; inventing a smooth percentage is the exact failure mode
+        CLAUDE.md's "the tool never judges... inventing a measurement it
+        cannot make" already names for a different measurement), derived
+        from whether the isolated stem is cached yet, not from progress
+        polling inside the render itself.
         """
         raw_slug, _, raw_section = rest.partition("/")
         slug = self._resolve_slug(raw_slug)
@@ -734,13 +750,19 @@ class WoodshedHandler(BaseHTTPRequestHandler):
             semitones = int(float(params.get("semitones", ["0"])[0]))
         except ValueError:
             semitones = 0
+        source = params.get("source", ["mix"])[0]
+        if source not in ("mix", "guitar"):
+            self._error(400, f"unknown source {source!r} -- expected 'mix' or 'guitar'")
+            return
 
         crossfade_ms = song.practice.loop_crossfade_ms
         pre_roll_s = pre_roll_seconds(effective_pre_roll_beats(song, section), song.tempo.bpm)
         fp = render_module.span_fingerprint(
             song, section, pre_roll_s=pre_roll_s, crossfade_ms=crossfade_ms
         )
-        dest = render_module.cache_path(self.repo, slug, section.id, speed_pct, semitones, fp)
+        dest = render_module.cache_path(
+            self.repo, slug, section.id, speed_pct, semitones, fp, source=source
+        )
 
         if dest.is_file():
             self._send_file(dest, "audio/flac")
@@ -768,14 +790,22 @@ class WoodshedHandler(BaseHTTPRequestHandler):
             key,
             lambda: render_module.render_section(
                 self.repo, song, section, speed_pct, semitones,
-                crossfade_ms=crossfade_ms, pre_roll_s=pre_roll_s,
+                crossfade_ms=crossfade_ms, pre_roll_s=pre_roll_s, source=source,
             ),
         )
         error = self.render_runner.error(key)
         if error:
             self._error(500, f"render failed: {error}")
             return
-        self._json({"rendering": True}, status=202)
+
+        body = {"rendering": True}
+        if source == "guitar":
+            from woodshed.separate import stem_cache_path, stem_fingerprint
+
+            stem_fp = stem_fingerprint(song, section, pre_roll_s=pre_roll_s)
+            stem_path = stem_cache_path(self.repo, slug, section.id, stem_fp)
+            body["stage"] = "rendering" if stem_path.is_file() else "separating"
+        self._json(body, status=202)
 
     # ── POST ────────────────────────────────────────────────────────────────
     def do_POST(self) -> None:  # noqa: N802 -- stdlib naming

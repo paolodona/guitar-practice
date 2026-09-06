@@ -1934,7 +1934,7 @@ done there rather than duplicated here.
     gate 889 passed, 3 deselected (unaffected -- `separate.py` needs no heavy
     dependency to pass its own tests, only to actually isolate real audio).
 - **S2** `render.py`'s `render_section` gains a `source: Literal["mix", "guitar"] = "mix"`
-  parameter, threaded through `span_fingerprint`/`cache_key`/`cache_path` (so the two
+  parameter, threaded through `cache_key`/`cache_path` (so the two
   variants get different cache filenames, e.g. `solo@60x-1st-mix-3f9a2c11.flac` vs
   `...-guitar-...`, never collide, and a guitar-only render survives a fingerprint change
   exactly like a mix render does). `source="guitar"` calls `separate.isolate_guitar(...)`
@@ -1951,6 +1951,25 @@ done there rather than duplicated here.
   subprocess mocked; moving the section boundary misses BOTH the isolated-stem cache and
   the render cache; `source="mix"` behaviour is provably unchanged (the whole existing
   `test_render.py` suite still passes with the new parameter defaulted).
+  - **Done, 2026-09-06.** Built as specced with one precise correction to this
+    bullet's own example filename: `span_fingerprint` does **not** take `source` (only
+    `cache_key`/`cache_path` do) — the SPAN's identity (what to cut, from where in time)
+    is the same regardless of which audio it ends up cut from, so the fingerprint itself
+    is identical between a section's mix and guitar renders; only the OUTPUT filename
+    needs to tell them apart. That also means `source="mix"`'s own filename is
+    byte-for-byte what `cache_key` produced before this unit existed (no `-mix-` segment
+    at all, unlike this bullet's own illustrative example) — the stronger of this
+    bullet's two claims ("test_render.py still passes with the new parameter defaulted")
+    is what was kept; the illustrative filename was the one adjusted to match it, not the
+    other way round. `render_section(source="guitar")` skips its own ffmpeg-cut step
+    entirely (asserted directly: 2 subprocess calls instead of 3) and never opens
+    `song.recording.file` at all in that branch — only `isolate_guitar` reads source
+    audio, and it is mocked in every test here. `plan_ahead` was NOT given a `source`
+    parameter (its own signature is fixed in the module map without one) — background
+    look-ahead pre-renders only the mix's next rung regardless of what the current
+    request asked for; guitar-only look-ahead is out of this pass's scope, named rather
+    than silently absent. 6 new tests in `test_render.py`, 4 in `test_server.py`. Full
+    suite 960 passed (was 950); ruff clean.
 - **S3** `screens/practice.js` gains a "Guitar only" toggle (Group O's header placement,
   not a seventh foot chip). On: request `?source=guitar`; while the first isolation for
   this section is in flight, show Group O's progress state (the two honest stages from

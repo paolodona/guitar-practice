@@ -336,6 +336,94 @@ def test_render_section_raises_on_a_nonzero_rubberband_exit(
         render_section(repo, song, _section(), 100.0, 0)
 
 
+# ── source="guitar" (Group S2) ────────────────────────────────────────────
+
+
+def test_cache_key_guitar_source_inserts_a_guitar_segment() -> None:
+    assert (
+        cache_key("solo", 60.0, -1, "3f9a2c11", source="guitar")
+        == "solo@60x-1st-guitar-3f9a2c11.flac"
+    )
+
+
+def test_cache_key_mix_source_is_byte_for_byte_the_pre_s2_shape() -> None:
+    assert cache_key("solo", 60.0, -1, "3f9a2c11", source="mix") == cache_key(
+        "solo", 60.0, -1, "3f9a2c11"
+    )
+
+
+def test_cache_path_mix_and_guitar_never_collide(tmp_path: Path) -> None:
+    repo = Repo(root=tmp_path)
+    mix = cache_path(repo, "solo-song", "solo", 60.0, -1, "3f9a2c11")
+    guitar = cache_path(repo, "solo-song", "solo", 60.0, -1, "3f9a2c11", source="guitar")
+    assert mix != guitar
+
+
+def test_render_section_guitar_source_isolates_first_instead_of_cutting_the_mix(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo, song, calls = _setup(tmp_path, monkeypatch)
+    section = _section()
+    isolate_calls = []
+
+    def fake_isolate_guitar(repo_, song_, section_, *, pre_roll_s=0.0, force=False):
+        isolate_calls.append((song_.slug, section_.id, pre_roll_s, force))
+        clip = tmp_path / "isolated-clip.flac"
+        clip.write_bytes(b"fake isolated guitar bytes")
+        return clip
+
+    monkeypatch.setattr("woodshed.separate.isolate_guitar", fake_isolate_guitar)
+
+    dest = render_section(repo, song, section, 100.0, 0, source="guitar")
+
+    assert isolate_calls == [(song.slug, section.id, 0.0, False)]
+    assert "guitar" in dest.name
+    # Never ran the mix's own ffmpeg-cut step -- only rubberband + the final encode.
+    assert len(calls) == 2
+
+
+def test_render_section_guitar_source_never_needs_the_recordings_own_audio_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Unlike source="mix" (test_render_section_refuses_a_missing_source_file),
+    the guitar path never opens `song.recording.file` at all -- isolate_guitar
+    is the only thing that reads source audio, and it is mocked here."""
+    repo = Repo(root=tmp_path)
+    song = _song()  # audio file never written
+    monkeypatch.setattr(
+        render_module, "locate_tool",
+        lambda name: SimpleNamespace(path=name, route="path"),
+    )
+    calls: list = []
+    monkeypatch.setattr(render_module.subprocess, "run", _fake_run(calls))
+    monkeypatch.setattr(
+        "woodshed.separate.isolate_guitar",
+        lambda *a, **kw: (tmp_path / "clip.flac").write_bytes(b"x") or (tmp_path / "clip.flac"),
+    )
+
+    dest = render_section(repo, song, _section(), 100.0, 0, source="guitar")
+
+    assert dest.is_file()
+
+
+def test_render_section_mix_and_guitar_cache_separately_for_the_same_span(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo, song, _calls = _setup(tmp_path, monkeypatch)
+    section = _section()
+    monkeypatch.setattr(
+        "woodshed.separate.isolate_guitar",
+        lambda *a, **kw: (tmp_path / "clip.flac").write_bytes(b"x") or (tmp_path / "clip.flac"),
+    )
+
+    mix_dest = render_section(repo, song, section, 100.0, 0, source="mix")
+    guitar_dest = render_section(repo, song, section, 100.0, 0, source="guitar")
+
+    assert mix_dest != guitar_dest
+    assert mix_dest.is_file()
+    assert guitar_dest.is_file()
+
+
 # ── _bake_crossfade(): the equal-power crossfade, on a synthetic tone ────
 
 
