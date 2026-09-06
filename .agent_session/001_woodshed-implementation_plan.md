@@ -16,6 +16,16 @@ before fanning out — D0 must land before D1–D7, and P1 gates Groups D / F / 
 
 ## Implementation progress (this run started 2026-09-05, unattended)
 
+**Run 3, 2026-09-06 (unattended, headless container).** Phase 2 Groups **J** and
+**K** in full, then Phase 3 Groups **M** and **N1**. Group L (MIDI) was out of
+scope by instruction — it is blocked on a human at the actual foot pedal — and so
+was N2 for the same reason plus a missing sibling repo (both logged). Neither
+manual gate was attempted or closed: Phase 2's is a listening test and Phase 3's
+is ten minutes hands-free, and this container had no speakers, no browser and no
+pedal. Every unit's own automated checks were run after it; suite 992 -> 1088.
+Details under each Group's own bullets below, and the gate status under "Phase 2
+gate".
+
 **Scope decision for this run**: P1 (exporting the nine `.dc.html` artboards from the
 published Claude Design artifact) is an explicit human prerequisite in this plan — no
 unattended agent can open a `claude.ai/code/artifact/…` URL. Groups D, F, K, M and every
@@ -2913,6 +2923,30 @@ instead.
   for twenty passes and **listen for a tick at the seam**. There must not be one. Then let
   the ladder advance to 60% and confirm the change happens at a loop boundary with no gap.
   This cannot be automated and the plan says so rather than pretending otherwise.
+
+**Phase 2 gate status, 2026-09-06 (unattended run): automated half GREEN, manual
+half OPEN. The gate is NOT closed.**
+- Automated, all re-run after every unit: `uv run pytest` **1088 passed**, 0 failed
+  (992 at the start of this run); `uv run ruff check .` clean; `node --check` on
+  every touched `web/*.js`; the no-extras gate 1085 passed, 3 deselected. The
+  `playbackRate` grep test exists now and passes (`tests/test_web_lint.py`), as does
+  the render argv test (it predates this run, in `tests/test_render.py`). The same
+  file also runs `web/tests/*.mjs` under pytest, which nothing did before.
+  This container installed `ffmpeg`, `rubberband-cli` and `librosa` for itself, so
+  those counts include the `needs_rubberband`/`needs_librosa` integration tests
+  rather than skipping them.
+- **Manual: not attempted, and it could not be.** "Loop a real solo at 55% for
+  twenty passes and listen for a tick at the seam" needs a room, a record, speakers
+  and a human ear; this run had a headless container. Every number the seam depends
+  on is asserted from both sides (`clock.Render`'s loop points in Python,
+  `renderClock`'s in JS, the seam arithmetic, the equal-power crossfade, the
+  boundary swap's exact schedule time) — but *whether it is inaudible* is a
+  listening judgement, and per this plan's own prime directive the tool does not get
+  to make it. **Paolo still has to run this gate.** When he does, the thing to watch
+  for besides the seam: the practice screen falls back to the real-time stretcher if
+  a render will not build, and says so in the status line beside the guitar toggle —
+  if that line reads "live stretch — no render cache", the tick being listened for
+  is the fallback engine's, not the cache's.
 
 ---
 
