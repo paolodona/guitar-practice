@@ -1689,6 +1689,32 @@ architectural calls get raised for Paolo rather than asserted.
   anywhere in this codebase and this is not the place to start). The `separate` extra
   name (`pyproject.toml`, `demucs>=4.0.1`) is deliberately the same name
   `rambass-live/pyproject.toml` uses for the same dependency.
+  - **Done, 2026-09-06.** Built exactly as specced, with one deliberate simplification
+    from the sibling's own shape, named rather than silently diverged from: `rambass-
+    live`'s `separate()` looks for a `demucs` console script on PATH first, falling
+    back to `python -m demucs`; here, `require_module("demucs", "separate")` already
+    confirms the package imports in THIS interpreter before anything runs, so the
+    subprocess always goes through `sys.executable -m demucs` -- one invocation path,
+    not two, because the fallback is the only one that check can actually promise
+    works. No `-j`/`shifts`/`overlap` flags either -- those tune quality/speed
+    trade-offs `rambass-live`'s CLI exposes as options; nothing here calls for that
+    yet, and they can be added the day something does. `stem_fingerprint`/
+    `stem_cache_path` match `render.py`'s own future scheme exactly (Phase 2, still
+    not built) -- `songs/<slug>/cache/stems/<section_id>-guitar-<fp>.flac`, confirmed
+    against `docs/01-architecture.md`'s disk-layout tree (updated alongside this, same
+    "companion doc edits made now" pattern Group S's own "Before starting" note
+    already used elsewhere in this phase). `isolate_guitar` skips its own work up
+    front (`force=False` and the cache file exists -- zero subprocess calls, asserted
+    directly in the test) before ever checking `demucs_available` or touching a
+    source file, so a fully-cached section never even requires Demucs to be
+    installed. 19 new tests, all subprocess/import mocked (fake `demucs` module
+    installed into `sys.modules`, same technique T2's `capture.py` tests used for
+    `pyaudiowpatch`) -- no real Demucs invocation anywhere in this suite, and no
+    `needs_demucs`-marked test yet either (nothing here justified the extra
+    complexity of a genuine end-to-end run; S4, not yet built, is where that marker
+    was specced to matter). Full suite 892 passed (was 873); ruff clean; no-extras
+    gate 889 passed, 3 deselected (unaffected -- `separate.py` needs no heavy
+    dependency to pass its own tests, only to actually isolate real audio).
 - **S2** `render.py`'s `render_section` gains a `source: Literal["mix", "guitar"] = "mix"`
   parameter, threaded through `span_fingerprint`/`cache_key`/`cache_path` (so the two
   variants get different cache filenames, e.g. `solo@60x-1st-mix-3f9a2c11.flac` vs

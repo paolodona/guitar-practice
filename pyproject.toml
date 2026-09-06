@@ -17,6 +17,9 @@ dependencies = [
 analyze = ["librosa"]
 render = []
 capture = ["pyaudiowpatch"]
+# Guitar-only isolation (Phase 1.5, Group S). Pulls in torch -- big. Same
+# extra name rambass-live/pyproject.toml uses for the same dependency.
+separate = ["demucs>=4.0.1"]
 dev = ["pytest", "ruff"]
 
 [project.scripts]
@@ -43,4 +46,5 @@ markers = [
     "needs_rubberband: requires the rubberband CLI binary on PATH (select with -m, not -k)",
     "needs_librosa: requires the librosa package installed (select with -m, not -k)",
     "needs_device: requires a real audio input/output device (select with -m, not -k)",
+    "needs_demucs: requires the demucs package installed (select with -m, not -k)",
 ]

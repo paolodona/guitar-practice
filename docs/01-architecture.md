@@ -151,7 +151,10 @@ Concrete, in rough order of value:
 woodshed/
   songs/<slug>/song.yaml           # tracked
   songs/<slug>/audio/              # gitignored — the bytes
-  songs/<slug>/cache/              # gitignored — rendered variants, peaks
+  songs/<slug>/cache/              # gitignored — rendered variants, peaks,
+                                    # stems/ (Phase 1.5, Group S: isolated
+                                    # guitar clips, keyed the same fingerprinted
+                                    # way as a rendered variant)
   setlists/<slug>.yaml             # tracked
   practice/reps.jsonl              # tracked. append-only. the one irreplaceable file
   capture/<timestamp>.<ext>        # gitignored — raw, unrepeatable; kept until
