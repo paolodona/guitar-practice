@@ -18,8 +18,11 @@ from woodshed.capture_session import (
     STATUS_BOUND,
     STATUS_DISCARDED,
     STATUS_PENDING,
+    adjust_boundary,
     current_session,
+    merge_segments,
     resolve,
+    split_segment,
     start_session,
 )
 from woodshed.errors import WoodshedError
@@ -160,3 +163,181 @@ def test_current_session_is_none_once_a_lone_segment_resolves(tmp_path: Path) ->
     resolve(repo, 0, STATUS_DISCARDED)
 
     assert current_session(repo) is None
+
+
+# ── U2b: adjust_boundary / merge_segments / split_segment ───────────────────
+
+
+def _start(tmp_path: Path, segments: list[Segment]) -> Repo:
+    repo = Repo(root=tmp_path)
+    raw_path = repo.capture_dir / "one.wav"
+    raw_path.parent.mkdir(parents=True)
+    raw_path.write_bytes(b"x")
+    start_session(repo, raw_path, segments)
+    return repo
+
+
+# adjust_boundary ─────────────────────────────────────────────────────────
+
+
+def test_adjust_boundary_moves_start_and_end(tmp_path: Path) -> None:
+    repo = _start(tmp_path, [_seg(0, 100), _seg(100, 200), _seg(200, 300)])
+
+    updated = adjust_boundary(repo, 1, start_frame=110, end_frame=190)
+
+    assert updated.start_frame == 110
+    assert updated.end_frame == 190
+    session = current_session(repo)
+    middle = next(e for e in session.entries if e.index == 1)
+    assert (middle.start_frame, middle.end_frame) == (110, 190)
+
+
+def test_adjust_boundary_leaves_an_unspecified_bound_unchanged(tmp_path: Path) -> None:
+    repo = _start(tmp_path, [_seg(0, 100), _seg(100, 200)])
+
+    updated = adjust_boundary(repo, 1, end_frame=180)
+
+    assert updated.start_frame == 100
+    assert updated.end_frame == 180
+
+
+def test_adjust_boundary_refuses_start_at_or_past_end(tmp_path: Path) -> None:
+    repo = _start(tmp_path, [_seg(0, 100)])
+
+    with pytest.raises(WoodshedError, match="must be before"):
+        adjust_boundary(repo, 0, start_frame=100)
+
+
+def test_adjust_boundary_allows_touching_exactly_at_a_neighbours_boundary(
+    tmp_path: Path,
+) -> None:
+    """Touching, not overlapping -- [0,100)+[100,200) share the point 100."""
+    repo = _start(tmp_path, [_seg(0, 100), _seg(100, 200), _seg(200, 300)])
+
+    updated = adjust_boundary(repo, 1, start_frame=100, end_frame=200)
+
+    assert (updated.start_frame, updated.end_frame) == (100, 200)
+
+
+def test_adjust_boundary_refuses_overlapping_the_previous_neighbour(tmp_path: Path) -> None:
+    repo = _start(tmp_path, [_seg(0, 100), _seg(100, 200)])
+
+    with pytest.raises(WoodshedError, match="overlap segment 0"):
+        adjust_boundary(repo, 1, start_frame=50)
+
+
+def test_adjust_boundary_refuses_overlapping_the_next_neighbour(tmp_path: Path) -> None:
+    repo = _start(tmp_path, [_seg(0, 100), _seg(100, 200), _seg(200, 300)])
+
+    with pytest.raises(WoodshedError, match="overlap segment 2"):
+        adjust_boundary(repo, 1, end_frame=250)
+
+
+def test_adjust_boundary_refuses_an_unknown_index(tmp_path: Path) -> None:
+    repo = _start(tmp_path, [_seg(0, 100)])
+
+    with pytest.raises(WoodshedError, match="no such capture segment"):
+        adjust_boundary(repo, 5, start_frame=10)
+
+
+def test_adjust_boundary_refuses_a_non_pending_index(tmp_path: Path) -> None:
+    repo = _start(tmp_path, [_seg(0, 100), _seg(100, 200)])
+    resolve(repo, 0, STATUS_BOUND)
+
+    with pytest.raises(WoodshedError, match="not pending"):
+        adjust_boundary(repo, 0, start_frame=10)
+
+
+# merge_segments ──────────────────────────────────────────────────────────
+
+
+def test_merge_segments_combines_adjacent_entries_at_the_first_index(tmp_path: Path) -> None:
+    repo = _start(tmp_path, [_seg(0, 100), _seg(100, 200), _seg(200, 300)])
+
+    merged = merge_segments(repo, 0, 1)
+
+    assert (merged.index, merged.start_frame, merged.end_frame) == (0, 0, 200)
+    session = current_session(repo)
+    assert [e.index for e in session.entries] == [0, 2]
+
+
+def test_merge_segments_works_regardless_of_argument_order(tmp_path: Path) -> None:
+    repo = _start(tmp_path, [_seg(0, 100), _seg(100, 200)])
+
+    merged = merge_segments(repo, 1, 0)
+
+    assert (merged.index, merged.start_frame, merged.end_frame) == (0, 0, 200)
+
+
+def test_merge_segments_ors_overflowed(tmp_path: Path) -> None:
+    repo = _start(tmp_path, [_seg(0, 100, overflowed=True), _seg(100, 200)])
+
+    merged = merge_segments(repo, 0, 1)
+
+    assert merged.overflowed is True
+
+
+def test_merge_segments_refuses_non_adjacent_indices(tmp_path: Path) -> None:
+    repo = _start(
+        tmp_path, [_seg(0, 100), _seg(100, 200), _seg(200, 300), _seg(300, 400)]
+    )
+
+    with pytest.raises(WoodshedError, match="not adjacent"):
+        merge_segments(repo, 0, 2)
+
+
+def test_merge_segments_refuses_a_non_pending_index(tmp_path: Path) -> None:
+    repo = _start(tmp_path, [_seg(0, 100), _seg(100, 200)])
+    resolve(repo, 1, STATUS_DISCARDED)
+
+    with pytest.raises(WoodshedError, match="not pending"):
+        merge_segments(repo, 0, 1)
+
+
+# split_segment ───────────────────────────────────────────────────────────
+
+
+def test_split_segment_creates_two_entries_the_second_with_a_fresh_index(
+    tmp_path: Path,
+) -> None:
+    repo = _start(tmp_path, [_seg(0, 100), _seg(100, 200)])
+
+    first, second = split_segment(repo, 1, 150)
+
+    assert (first.index, first.start_frame, first.end_frame) == (1, 100, 150)
+    assert (second.index, second.start_frame, second.end_frame) == (2, 150, 200)
+    session = current_session(repo)
+    assert sorted(e.index for e in session.entries) == [0, 1, 2]
+
+
+def test_split_segment_never_reuses_an_index_already_in_the_session(
+    tmp_path: Path,
+) -> None:
+    repo = _start(tmp_path, [_seg(0, 100), _seg(100, 200), _seg(200, 300)])
+    resolve(repo, 2, STATUS_BOUND)  # index 2 still on disk, just not pending
+
+    _first, second = split_segment(repo, 1, 150)
+
+    assert second.index == 3  # not 2, which is already in use
+
+
+def test_split_segment_refuses_a_boundary_at_the_start(tmp_path: Path) -> None:
+    repo = _start(tmp_path, [_seg(0, 100), _seg(100, 200)])
+
+    with pytest.raises(WoodshedError, match="strictly inside"):
+        split_segment(repo, 1, 100)
+
+
+def test_split_segment_refuses_a_boundary_at_the_end(tmp_path: Path) -> None:
+    repo = _start(tmp_path, [_seg(0, 100), _seg(100, 200)])
+
+    with pytest.raises(WoodshedError, match="strictly inside"):
+        split_segment(repo, 1, 200)
+
+
+def test_split_segment_refuses_a_non_pending_index(tmp_path: Path) -> None:
+    repo = _start(tmp_path, [_seg(0, 100), _seg(100, 200)])
+    resolve(repo, 0, STATUS_BOUND)
+
+    with pytest.raises(WoodshedError, match="not pending"):
+        split_segment(repo, 0, 50)

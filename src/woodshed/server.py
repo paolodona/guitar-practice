@@ -42,6 +42,12 @@ now:
     POST /api/capture/bind              -> bind one pending segment to a
                                             song, existing or new          (U2)
     POST /api/capture/discard           -> drop one pending segment       (U2)
+    POST /api/capture/adjust            -> move one pending segment's own
+                                            start/end frame               (U2b)
+    POST /api/capture/merge             -> merge two adjacent pending
+                                            segments into one              (U2b)
+    POST /api/capture/split             -> split one pending segment into
+                                            two at a frame                 (U2b)
     POST /api/shutdown                  -> stops the server               (C2)
 
 `/api/peaks/<slug>` still answers 404 with a small body when woodshed.peaks
@@ -82,7 +88,15 @@ from woodshed.capture import (
     bind_segment_to_song,
     extract_segment,
 )
-from woodshed.capture_session import STATUS_BOUND, STATUS_DISCARDED, current_session, resolve
+from woodshed.capture_session import (
+    STATUS_BOUND,
+    STATUS_DISCARDED,
+    adjust_boundary,
+    current_session,
+    merge_segments,
+    resolve,
+    split_segment,
+)
 from woodshed.click import render_click
 from woodshed.clock import pre_roll_seconds
 from woodshed.config import load_config
@@ -614,6 +628,12 @@ class WoodshedHandler(BaseHTTPRequestHandler):
                 self._post_capture_bind(body)
             elif path == "/api/capture/discard":
                 self._post_capture_discard(body)
+            elif path == "/api/capture/adjust":
+                self._post_capture_adjust(body)
+            elif path == "/api/capture/merge":
+                self._post_capture_merge(body)
+            elif path == "/api/capture/split":
+                self._post_capture_split(body)
             elif path == "/api/shutdown":
                 self._shutdown()
             else:
@@ -945,6 +965,58 @@ class WoodshedHandler(BaseHTTPRequestHandler):
             raise WoodshedError(f"no such pending capture segment: {index}")
         resolve(self.repo, index, STATUS_DISCARDED)
         self._json({"index": index, "discarded": True})
+
+    @staticmethod
+    def _entry_json(entry) -> dict:
+        return {
+            "index": entry.index,
+            "start_frame": entry.start_frame,
+            "end_frame": entry.end_frame,
+            "duration_s": entry.duration_s,
+            "overflowed": entry.overflowed,
+        }
+
+    def _post_capture_adjust(self, body: dict) -> None:
+        """Move one pending segment's own start/end frame (U2b). Body:
+        `{index, start_frame?, end_frame?}` -- either bound may be omitted
+        to leave it where it is. `adjust_boundary` itself refuses an
+        inverted or overlapping result; this is routing only."""
+        try:
+            index = int(body.get("index"))
+        except (TypeError, ValueError):
+            raise WoodshedError("adjust needs an integer 'index'") from None
+        raw_start = body.get("start_frame")
+        raw_end = body.get("end_frame")
+        start_frame = None if raw_start is None else int(raw_start)
+        end_frame = None if raw_end is None else int(raw_end)
+        entry = adjust_boundary(self.repo, index, start_frame=start_frame, end_frame=end_frame)
+        self._json(self._entry_json(entry))
+
+    def _post_capture_merge(self, body: dict) -> None:
+        """Merge two adjacent pending segments into one (U2b). Body:
+        `{first_index, second_index}` -- `merge_segments` itself refuses a
+        non-adjacent pair; this is routing only."""
+        try:
+            first_index = int(body.get("first_index"))
+            second_index = int(body.get("second_index"))
+        except (TypeError, ValueError):
+            raise WoodshedError(
+                "merge needs integer 'first_index' and 'second_index'"
+            ) from None
+        entry = merge_segments(self.repo, first_index, second_index)
+        self._json(self._entry_json(entry))
+
+    def _post_capture_split(self, body: dict) -> None:
+        """Split one pending segment into two at a frame (U2b). Body:
+        `{index, at_frame}` -- `split_segment` itself refuses a boundary at
+        or past either end; this is routing only."""
+        try:
+            index = int(body.get("index"))
+            at_frame = int(body.get("at_frame"))
+        except (TypeError, ValueError):
+            raise WoodshedError("split needs an integer 'index' and 'at_frame'") from None
+        first, second = split_segment(self.repo, index, at_frame)
+        self._json({"first": self._entry_json(first), "second": self._entry_json(second)})
 
     def _shutdown(self) -> None:
         """Stand down. No build queue in this unit, so nothing to refuse for."""

@@ -867,7 +867,13 @@ def test_server_writes_nothing_else(served, monkeypatch):
         ),
         repo.setlists_dir / "gig.yaml",
     )
-    _start_capture(repo, [Segment(start_frame=0, end_frame=48_000, sample_rate=48_000)])
+    _start_capture(repo, [
+        Segment(start_frame=0, end_frame=48_000, sample_rate=48_000),
+        Segment(start_frame=48_000, end_frame=96_000, sample_rate=48_000),
+        Segment(start_frame=96_000, end_frame=144_000, sample_rate=48_000),
+        Segment(start_frame=144_000, end_frame=192_000, sample_rate=48_000),
+        Segment(start_frame=192_000, end_frame=240_000, sample_rate=48_000),
+    ])
     _fake_extract(monkeypatch)
     before = _hash_tree(repo.root)
 
@@ -904,6 +910,9 @@ def test_server_writes_nothing_else(served, monkeypatch):
     _post(base, "/api/setlist/duo/songs", {"song": slug})
     _get(base, "/api/capture/segments")
     _get(base, "/api/capture/segment-audio/0")
+    _post(base, "/api/capture/adjust", {"index": 4, "end_frame": 230_000})
+    _post(base, "/api/capture/merge", {"first_index": 1, "second_index": 2})
+    _post(base, "/api/capture/split", {"index": 3, "at_frame": 168_000})
     _post(
         base, "/api/capture/bind",
         {"index": 0, "mode": "existing", "slug": "needs-audio-tune", "tuning": "E standard"},
@@ -1094,6 +1103,92 @@ def test_post_capture_discard_then_bind_the_same_index_refuses(served) -> None:
             base, "/api/capture/bind",
             {"index": 0, "mode": "new", "title": "Too Late", "tuning": "E standard"},
         )
+    assert caught.value.code == 400
+
+
+# ── U2b: /api/capture/adjust|merge|split ─────────────────────────────────
+
+
+def test_post_capture_adjust_moves_the_boundary(served) -> None:
+    base, repo, _slug = served
+    _start_capture(repo, [
+        Segment(start_frame=0, end_frame=48_000, sample_rate=48_000),
+        Segment(start_frame=48_000, end_frame=96_000, sample_rate=48_000),
+    ])
+
+    status, body = _post(base, "/api/capture/adjust", {"index": 1, "start_frame": 50_000})
+
+    assert status == 200
+    assert body["index"] == 1
+    assert body["start_frame"] == 50_000
+    assert body["end_frame"] == 96_000
+
+
+def test_post_capture_adjust_refuses_overlapping_a_neighbour(served) -> None:
+    base, repo, _slug = served
+    _start_capture(repo, [
+        Segment(start_frame=0, end_frame=48_000, sample_rate=48_000),
+        Segment(start_frame=48_000, end_frame=96_000, sample_rate=48_000),
+    ])
+
+    with pytest.raises(urllib.error.HTTPError) as caught:
+        _post(base, "/api/capture/adjust", {"index": 1, "start_frame": 10_000})
+    assert caught.value.code == 400
+
+
+def test_post_capture_merge_combines_two_adjacent_segments(served) -> None:
+    base, repo, _slug = served
+    _start_capture(repo, [
+        Segment(start_frame=0, end_frame=48_000, sample_rate=48_000),
+        Segment(start_frame=48_000, end_frame=96_000, sample_rate=48_000),
+    ])
+
+    status, body = _post(
+        base, "/api/capture/merge", {"first_index": 0, "second_index": 1}
+    )
+
+    assert status == 200
+    assert body["index"] == 0
+    assert body["start_frame"] == 0
+    assert body["end_frame"] == 96_000
+    _status, remaining = _get_json(base, "/api/capture/segments")
+    assert [e["index"] for e in remaining] == [0]
+
+
+def test_post_capture_merge_refuses_non_adjacent_indices(served) -> None:
+    base, repo, _slug = served
+    _start_capture(repo, [
+        Segment(start_frame=0, end_frame=48_000, sample_rate=48_000),
+        Segment(start_frame=48_000, end_frame=96_000, sample_rate=48_000),
+        Segment(start_frame=96_000, end_frame=144_000, sample_rate=48_000),
+    ])
+
+    with pytest.raises(urllib.error.HTTPError) as caught:
+        _post(base, "/api/capture/merge", {"first_index": 0, "second_index": 2})
+    assert caught.value.code == 400
+
+
+def test_post_capture_split_creates_a_second_entry_with_a_fresh_index(served) -> None:
+    base, repo, _slug = served
+    _start_capture(repo, [Segment(start_frame=0, end_frame=96_000, sample_rate=48_000)])
+
+    status, body = _post(base, "/api/capture/split", {"index": 0, "at_frame": 48_000})
+
+    assert status == 200
+    assert body["first"]["index"] == 0
+    assert body["first"]["end_frame"] == 48_000
+    assert body["second"]["index"] == 1
+    assert body["second"]["start_frame"] == 48_000
+    _status, remaining = _get_json(base, "/api/capture/segments")
+    assert sorted(e["index"] for e in remaining) == [0, 1]
+
+
+def test_post_capture_split_refuses_a_boundary_outside_the_segment(served) -> None:
+    base, repo, _slug = served
+    _start_capture(repo, [Segment(start_frame=0, end_frame=96_000, sample_rate=48_000)])
+
+    with pytest.raises(urllib.error.HTTPError) as caught:
+        _post(base, "/api/capture/split", {"index": 0, "at_frame": 96_000})
     assert caught.value.code == 400
 
 

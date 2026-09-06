@@ -1940,6 +1940,31 @@ what's missing is everything **after** a segment exists and before it is a bound
   `overflowed`; `split_segment` refuses a boundary at or past either end and the new
   entry's index is never one already in use; all three refuse a non-pending index, same
   message shape as `resolve`.
+  - **Done, 2026-09-06.** Built exactly as specced. `capture_session.py` gained a
+    shared `_pending_entry(session, index)` lookup (same refusal messages `resolve`
+    already used) and `resolve` itself was refactored onto it -- no behaviour change,
+    one lookup instead of two copies. Judgement calls, both raised rather than
+    silently resolved: (1) "adjacent" for `merge_segments` is checked by index
+    (`abs(first_index - second_index) == 1`), matching the plan text's own "(by
+    index, in either order)" phrasing, but which of the pair supplies the merged
+    entry's start vs. end is decided by comparing `start_frame`, not by which
+    argument was named `first_index` -- so `merge_segments(1, 0)` and
+    `merge_segments(0, 1)` produce the identical result, which is what "in either
+    order" has to mean for the operation to be safe. (2) `adjust_boundary`'s
+    previous/next neighbour is found by `start_frame` order among the other still-
+    pending entries, not by index order -- a prior `split_segment` can leave a
+    high index chronologically in the middle of the session, and overlap is about
+    time, not index. (3) `split_segment` does not try to divide `overflowed`
+    between the two halves (nothing records which half saw the dropout) -- both
+    inherit the original entry's flag, the conservative reading. Server: three thin
+    routes (`POST /api/capture/adjust|merge|split`), each parses its body and calls
+    straight through, returning the touched `SessionEntry`/pair as JSON (`index`,
+    `start_frame`, `end_frame`, `duration_s`, `overflowed`). `test_server_writes_
+    nothing_else` extended to a 5-segment capture session and now exercises all
+    three new endpoints before the existing bind. 24 new capture_session tests + 6
+    new server tests, all passing; full suite 847 passed (was 823); ruff clean;
+    no-extras gate 844 passed, 3 deselected (was 820/3) -- unaffected by the new
+    endpoints since none of them touch a heavy dependency.
 - **U3** `screens/capture.js` gains U0's segment-review UI: the whole-pass waveform strip
   (draggable boundary handles calling `merge_segments`/`adjust_boundary`, a "+ split at
   playhead" action calling `split_segment`, a scrubbable playhead using `player.js`'s

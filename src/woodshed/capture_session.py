@@ -49,6 +49,9 @@ __all__ = [
     "start_session",
     "current_session",
     "resolve",
+    "adjust_boundary",
+    "merge_segments",
+    "split_segment",
 ]
 
 
@@ -140,6 +143,28 @@ def current_session(repo: Repo) -> CaptureSession | None:
     return _load(sidecars[-1])
 
 
+def _current_session_or_raise(repo: Repo, index: int) -> CaptureSession:
+    """Shared first step of every per-segment operation below: there must be
+    a session at all before there can be a pending entry in it."""
+    session = current_session(repo)
+    if session is None:
+        raise WoodshedError(f"no such capture segment: {index}")
+    return session
+
+
+def _pending_entry(session: CaptureSession, index: int) -> SessionEntry:
+    """The entry at *index*, refusing an unknown index or one that has
+    already resolved -- the one lookup `resolve`, `adjust_boundary`,
+    `merge_segments` and `split_segment` all need first, with the same
+    refusal messages regardless of which of the four is asking."""
+    entry = next((e for e in session.entries if e.index == index), None)
+    if entry is None:
+        raise WoodshedError(f"no such capture segment: {index}")
+    if entry.status != STATUS_PENDING:
+        raise WoodshedError(f"capture segment {index} is already {entry.status}, not pending")
+    return entry
+
+
 def resolve(repo: Repo, index: int, status: str) -> SessionEntry:
     """Mark entry *index* of the current session as *status* (`"bound"` or
     `"discarded"`). Refuses an unknown index, and refuses one already
@@ -147,27 +172,138 @@ def resolve(repo: Repo, index: int, status: str) -> SessionEntry:
     real error -- never a silent no-op or a misbind through a stale index).
     Deletes the sidecar AND the raw file once every entry has resolved.
     """
-    session = current_session(repo)
-    if session is None:
-        raise WoodshedError(f"no such capture segment: {index}")
-    updated_entries = []
-    resolved: SessionEntry | None = None
-    for entry in session.entries:
-        if entry.index == index:
-            if entry.status != STATUS_PENDING:
-                raise WoodshedError(
-                    f"capture segment {index} is already {entry.status}, not pending"
-                )
-            entry = dataclasses.replace(entry, status=status)
-            resolved = entry
-        updated_entries.append(entry)
-    if resolved is None:
-        raise WoodshedError(f"no such capture segment: {index}")
+    session = _current_session_or_raise(repo, index)
+    entry = _pending_entry(session, index)
+    resolved = dataclasses.replace(entry, status=status)
+    updated_entries = tuple(
+        resolved if e.index == index else e for e in session.entries
+    )
 
-    updated = dataclasses.replace(session, entries=tuple(updated_entries))
+    updated = dataclasses.replace(session, entries=updated_entries)
     if any(e.status == STATUS_PENDING for e in updated.entries):
         _save(updated)
     else:
         updated.sidecar_path.unlink(missing_ok=True)
         updated.raw_path.unlink(missing_ok=True)
     return resolved
+
+
+def adjust_boundary(
+    repo: Repo, index: int, *, start_frame: int | None = None, end_frame: int | None = None
+) -> SessionEntry:
+    """Move one pending entry's own `start_frame` and/or `end_frame`.
+    Refuses a result where `start_frame >= end_frame`, or where the new
+    range would overlap the previous or next PENDING entry's own range --
+    dragging a handle past a neighbour is a merge, not an overlap, so this
+    refuses and names the fix rather than silently clamping.
+
+    "Previous"/"next" are the neighbouring pending entries in chronological
+    order (by `start_frame`), not by index number -- a prior `split_segment`
+    can leave a high index number chronologically in the middle of the
+    session, and it is time, not index, that overlap is actually about.
+    """
+    session = _current_session_or_raise(repo, index)
+    entry = _pending_entry(session, index)
+    new_start = entry.start_frame if start_frame is None else start_frame
+    new_end = entry.end_frame if end_frame is None else end_frame
+    if new_start >= new_end:
+        raise WoodshedError(
+            f"segment {index}: start_frame ({new_start}) must be before "
+            f"end_frame ({new_end})"
+        )
+
+    neighbours = sorted(
+        (e for e in session.pending if e.index != index), key=lambda e: e.start_frame
+    )
+    previous = next(
+        (e for e in reversed(neighbours) if e.start_frame < entry.start_frame), None
+    )
+    following = next((e for e in neighbours if e.start_frame > entry.start_frame), None)
+    if previous is not None and new_start < previous.end_frame:
+        raise WoodshedError(
+            f"segment {index}'s new start would overlap segment {previous.index} "
+            "-- merge them instead of overlapping"
+        )
+    if following is not None and new_end > following.start_frame:
+        raise WoodshedError(
+            f"segment {index}'s new end would overlap segment {following.index} "
+            "-- merge them instead of overlapping"
+        )
+
+    updated_entry = dataclasses.replace(entry, start_frame=new_start, end_frame=new_end)
+    updated_entries = tuple(
+        updated_entry if e.index == index else e for e in session.entries
+    )
+    _save(dataclasses.replace(session, entries=updated_entries))
+    return updated_entry
+
+
+def merge_segments(repo: Repo, first_index: int, second_index: int) -> SessionEntry:
+    """Merge two ADJACENT pending entries (by index -- "merge segment 1 and
+    segment 4" has no principled meaning) into one, in either argument
+    order: whichever of the two starts earlier in time supplies the merged
+    entry's own index and start_frame, the later one supplies the
+    end_frame, and its own row is removed from the session entirely (not
+    merely marked resolved -- it never existed as its own bound/discarded
+    song, so it shouldn't linger as a third status). `overflowed` is the OR
+    of both -- a dropout in either half still makes the merged segment
+    unsafe to bind.
+    """
+    if abs(first_index - second_index) != 1:
+        raise WoodshedError(
+            f"segments {first_index} and {second_index} are not adjacent -- "
+            "merge only applies to neighbouring segments"
+        )
+    session = _current_session_or_raise(repo, first_index)
+    entry_a = _pending_entry(session, first_index)
+    entry_b = _pending_entry(session, second_index)
+    earlier, later = sorted((entry_a, entry_b), key=lambda e: e.start_frame)
+
+    merged = dataclasses.replace(
+        earlier,
+        end_frame=later.end_frame,
+        overflowed=earlier.overflowed or later.overflowed,
+    )
+    updated_entries = tuple(
+        merged if e.index == earlier.index else e
+        for e in session.entries
+        if e.index != later.index
+    )
+    _save(dataclasses.replace(session, entries=updated_entries))
+    return merged
+
+
+def split_segment(repo: Repo, index: int, at_frame: int) -> tuple[SessionEntry, SessionEntry]:
+    """Split one pending entry into two at *at_frame*, which must fall
+    STRICTLY inside its current range -- a boundary at or past either end
+    has nothing to split. The first half keeps *index*'s own index; the
+    second half gets a fresh index one past the session's current highest
+    (across every entry ever recorded in this session, not just the still-
+    pending ones, so a resolved entry's own index is never reused either)
+    -- appended, not inserted, so it never collides with or renumbers a
+    later entry.
+
+    Judgement call: `overflowed` is not split-aware (nothing marks WHICH
+    half of a segment saw the overflow) -- both halves inherit the
+    original entry's own flag, the conservative reading (a real dropout
+    anywhere in the original span keeps both halves flagged rather than
+    silently losing the warning off one side).
+    """
+    session = _current_session_or_raise(repo, index)
+    entry = _pending_entry(session, index)
+    if not (entry.start_frame < at_frame < entry.end_frame):
+        raise WoodshedError(
+            f"split point {at_frame} must fall strictly inside segment {index}'s "
+            f"range [{entry.start_frame}, {entry.end_frame})"
+        )
+
+    new_index = max(e.index for e in session.entries) + 1
+    first_half = dataclasses.replace(entry, end_frame=at_frame)
+    second_half = dataclasses.replace(entry, index=new_index, start_frame=at_frame)
+
+    updated_entries = (
+        tuple(first_half if e.index == index else e for e in session.entries)
+        + (second_half,)
+    )
+    _save(dataclasses.replace(session, entries=updated_entries))
+    return first_half, second_half
