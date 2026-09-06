@@ -37,6 +37,7 @@ import yaml
 
 from woodshed.capture import Segment
 from woodshed.capture_session import start_session
+from woodshed.errors import WoodshedError
 from woodshed.ledger import read as read_ledger
 from woodshed.library import Repo
 from woodshed.manifest import (
@@ -47,10 +48,11 @@ from woodshed.manifest import (
     Song,
     Tempo,
     hash_file,
+    load_song,
     save_setlist,
     save_song,
 )
-from woodshed.server import WoodshedServer, make_server, parse_byte_range
+from woodshed.server import WoodshedServer, make_server, parse_byte_range, parse_multipart
 
 POLL = 0.01  # server.serve_forever's poll interval; small so shutdown is fast in tests
 
@@ -58,6 +60,20 @@ POLL = 0.01  # server.serve_forever's poll interval; small so shutdown is fast i
 # has a size that isn't a round number.
 AUDIO_BYTES = b"WOODSHEDAUD1"
 assert len(AUDIO_BYTES) == 12
+
+
+def _wav_bytes(*, seconds: float = 1.0, rate: int = 44100) -> bytes:
+    """A real, playable mono WAV -- for POST /api/song/upload's success
+    path, which (unlike `_make_song`'s hand-built `Song`) reads its
+    duration back out through `wave.open` via `bind_song_file`."""
+    frames = int(seconds * rate)
+    buffer = io.BytesIO()
+    with wave_module.open(buffer, "wb") as f:
+        f.setnchannels(1)
+        f.setsampwidth(2)
+        f.setframerate(rate)
+        f.writeframes(b"\x00\x00" * frames)
+    return buffer.getvalue()
 
 
 # ── building a real repo on disk ─────────────────────────────────────────
@@ -143,6 +159,36 @@ def _post(base: str, path: str, payload: dict, headers: dict | None = None):
         base + path,
         data=json.dumps(payload).encode("utf-8"),
         headers={"Content-Type": "application/json", **(headers or {})},
+        method="POST",
+    )
+    with urllib.request.urlopen(request) as response:
+        return response.status, json.loads(response.read().decode("utf-8"))
+
+
+def _multipart_post(
+    base: str, path: str, fields: dict[str, str], *, file_field: str,
+    filename: str, content: bytes,
+) -> tuple[int, dict]:
+    """Build a real multipart/form-data body by hand (stdlib has no client-
+    side helper for this) and POST it -- the same shape a browser's
+    `FormData`/`fetch` sends for a file input."""
+    boundary = "----woodshedtestboundary"
+    parts = []
+    for name, value in fields.items():
+        parts.append(
+            f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n'
+            f"{value}\r\n".encode()
+        )
+    parts.append(
+        f'--{boundary}\r\nContent-Disposition: form-data; name="{file_field}"; '
+        f'filename="{filename}"\r\nContent-Type: application/octet-stream\r\n\r\n'
+        .encode() + content + b"\r\n"
+    )
+    parts.append(f"--{boundary}--\r\n".encode())
+    body = b"".join(parts)
+    request = urllib.request.Request(
+        base + path, data=body,
+        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
         method="POST",
     )
     with urllib.request.urlopen(request) as response:
@@ -908,6 +954,10 @@ def test_server_writes_nothing_else(served, monkeypatch):
     _post(base, "/api/shift", {"setlist": "gig", "song": slug, "shift": -2})
     _post(base, "/api/setlist", {"name": "Duo", "tuning": "E standard", "slug": "duo"})
     _post(base, "/api/setlist/duo/songs", {"song": slug})
+    _multipart_post(
+        base, "/api/song/upload", {"title": "Uploaded In Writes Test", "tuning": "E standard"},
+        file_field="file", filename="upload.wav", content=_wav_bytes(seconds=1.0),
+    )
     _get(base, "/api/capture/segments")
     _get(base, "/api/capture/segment-audio/0")
     _post(base, "/api/capture/adjust", {"index": 4, "end_frame": 230_000})
@@ -1189,6 +1239,70 @@ def test_post_capture_split_refuses_a_boundary_outside_the_segment(served) -> No
 
     with pytest.raises(urllib.error.HTTPError) as caught:
         _post(base, "/api/capture/split", {"index": 0, "at_frame": 96_000})
+    assert caught.value.code == 400
+
+
+# ── parse_multipart, POST /api/song/upload (Phase 1.5, Group T, T1) ────────
+
+
+def test_parse_multipart_extracts_fields_and_the_file(served) -> None:
+    boundary = "boundary123"
+    body = (
+        f'--{boundary}\r\nContent-Disposition: form-data; name="title"\r\n\r\n'
+        f"My Song\r\n"
+        f'--{boundary}\r\nContent-Disposition: form-data; name="file"; '
+        f'filename="track.wav"\r\nContent-Type: application/octet-stream\r\n\r\n'
+    ).encode() + b"\x00\x01binarydata" + f"\r\n--{boundary}--\r\n".encode()
+
+    fields, files = parse_multipart(f"multipart/form-data; boundary={boundary}", body)
+
+    assert fields == {"title": "My Song"}
+    assert files["file"] == ("track.wav", b"\x00\x01binarydata")
+
+
+def test_parse_multipart_refuses_a_content_type_with_no_boundary() -> None:
+    with pytest.raises(WoodshedError, match="boundary"):
+        parse_multipart("multipart/form-data", b"whatever")
+
+
+def test_post_song_upload_binds_a_new_song(served) -> None:
+    base, repo, _slug = served
+    wav_bytes = _wav_bytes(seconds=2.0)
+    status, body = _multipart_post(
+        base, "/api/song/upload",
+        {"title": "Uploaded Tune", "artist": "Band", "tuning": "Eb standard"},
+        file_field="file", filename="original-name.wav", content=wav_bytes,
+    )
+
+    assert status == 200
+    assert body["slug"] == "uploaded-tune"
+    song_path = repo.song_dir("uploaded-tune") / "song.yaml"
+    assert song_path.is_file()
+    song = load_song(song_path)
+    assert song.artist == "Band"
+    assert song.recording.tuning == "Eb standard"
+    assert song.recording.file == "audio/original-name.wav"
+    assert song.recording.duration_s == pytest.approx(2.0, abs=0.05)
+    assert (repo.song_dir("uploaded-tune") / song.recording.file).read_bytes() == wav_bytes
+
+
+def test_post_song_upload_refuses_a_missing_title(served) -> None:
+    base, _repo, _slug = served
+    with pytest.raises(urllib.error.HTTPError) as caught:
+        _multipart_post(
+            base, "/api/song/upload", {"tuning": "E standard"},
+            file_field="file", filename="a.wav", content=AUDIO_BYTES,
+        )
+    assert caught.value.code == 400
+
+
+def test_post_song_upload_refuses_an_existing_slug(served) -> None:
+    base, _repo, slug = served
+    with pytest.raises(urllib.error.HTTPError) as caught:
+        _multipart_post(
+            base, "/api/song/upload", {"title": "Test Song", "tuning": "E standard"},
+            file_field="file", filename="a.wav", content=AUDIO_BYTES,
+        )
     assert caught.value.code == 400
 
 

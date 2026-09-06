@@ -230,6 +230,56 @@ def test_add_refuses_a_slug_that_already_exists(repo: Repo, tmp_path: Path) -> N
     assert rc == 2
 
 
+# ── bind_song_file: the shared function cmd_add and POST /api/song/upload
+#    both call (T1) ────────────────────────────────────────────────────────
+
+
+def test_bind_song_file_writes_the_expected_song_yaml(repo: Repo, tmp_path: Path) -> None:
+    source = tmp_path / "raw.wav"
+    _write_wav(source, seconds=3.0)
+
+    song = cli.bind_song_file(
+        repo, source, title="Direct Call", artist="Someone", tuning="Eb standard",
+    )
+
+    assert song.slug == "direct-call"
+    song_path = repo.song_dir("direct-call") / "song.yaml"
+    assert song_path.is_file()
+    reloaded = load_song(song_path)
+    assert reloaded.artist == "Someone"
+    assert reloaded.recording.tuning == "Eb standard"
+    assert reloaded.recording.duration_s == pytest.approx(3.0, abs=0.05)
+    assert (repo.song_dir("direct-call") / reloaded.recording.file).is_file()
+
+
+def test_bind_song_file_refuses_a_missing_source(repo: Repo, tmp_path: Path) -> None:
+    with pytest.raises(Exception, match="no such file"):
+        cli.bind_song_file(repo, tmp_path / "nope.wav", title="Ghost")
+
+
+def test_bind_song_file_refuses_an_existing_slug(repo: Repo, tmp_path: Path) -> None:
+    _add(repo, tmp_path)  # binds "test-song"
+    source2 = tmp_path / "source2.wav"
+    _write_wav(source2)
+
+    with pytest.raises(Exception, match="already exists"):
+        cli.bind_song_file(repo, source2, title="Test Song")
+
+
+def test_bind_song_file_uses_dest_filename_when_given(repo: Repo, tmp_path: Path) -> None:
+    """The server's own path: the incoming bytes land in a generated temp
+    file first, so `source.name` there is not the browser's real filename."""
+    source = tmp_path / "tmpABC123.wav"
+    _write_wav(source, seconds=1.0)
+
+    song = cli.bind_song_file(
+        repo, source, title="Renamed", tuning="E standard", dest_filename="original.wav",
+    )
+
+    assert song.recording.file == "audio/original.wav"
+    assert (repo.song_dir(song.slug) / "audio" / "original.wav").is_file()
+
+
 # ── section: add / update / rm, mirroring POST /api/section ─────────────
 def test_section_add_writes_a_span(repo: Repo, tmp_path: Path) -> None:
     slug = _add(repo, tmp_path, seconds=30.0)

@@ -1735,6 +1735,32 @@ architectural calls get raised for Paolo rather than asserted.
   "Add song" text field (which only ever produced a `needs_audio` placeholder row,
   never actually bound a file) with Group O's real form: file picker, title/artist, the
   tuning **dropdown**.
+  - **Done, 2026-09-06.** `cli.py` gained `bind_song_file(repo, source, *, title, artist,
+    album, tuning, slug, bpm, grid_offset_s, time_signature, dest_filename)` -- the
+    refactored binding logic, byte-identical behaviour to the old inline `cmd_add` body
+    (same slug-collision/missing-file refusals, same `_read_duration_s` dispatch on
+    `.wav` vs. ffprobe); `cmd_add` is now four lines calling it. `dest_filename` is the
+    signature addition beyond the plan text: the server's own copy of the uploaded
+    bytes lives in a generated temp file, so `source.name` there is never the browser's
+    real filename. `server.py` gained a hand-rolled `parse_multipart` (stdlib only --
+    `cgi.FieldStorage` is gone as of 3.13, so this is the forward-compatible choice, not
+    a shortcut) and `POST /api/song/upload`, which is NOT JSON -- `do_POST` special-
+    cases that one path to read the raw body itself before the generic `self._body()`
+    JSON parse would consume it. The uploaded filename is run through `Path(...).name`
+    before ever touching `songs/<slug>/audio/`, so a crafted `filename` can't smuggle a
+    directory component. `dashboard.js`'s "Add song" is a real form now (file input +
+    title/artist + the tuning dropdown, matching `design/AddSong.dc.html`'s "from a
+    file" panel; its "or capture live" panel stays T2's job) -- `POST /api/song/upload`
+    (via a new `app.js` `postForm` helper, since this is the one route in the app that
+    isn't JSON) followed by the existing `POST /api/setlist/<slug>/songs` to add the
+    freshly-bound slug to the current setlist, two calls rather than folding setlist
+    membership into the upload endpoint's own contract. 4 new `cli.py` tests
+    (`bind_song_file` exercised directly), 5 new `server.py` tests (`parse_multipart` +
+    upload success/refusal), `test_server_writes_nothing_else` extended with one upload
+    call. `node --check` clean on `app.js`/`dashboard.js`; no dedicated JS test added for
+    the DOM-heavy form itself (no precedent in this file -- `dashboard.js` has never had
+    one), consistent with how this repo's DOM-heavy screens are tested elsewhere. Full
+    suite 856 passed (was 847); ruff clean; no-extras gate 853 passed, 3 deselected.
 - **T2** `POST /api/capture/start` / `GET /api/capture/status` / `POST /api/capture/stop`
   — runs `capture.py`'s `capture()` generator (which already accepts an `on_level`
   callback for exactly this, unused until now) on a background thread, one capture at a

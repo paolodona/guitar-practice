@@ -164,6 +164,22 @@ export async function post(path, body) {
   return res.json();
 }
 
+/**
+ * POST a `FormData` (multipart) body to *path*; same error contract as
+ * post(). Only route this phase that isn't JSON -- a file input has no
+ * other shape to send. Never sets Content-Type itself: `fetch` derives
+ * the correct `multipart/form-data; boundary=...` from the FormData body,
+ * and overriding it here would drop that boundary.
+ * @param {string} path
+ * @param {FormData} formData
+ * @returns {Promise<any>}
+ */
+export async function postForm(path, formData) {
+  const res = await fetch(path, { method: 'POST', body: formData });
+  if (!res.ok) throw await responseError(res);
+  return res.json();
+}
+
 /** @param {Response} res */
 async function responseError(res) {
   let message = `${res.status} ${res.statusText}`;

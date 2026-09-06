@@ -42,19 +42,20 @@
  *    "create your first setlist" form (`POST /api/setlist`) rather than a
  *    blank screen or a fabricated row.
  *
- * 4. (post-Phase-1) Creating a setlist and adding a song to one are both
- *    real, small inline forms — `POST /api/setlist` and
- *    `POST /api/setlist/<slug>/songs` — rather than requiring a terminal.
- *    Adding a song accepts a title OR a slug (server.py's
- *    `_post_setlist_songs` resolves it via `Repo.find_song`, falling back
- *    to a fresh needs-audio placeholder slug when nothing matches) —
- *    there is still no way to create a brand-new song's METADATA from
- *    here (title/artist with no audio at all): `manifest.Song.recording`
- *    is a required field, so a song only exists once it is bound (`add`/
- *    `capture`) or scanned. Typing a not-yet-bound title into "Add song"
- *    still works — it lands in the setlist as a `needs_audio` row keyed
- *    by its slugified name — but the row's title IS that slug until the
- *    song is actually bound, since nowhere on disk holds a nicer one yet.
+ * 4. (post-Phase-1) Creating a setlist is a real, small inline form --
+ *    `POST /api/setlist` -- rather than requiring a terminal.
+ *
+ * 4b. (Phase 1.5, T1) "Add song" is a real file-binding form, not the old
+ *    title-only text field that only ever produced a `needs_audio`
+ *    placeholder row: a file picker, title/artist, and the tuning
+ *    dropdown (Group O's `AddSong.dc.html`), `POST`ed as `multipart/form-
+ *    data` to `/api/song/upload` (the server's own `bind_song_file` --
+ *    the same function `cmd_add` calls -- reads the duration and writes
+ *    `songs/<slug>/audio/<file>` + `song.yaml` for real). A second call,
+ *    `POST /api/setlist/<slug>/songs`, adds the freshly-bound slug to
+ *    THIS setlist -- the same second step the old form always made,
+ *    kept as two calls rather than folding setlist-membership into the
+ *    upload endpoint's own contract.
  *
  * 5. (Phase 1.5) A `#/capture` link is now always present, in BOTH render
  *    paths (a real setlist, and the empty "create your first one" state) —
@@ -66,7 +67,7 @@
  *    (capture first, name and bind segments after) is a real workflow this
  *    screen must not block.
  */
-import { get, post, setCurrentSetlist } from '../app.js';
+import { get, post, postForm, setCurrentSetlist } from '../app.js';
 
 const STYLE_ID = 'dashboard-screen-style';
 
@@ -216,17 +217,23 @@ const KNOWN_TUNINGS = [
   'B standard', 'Drop D', 'Drop C#',
 ];
 
+/** `<option>`s for every fixed tuning choice (Phase 1's convention: a
+ * dropdown, never free text) -- shared by the setlist form below and the
+ * add-song form's "recording tuning" field. */
+function tuningOptionsHtml() {
+  return KNOWN_TUNINGS.map((t) => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
+}
+
 /** A name + tuning + submit form, shared by the empty state and the
  * pills row's "+ New setlist" toggle. `onCreated(slug)` runs after a
  * successful POST /api/setlist. */
 function createSetlistFormHtml() {
-  const options = KNOWN_TUNINGS.map((t) => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
   return `
     <form data-form style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
       <input class="fld" data-name placeholder="Setlist name" required style="width:220px">
       <select class="fld" data-tuning required style="width:200px">
         <option value="" disabled selected>Tuning&hellip;</option>
-        ${options}
+        ${tuningOptionsHtml()}
       </select>
       <button type="submit" class="go-btn">Create</button>
       <div data-error class="form-error"></div>
@@ -355,7 +362,16 @@ function render(el, payload) {
 
       <div style="display:flex;gap:8px;align-items:center;padding:14px 12px 0">
         <form data-add-song style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-          <input class="fld" data-song placeholder="Song title or slug" style="width:260px">
+          <label class="pill" style="border:1px dashed var(--line,#26302E);cursor:pointer;max-width:220px;overflow:hidden">
+            <span data-file-label style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Choose audio file&hellip;</span>
+            <input data-file type="file" accept="audio/*" required style="display:none">
+          </label>
+          <input class="fld" data-title placeholder="Title" required style="width:200px">
+          <input class="fld" data-artist placeholder="Artist" style="width:170px">
+          <select class="fld" data-tuning required style="width:170px">
+            <option value="" disabled selected>Tuning&hellip;</option>
+            ${tuningOptionsHtml()}
+          </select>
           <button type="submit" class="go-btn">Add song</button>
           <div data-error class="form-error"></div>
         </form>
@@ -384,13 +400,31 @@ function render(el, payload) {
 
   const addSongForm = el.querySelector('[data-add-song]');
   const addSongError = addSongForm.querySelector('[data-error]');
+  const fileInput = addSongForm.querySelector('[data-file]');
+  const fileLabel = addSongForm.querySelector('[data-file-label]');
+  fileInput.addEventListener('change', () => {
+    fileLabel.textContent = fileInput.files[0]?.name ?? 'Choose audio file…';
+  });
   addSongForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     addSongError.textContent = '';
-    const song = addSongForm.querySelector('[data-song]').value.trim();
-    if (!song) return;
+    const file = fileInput.files[0];
+    const title = addSongForm.querySelector('[data-title]').value.trim();
+    const artist = addSongForm.querySelector('[data-artist]').value.trim();
+    const tuning = addSongForm.querySelector('[data-tuning]').value;
+    if (!file || !title || !tuning) return;
     try {
-      await post(`/api/setlist/${encodeURIComponent(currentSetlist)}/songs`, { song });
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('title', title);
+      formData.append('artist', artist);
+      formData.append('tuning', tuning);
+      // Two calls, not one -- POST /api/song/upload only binds the file;
+      // adding it to THIS setlist is the same second call the old
+      // title-only form always made, so a bound song lands here exactly
+      // like a needs_audio placeholder used to.
+      const bound = await postForm('/api/song/upload', formData);
+      await post(`/api/setlist/${encodeURIComponent(currentSetlist)}/songs`, { song: bound.slug });
       await switchTo(el, setlists, currentSetlist);
     } catch (err) {
       addSongError.textContent = err.message;

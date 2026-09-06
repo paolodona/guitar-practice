@@ -35,6 +35,9 @@ now:
     POST /api/shift                     -> writes setlist.songs[].shift   (F1)
     POST /api/setlist                   -> create a new setlist       (post-Phase-1)
     POST /api/setlist/<slug>/songs      -> add a song to a setlist    (post-Phase-1)
+    POST /api/song/upload               -> bind an uploaded audio file
+                                            (multipart/form-data) as a
+                                            new song                     (T1)
     GET  /api/capture/segments          -> pending segments from the most
                                             recent raw capture recording  (U2)
     GET  /api/capture/segment-audio/<i> -> one pending segment's audio,
@@ -69,6 +72,7 @@ import io
 import json
 import mimetypes
 import os
+import re
 import tempfile
 import threading
 import uuid
@@ -97,6 +101,7 @@ from woodshed.capture_session import (
     resolve,
     split_segment,
 )
+from woodshed.cli import bind_song_file
 from woodshed.click import render_click
 from woodshed.clock import pre_roll_seconds
 from woodshed.config import load_config
@@ -148,6 +153,49 @@ def parse_byte_range(header: str, size: int):
     if stop <= start:
         return None        # e.g. bytes=5-2 -- nonsense, so ignore it
     return start, stop
+
+
+_MULTIPART_BOUNDARY_RE = re.compile(r'boundary="?([^";]+)"?')
+_MULTIPART_DISPOSITION_RE = re.compile(r'name="([^"]*)"(?:; filename="([^"]*)")?')
+
+
+def parse_multipart(
+    content_type: str, body: bytes
+) -> tuple[dict[str, str], dict[str, tuple[str, bytes]]]:
+    """A minimal `multipart/form-data` parser -- stdlib only, no external
+    dependency for something this small (`cgi.FieldStorage` is the usual
+    answer but is gone as of Python 3.13, so hand-rolling it is the
+    forward-compatible choice, not a shortcut). Returns `(fields, files)`:
+    `fields` maps a form field's name to its decoded text value, `files`
+    maps a file field's name to `(filename, raw bytes)`.
+
+    Used by `POST /api/song/upload` (T1) -- the one route in this server
+    that isn't JSON, since a browser's file input has no other shape to
+    send.
+    """
+    match = _MULTIPART_BOUNDARY_RE.search(content_type or "")
+    if not match:
+        raise WoodshedError("multipart upload needs a Content-Type boundary")
+    boundary = ("--" + match.group(1)).encode("utf-8")
+
+    fields: dict[str, str] = {}
+    files: dict[str, tuple[str, bytes]] = {}
+    for raw_part in body.split(boundary)[1:-1]:
+        part = raw_part.strip(b"\r\n")
+        if not part:
+            continue
+        header_blob, _, content = part.partition(b"\r\n\r\n")
+        disposition = _MULTIPART_DISPOSITION_RE.search(
+            header_blob.decode("utf-8", errors="replace")
+        )
+        if disposition is None:
+            continue
+        name, filename = disposition.group(1), disposition.group(2)
+        if filename is not None:
+            files[name] = (filename, content)
+        else:
+            fields[name] = content.decode("utf-8", errors="replace")
+    return fields, files
 
 
 class WoodshedHandler(BaseHTTPRequestHandler):
@@ -218,12 +266,16 @@ class WoodshedHandler(BaseHTTPRequestHandler):
     def _error(self, status: int, message: str) -> None:
         self._json({"error": message}, status=status)
 
-    def _body(self) -> dict:
+    def _raw_body(self) -> bytes:
         length = int(self.headers.get("Content-Length") or 0)
-        if not length:
+        return self.rfile.read(length) if length else b""
+
+    def _body(self) -> dict:
+        raw = self._raw_body()
+        if not raw:
             return {}
         try:
-            return json.loads(self.rfile.read(length).decode("utf-8")) or {}
+            return json.loads(raw.decode("utf-8")) or {}
         except (ValueError, UnicodeDecodeError):
             return {}
 
@@ -611,8 +663,14 @@ class WoodshedHandler(BaseHTTPRequestHandler):
         path = urlsplit(self.path).path
         if not self._security_check():
             return
-        body = self._body()
         try:
+            # Not JSON -- a browser's file input has no other shape to send
+            # -- so this one route reads the raw body itself, BEFORE the
+            # generic `self._body()` JSON read below would consume it.
+            if path == "/api/song/upload":
+                self._post_song_upload(self.headers.get("Content-Type", ""), self._raw_body())
+                return
+            body = self._body()
             if path == "/api/rep":
                 self._post_rep(body)
             elif path == "/api/section":
@@ -847,6 +905,55 @@ class WoodshedHandler(BaseHTTPRequestHandler):
         updated = add_song(load_setlist(self.repo, setlist_slug), song_slug, shift=shift)
         save_setlist(self.repo, setlist_slug, updated)
         self._json({"setlist": setlist_slug, "song": song_slug})
+
+    # ── add a song for real (Phase 1.5, Group T, T1) ────────────────────────
+
+    def _post_song_upload(self, content_type: str, raw: bytes) -> None:
+        """`POST /api/song/upload` (`multipart/form-data`): a real file
+        picker, reachable from a browser for the first time -- replaces
+        `dashboard.js`'s old "Add song" text field, which only ever
+        produced a `needs_audio` placeholder row and never actually bound
+        a file. Fields: `title`, `artist?`, `album?`, `tuning`, `slug?`,
+        plus one `file` part. Calls the same `bind_song_file` `cmd_add`
+        uses (CLAUDE.md's "one action table" instinct extended to "one
+        binding function") -- not a second copy that can drift.
+
+        The uploaded bytes are written to a system-temp file first (never
+        under the repo -- this temp file isn't one of CLAUDE.md's four
+        write categories, it's a staging area `bind_song_file` copies
+        FROM), with the browser's own filename kept only as `dest_filename`
+        -- and even then run through `Path(...).name` first, so a
+        maliciously crafted filename can't smuggle a directory component
+        into `songs/<slug>/audio/`.
+        """
+        fields, files = parse_multipart(content_type, raw)
+        if "file" not in files:
+            raise WoodshedError("upload needs a 'file' part")
+        filename, content = files["file"]
+        title = fields.get("title", "").strip()
+        if not title:
+            raise WoodshedError("upload needs a 'title'")
+        tuning = fields.get("tuning", "").strip()
+        if not tuning:
+            raise WoodshedError("upload needs a 'tuning'")
+        slug = fields.get("slug", "").strip() or None
+        dest_filename = Path(filename).name or "upload"
+
+        suffix = Path(dest_filename).suffix or ".wav"
+        handle = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+        tmp_path = Path(handle.name)
+        try:
+            handle.write(content)
+            handle.close()
+            song = bind_song_file(
+                self.repo, tmp_path,
+                title=title, artist=fields.get("artist", ""),
+                album=fields.get("album") or None, tuning=tuning, slug=slug,
+                dest_filename=dest_filename,
+            )
+        finally:
+            tmp_path.unlink(missing_ok=True)
+        self._json({"slug": song.slug})
 
     # ── capture-first: split now, name later (Phase 1.5, Group U) ──────────
 

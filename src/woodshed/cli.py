@@ -145,6 +145,70 @@ def _read_duration_s(path: Path) -> float:
     return _ffprobe_duration_s(path)
 
 
+def bind_song_file(
+    repo: Repo,
+    source: Path,
+    *,
+    title: str,
+    artist: str = "",
+    album: str | None = None,
+    tuning: str = "E standard",
+    slug: str | None = None,
+    bpm: float = 120.0,
+    grid_offset_s: float = 0.0,
+    time_signature: str = "4/4",
+    dest_filename: str | None = None,
+) -> Song:
+    """Bind *source* as a new song: hash it, read its duration (ffprobe for
+    anything that isn't a `.wav`), write `songs/<slug>/audio/<file>` plus a
+    minimal `song.yaml`. Shared by `cmd_add` (CLI) and `POST
+    /api/song/upload` (T1, Phase 1.5 -- the first thing that can do this
+    from a browser) -- CLAUDE.md's "one action table" instinct extended to
+    "one binding function," not a second copy that can drift.
+
+    Refuses a slug that already exists, same as `cmd_add` always did.
+    *dest_filename* is the name to give the copied file under `audio/` when
+    it differs from `source.name` -- the upload endpoint writes the
+    incoming bytes to a generated temp file first, so `source.name` there
+    is not the browser's own filename.
+    """
+    if not source.is_file():
+        raise WoodshedError(f"no such file: {source}")
+
+    resolved_slug = slug or slugify(title)
+    if not resolved_slug:
+        raise WoodshedError(f"{title!r} does not slugify to anything usable; pass a slug")
+    if resolved_slug in repo.list_songs():
+        raise WoodshedError(
+            f"songs/{resolved_slug}/song.yaml already exists. Pass a different slug."
+        )
+
+    audio_dir = repo.audio_dir(resolved_slug)
+    audio_dir.mkdir(parents=True, exist_ok=True)
+    dest = audio_dir / (dest_filename or source.name)
+    if dest.resolve() != source.resolve():
+        shutil.copy2(source, dest)
+
+    song = Song(
+        slug=resolved_slug,
+        title=title,
+        artist=artist,
+        album=album,
+        recording=Recording(
+            file=f"audio/{dest.name}",
+            sha256=hash_file(dest),
+            duration_s=_read_duration_s(dest),
+            tuning=tuning,
+        ),
+        tempo=Tempo(
+            bpm=bpm, source="manual", grid_offset_s=grid_offset_s,
+            time_signature=time_signature,
+        ),
+    )
+    save_song(song, repo.song_dir(resolved_slug) / "song.yaml")
+    return song
+
+
 def cmd_add(args: argparse.Namespace) -> int:
     repo = _repo()
     source = Path(args.path)
@@ -152,45 +216,17 @@ def cmd_add(args: argparse.Namespace) -> int:
         raise WoodshedError(f"no such file: {source}")
 
     title = args.title or _guess_title(source)
-    slug = args.slug or slugify(title)
-    if not slug:
-        raise WoodshedError(f"{title!r} does not slugify to anything usable; pass --slug")
-    if slug in repo.list_songs():
-        raise WoodshedError(
-            f"songs/{slug}/song.yaml already exists. Pass --slug to add this as "
-            "a different song."
-        )
-
-    audio_dir = repo.audio_dir(slug)
-    audio_dir.mkdir(parents=True, exist_ok=True)
-    dest = audio_dir / source.name
-    if dest.resolve() != source.resolve():
-        shutil.copy2(source, dest)
-
-    song = Song(
-        slug=slug,
-        title=title,
-        artist=args.artist,
-        album=args.album,
-        recording=Recording(
-            file=f"audio/{dest.name}",
-            sha256=hash_file(dest),
-            duration_s=_read_duration_s(dest),
-            tuning=args.tuning,
-        ),
-        tempo=Tempo(
-            bpm=args.bpm,
-            source="manual",
-            grid_offset_s=args.grid_offset,
-            time_signature=args.time_signature,
-        ),
+    song = bind_song_file(
+        repo, source,
+        title=title, artist=args.artist, album=args.album, tuning=args.tuning,
+        slug=args.slug, bpm=args.bpm, grid_offset_s=args.grid_offset,
+        time_signature=args.time_signature,
     )
-    path = repo.song_dir(slug) / "song.yaml"
-    save_song(song, path)
-    _say(f"added {slug!r}: {path}")
+    path = repo.song_dir(song.slug) / "song.yaml"
+    _say(f"added {song.slug!r}: {path}")
     _say(f"  {song.recording.duration_s:.1f}s, {song.recording.tuning}, "
          f"bpm {song.tempo.bpm:g} (source: manual -- run `woodshed analyze "
-         f"{slug}` to refine it, or edit song.yaml by hand)")
+         f"{song.slug}` to refine it, or edit song.yaml by hand)")
     return 0
 
 
