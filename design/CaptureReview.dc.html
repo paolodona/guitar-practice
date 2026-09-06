@@ -1,0 +1,159 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+  <style>
+    *{box-sizing:border-box}
+    body{margin:0;background:#0C1211;color:#E8EEEB;
+         font-family:Archivo,'Helvetica Neue',Arial,sans-serif;-webkit-font-smoothing:antialiased}
+    a{color:#E0913F} a:hover{color:#EFA95C}
+    .mono{font-family:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace}
+    .lbl{font-family:'IBM Plex Mono',ui-monospace,Menlo,monospace;letter-spacing:.2em;
+         text-transform:uppercase;color:#6A7873}
+    .num{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1;
+         letter-spacing:-.035em;line-height:.84;font-weight:700}
+  </style>
+<style>
+  .fld{background:#0F1614;border:1px solid #26302E;border-radius:4px;padding:11px 14px;
+       font-size:15px;color:#E8EEEB;font-family:Archivo,sans-serif}
+  .fld::placeholder{color:#5B6A64}
+  .fgroup{display:flex;flex-direction:column;gap:6px}
+  .badge{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.12em;
+         text-transform:uppercase;padding:3px 8px;border-radius:3px;white-space:nowrap}
+  .seg{background:#131B19;border:1px solid #1C2523;border-radius:5px;padding:16px 20px 18px;
+       display:flex;flex-direction:column;gap:14px}
+  .seg.flagged{border-color:#8A5C29}
+  .play{width:34px;height:34px;border-radius:50%;border:1px solid #26302E;flex-shrink:0;
+        display:flex;align-items:center;justify-content:center}
+  .ghost{font-size:14px;color:#9CAAA4;padding:9px 4px}
+  .ghost:hover{color:#C9805E}
+</style>
+</helmet>
+<div style="width:1440px;height:900px;background:#0C1211;display:flex;flex-direction:column;padding:34px 48px 30px">
+
+  <!-- top bar, matching Dashboard/AddSong -->
+  <div style="display:flex;align-items:center;gap:36px;padding-bottom:22px;border-bottom:1px solid #26302E">
+    <div class="mono" style="font-size:14px;letter-spacing:.32em;color:#E8EEEB;font-weight:600">WOODSHED</div>
+    <div style="display:flex;align-items:baseline;gap:12px">
+      <a href="#" style="font-size:15px;color:#6A7873">Capture</a>
+      <div class="mono" style="font-size:13px;color:#4C5854">/</div>
+      <div style="font-size:19px;font-weight:600;letter-spacing:-.01em">Review segments</div>
+    </div>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:14px">
+      <div class="mono" style="font-size:13px;color:#6A7873;letter-spacing:.06em">4 SEGMENTS · 23:21 PASS</div>
+      <div style="border:1px solid #26302E;border-radius:4px;padding:6px 12px;font-size:14px;color:#9CAAA4">Ramba S.S. — the set</div>
+    </div>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:2px;padding:20px 0 16px">
+    <div style="font-size:16px;color:#C6D2CD">Split on the gaps, not yet named. Name each one, or discard it — nothing is bound until you do.</div>
+  </div>
+
+  <!-- the list -->
+  <div style="display:flex;flex-direction:column;gap:12px;flex-grow:1;min-height:0;overflow:hidden">
+
+    <div class="seg">
+      <div style="display:flex;align-items:center;gap:14px">
+        <div class="play"><svg width="14" height="14" viewBox="0 0 22 22" aria-hidden="true"><path d="M7 5.2v11.6l10-5.8z" fill="#9CAAA4"/></svg></div>
+        <div class="mono" style="font-size:12px;color:#5B6A64;letter-spacing:.14em">SEGMENT 01</div>
+        <div class="mono num" style="font-size:15px;color:#9CAAA4">4:31</div>
+        <div style="margin-left:auto" class="ghost">Discard</div>
+      </div>
+      <div style="display:flex;gap:14px;align-items:flex-end">
+        <div class="fgroup" style="flex:1">
+          <div class="lbl" style="font-size:10px">Title</div>
+          <div class="fld">Whole Lotta Love</div>
+        </div>
+        <div class="fgroup" style="flex:1">
+          <div class="lbl" style="font-size:10px">Artist</div>
+          <div class="fld">Led Zeppelin</div>
+        </div>
+        <div class="fgroup" style="width:180px">
+          <div class="lbl" style="font-size:10px">Tuning</div>
+          <div class="fld" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer">
+            <span>E standard</span>
+            <svg width="11" height="7" viewBox="0 0 11 7" aria-hidden="true"><path d="M1 1l4.5 4.5L10 1" fill="none" stroke="#9CAAA4" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+        </div>
+        <div style="background:#E0913F;color:#0C1211;border-radius:4px;padding:11px 22px;font-size:15px;font-weight:600;white-space:nowrap">Add to setlist</div>
+      </div>
+    </div>
+
+    <div class="seg flagged">
+      <div style="display:flex;align-items:center;gap:14px">
+        <div class="play"><svg width="14" height="14" viewBox="0 0 22 22" aria-hidden="true"><path d="M7 5.2v11.6l10-5.8z" fill="#9CAAA4"/></svg></div>
+        <div class="mono" style="font-size:12px;color:#5B6A64;letter-spacing:.14em">SEGMENT 02</div>
+        <div class="mono num" style="font-size:15px;color:#9CAAA4">3:52</div>
+        <div class="badge" style="background:#2A1D17;color:#C9805E">overflow · re-capture</div>
+        <div style="margin-left:auto" class="ghost">Discard</div>
+      </div>
+      <div style="display:flex;gap:14px;align-items:flex-end">
+        <div class="fgroup" style="flex:1">
+          <div class="lbl" style="font-size:10px">Title</div>
+          <div class="fld" style="color:#5B6A64">Song title</div>
+        </div>
+        <div class="fgroup" style="flex:1">
+          <div class="lbl" style="font-size:10px">Artist</div>
+          <div class="fld" style="color:#5B6A64">Artist</div>
+        </div>
+        <div class="fgroup" style="width:180px">
+          <div class="lbl" style="font-size:10px">Tuning</div>
+          <div class="fld" style="display:flex;align-items:center;justify-content:space-between;color:#5B6A64">
+            <span>—</span>
+            <svg width="11" height="7" viewBox="0 0 11 7" aria-hidden="true"><path d="M1 1l4.5 4.5L10 1" fill="none" stroke="#5B6A64" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+        </div>
+        <div style="background:#2A2118;color:#6A5540;border-radius:4px;padding:11px 22px;font-size:15px;font-weight:600;white-space:nowrap">Add to setlist</div>
+      </div>
+    </div>
+
+    <div class="seg">
+      <div style="display:flex;align-items:center;gap:14px">
+        <div class="play"><svg width="14" height="14" viewBox="0 0 22 22" aria-hidden="true"><path d="M7 5.2v11.6l10-5.8z" fill="#9CAAA4"/></svg></div>
+        <div class="mono" style="font-size:12px;color:#5B6A64;letter-spacing:.14em">SEGMENT 03</div>
+        <div class="mono num" style="font-size:15px;color:#9CAAA4">5:47</div>
+        <div style="margin-left:auto" class="ghost">Discard</div>
+      </div>
+      <div style="display:flex;gap:14px;align-items:flex-end">
+        <div class="fgroup" style="flex:1">
+          <div class="lbl" style="font-size:10px">Title</div>
+          <div class="fld" style="color:#5B6A64">Song title</div>
+        </div>
+        <div class="fgroup" style="flex:1">
+          <div class="lbl" style="font-size:10px">Artist</div>
+          <div class="fld" style="color:#5B6A64">Artist</div>
+        </div>
+        <div class="fgroup" style="width:180px">
+          <div class="lbl" style="font-size:10px">Tuning</div>
+          <div class="fld" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer">
+            <span>Eb standard</span>
+            <svg width="11" height="7" viewBox="0 0 11 7" aria-hidden="true"><path d="M1 1l4.5 4.5L10 1" fill="none" stroke="#9CAAA4" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+        </div>
+        <div style="background:#E0913F;color:#0C1211;border-radius:4px;padding:11px 22px;font-size:15px;font-weight:600;white-space:nowrap">Add to setlist</div>
+      </div>
+    </div>
+
+    <!-- a fourth row, partly cut off -- implies the list scrolls rather than fabricating a scrollbar -->
+    <div class="seg" style="flex-shrink:0;height:40px;overflow:hidden;opacity:.5">
+      <div style="display:flex;align-items:center;gap:14px">
+        <div class="play"><svg width="14" height="14" viewBox="0 0 22 22" aria-hidden="true"><path d="M7 5.2v11.6l10-5.8z" fill="#9CAAA4"/></svg></div>
+        <div class="mono" style="font-size:12px;color:#5B6A64;letter-spacing:.14em">SEGMENT 04</div>
+        <div class="mono num" style="font-size:15px;color:#9CAAA4">2:41</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mono" style="font-size:11.5px;color:#5B6A64;line-height:1.6;padding-top:14px">
+    A ROW NEVER BINDS ITSELF. "ADD TO SETLIST" WRITES A NEW SONG FROM ITS TITLE/ARTIST/TUNING;<br>
+    "DISCARD" DROPS THE SEGMENT WITH NOTHING CREATED. THE RAW PASS IS KEPT UNTIL EVERY ROW RESOLVES.</div>
+</div>
+</x-dc>
+</body>
+</html>
