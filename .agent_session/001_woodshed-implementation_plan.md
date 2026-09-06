@@ -1977,6 +1977,43 @@ done there rather than duplicated here.
   on is instant. Degrades — disabled, with a message naming the fix — when `doctor`
   reports `demucs` missing, the same `require_module` pattern `pyaudiowpatch`/`librosa`
   already use.
+  - **Done, 2026-09-06, with an architecture decision Paolo made explicitly** (this
+    bullet was written assuming Phase 2's Group J — the native-loop buffer engine —
+    already existed to play a render through; it doesn't yet, so "request
+    `?source=guitar`" against `/api/render` was not actually buildable as written).
+    Asked, and Paolo chose: point the SAME real-time `RealtimeEngine` at the isolated
+    stem instead of going through the offline render cache at all — the stretch still
+    happens live, only the source audio changes, so looping/rep-counting/the ladder's
+    existing behaviour is completely unaffected.
+    A new `GET /api/stem/<slug>/<section>` (NOT `/api/render` — that bakes in a fixed
+    speed/semitones for Group J, which doesn't exist) serves `separate.isolate_guitar`'s
+    own cached clip, range-served like `/api/audio`; blocking on a miss (Demucs runs
+    synchronously the first time — no 202/poll dance, since there is no second
+    (rubberband) stage after it the way `/api/render` has). `GET /api/song/<slug>`
+    gains a `demucs_available` field the toggle disables itself against.
+    The real design cost, worked through rather than hand-waved: the isolated clip is
+    NOT the whole recording, only `[start_s - pre_roll_s, end_s]` (`separate.py`'s own
+    scope decision, S1) — so `player.js`'s `startS`/`endS`/`preRollS` math, which
+    assumes `audioUrl` is the whole file, would slice at the wrong offsets against a
+    shorter clip. Fixed by extracting that math into a new pure, exported
+    `computeSliceFrames(section, sr, decodedLength)` and giving `SectionLoad` one more
+    field, `clipOffsetS` (0 for the mix, `max(0, start_s - preRollS)` for the clip) —
+    subtracted once before slicing, added back once when storing
+    `_sliceStartS`/`_sliceEndS`, so `seek(sourceSeconds)`'s own absolute-source-seconds
+    contract (P1) needs zero changes and never has to know a clip offset exists.
+    This is CLAUDE.md's "two clocks" invariant applied to a third, file-local clock,
+    same discipline: convert once, at one boundary. 7 new Node tests
+    (`test_slice_frames.mjs`), all existing web tests (`test_seek.mjs` especially)
+    unaffected. 5 new Python tests in `test_server.py` (`/api/stem`, `demucs_available`).
+    Manually verified with a real (locally launched, separate-port) server +
+    headless Chromium: header layout renders correctly beside the Shift stepper,
+    the disabled/degrade state shows the right install hint when `demucs_available`
+    is false, no console errors. Driving an actual toggle-while-playing exchange
+    through headless Chromium's own (device-less) Web Audio stack proved unreliable
+    in this sandbox — a headless-environment limit, not a code path this session could
+    additionally verify; the coordinate maths itself is covered directly by
+    `test_slice_frames.mjs` regardless. Full suite (Python) 974 passed (was 969); ruff
+    clean; all `web/tests/*.mjs` green.
 - **S4** `doctor.py` gains a `demucs` check (installed? — and a CPU-only note, since
   Demucs on CPU is genuinely slow; `rambass-live`'s own doc already measures
   `htdemucs_ft` at roughly 4× `htdemucs`'s time, worth surfacing rather than letting the

@@ -452,6 +452,80 @@ def test_audio_traversal_is_404(served):
     assert caught.value.code == 404
 
 
+# ── GET /api/stem/<slug>/<section> (Phase 1.5, S3) ──────────────────────────
+
+
+def test_stem_isolates_and_serves_the_clip_range_served(served, monkeypatch):
+    import woodshed.separate as separate_module
+
+    base, repo, slug = served
+    calls = []
+
+    def fake_isolate(repo_, song, section, *, pre_roll_s=0.0, force=False):
+        calls.append((song.slug, section.id, pre_roll_s))
+        dest = repo_.cache_dir(song.slug) / "stems" / f"{section.id}-guitar-fake.flac"
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(b"ISOLATED GUITAR BYTES")
+        return dest
+
+    monkeypatch.setattr(separate_module, "isolate_guitar", fake_isolate)
+
+    with urllib.request.urlopen(base + f"/api/stem/{slug}/solo-full") as response:
+        assert response.status == 200
+        assert response.headers.get("Accept-Ranges") == "bytes"
+        assert response.read() == b"ISOLATED GUITAR BYTES"
+    assert len(calls) == 1
+    assert calls[0][0] == slug
+    assert calls[0][1] == "solo-full"
+
+
+def test_stem_unknown_section_is_404(served):
+    base, _, slug = served
+    with pytest.raises(urllib.error.HTTPError) as caught:
+        _get(base, f"/api/stem/{slug}/no-such-section")
+    assert caught.value.code == 404
+
+
+def test_stem_unknown_song_is_404(served):
+    base, _, _ = served
+    with pytest.raises(urllib.error.HTTPError) as caught:
+        _get(base, "/api/stem/no-such-song/solo-full")
+    assert caught.value.code == 404
+
+
+def test_stem_missing_demucs_surfaces_as_400(served, monkeypatch):
+    import woodshed.separate as separate_module
+    from woodshed.errors import WoodshedError
+
+    base, _, slug = served
+
+    def fake_isolate(*a, **kw):
+        raise WoodshedError("this command needs the 'demucs' package.")
+
+    monkeypatch.setattr(separate_module, "isolate_guitar", fake_isolate)
+
+    with pytest.raises(urllib.error.HTTPError) as caught:
+        _get(base, f"/api/stem/{slug}/solo-full")
+    assert caught.value.code == 400
+
+
+# ── GET /api/song/<slug>'s demucs_available field (Phase 1.5, S3) ──────────
+
+
+def test_song_payload_reports_demucs_availability(served, monkeypatch):
+    import woodshed.separate as separate_module
+
+    base, _, slug = served
+    monkeypatch.setattr(separate_module, "demucs_available", lambda: True)
+    status, data = _get_json(base, f"/api/song/{slug}")
+    assert status == 200
+    assert data["demucs_available"] is True
+
+    monkeypatch.setattr(separate_module, "demucs_available", lambda: False)
+    status, data = _get_json(base, f"/api/song/{slug}")
+    assert data["demucs_available"] is False
+
+
 # ── GET /api/click/<slug>/<section> ─────────────────────────────────────────
 
 

@@ -351,6 +351,19 @@ export function mount(el, payload) {
   let peaks = null;
   let shiftPersistTimer = null;
 
+  // ---- "Guitar only" toggle (Phase 1.5, S3) ----
+  // Points the SAME RealtimeEngine at the isolated-guitar clip
+  // (GET /api/stem/<slug>/<section>) instead of the mix (GET
+  // /api/audio/<slug>) -- see player.js's computeSliceFrames doc for the
+  // clip-offset coordinate conversion this implies. Not the offline
+  // render cache (Phase 2, Group I / S2): that bakes in a FIXED
+  // speed/semitones for looped, discrete-speed practice, which is Group
+  // J's engine, not this one -- here the stretch still happens live, only
+  // the SOURCE audio changes.
+  let guitarOnly = false;
+  let guitarBusy = false; // true only while a loadSection() swap is in flight
+  const demucsAvailable = payload.demucs_available !== false; // undefined degrades to "available"
+
   // Debounced POST /api/shift -- see module doc, decision 2. No-op with no
   // setlist context: there is nothing to write the override onto.
   function persistShift() {
@@ -376,6 +389,98 @@ export function mount(el, payload) {
   }
   function preRollPlaybackSeconds() {
     return preRollSourceSeconds() / (speedPct / 100);
+  }
+
+  // isolate_guitar's own clamp (separate.py): the clip it caches covers
+  // [start_s - pre_roll_s, end_s], never reaching before the recording's
+  // own t=0 -- this is the SAME clamp, computed client-side so
+  // computeSliceFrames' clipOffsetS matches the clip the server actually
+  // served, without a round trip to ask it.
+  function guitarClipOffsetS() {
+    return Math.max(0, section.start_s - preRollSourceSeconds());
+  }
+
+  // The one place a SectionLoad object is built -- ensureEngine()'s
+  // initial load and toggleGuitarOnly()'s swap both call this, so the
+  // mix/guitar shape never drifts between the two call sites.
+  function sectionLoadParams() {
+    return {
+      sectionId: section.id,
+      audioUrl: guitarOnly
+        ? `/api/stem/${encodeURIComponent(payload.slug)}/${encodeURIComponent(section.id)}`
+        : `/api/audio/${encodeURIComponent(payload.slug)}`,
+      startS: section.start_s,
+      endS: section.end_s,
+      preRollS: preRollSourceSeconds(),
+      preRollEveryPass: payload.practice.pre_roll_every_pass,
+      clipOffsetS: guitarOnly ? guitarClipOffsetS() : 0,
+    };
+  }
+
+  function renderGuitarToggle() {
+    if (!guitarToggleEl) return;
+    const pressed = guitarOnly && !guitarBusy;
+    guitarToggleEl.setAttribute('aria-pressed', String(pressed));
+    guitarToggleEl.textContent = guitarBusy ? '…' : (guitarOnly ? 'On' : 'Off');
+    guitarToggleEl.disabled = guitarBusy || !demucsAvailable;
+    guitarToggleEl.style.color = pressed ? 'var(--accent,#E0913F)' : '';
+    if (guitarStatusEl) {
+      guitarStatusEl.textContent = !demucsAvailable
+        ? 'install demucs: uv sync --extra separate'
+        : guitarBusy ? 'separating…' : '';
+    }
+  }
+
+  /**
+   * Swap the loaded audio source between the mix and the isolated guitar
+   * clip, on the SAME engine instance -- a hard cut (player.js's own
+   * "section change" contract, R1), same mechanism screens/song.js
+   * already uses to reload a different tile. No-op (just flips the flag)
+   * if the engine has never been created yet -- ensureEngine() reads
+   * `guitarOnly` fresh on its own first call, so there is nothing to
+   * reload.
+   */
+  async function toggleGuitarOnly() {
+    if (!demucsAvailable || guitarBusy) return;
+    if (!engineReady) {
+      guitarOnly = !guitarOnly;
+      renderGuitarToggle();
+      return;
+    }
+
+    const previous = guitarOnly;
+    const wasPlaying = playing;
+    guitarOnly = !guitarOnly;
+    guitarBusy = true;
+    renderGuitarToggle();
+    try {
+      await engine.loadSection(sectionLoadParams());
+      engine.setSpeedPct(speedPct);
+      engine.setSemitones(shift);
+      beginLap();
+      elapsed = -cosmeticPreRoll;
+      if (wasPlaying) engine.play();
+    } catch (err) {
+      console.warn(
+        `practice.js: could not switch to ${guitarOnly ? 'guitar-only' : 'mix'} `
+        + `source (${err && err.message}) -- reverting`, err,
+      );
+      guitarOnly = previous;
+      try {
+        await engine.loadSection(sectionLoadParams());
+        engine.setSpeedPct(speedPct);
+        engine.setSemitones(shift);
+        beginLap();
+        elapsed = -cosmeticPreRoll;
+        if (wasPlaying) engine.play();
+      } catch (revertErr) {
+        console.error('practice.js: could not revert source after a failed switch', revertErr);
+      }
+    } finally {
+      guitarBusy = false;
+      renderGuitarToggle();
+      renderDiscrete();
+    }
   }
 
   function stopClick() {
@@ -471,12 +576,21 @@ export function mount(el, payload) {
           <div class="mono" style="font-size:17px;color:var(--ink-3,#6A7873);letter-spacing:.05em;margin-top:4px" data-breadcrumb></div>
         </div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:12px;padding-top:6px">
-          <div style="display:flex;gap:12px;align-items:center">
-            <div class="lbl" style="font-size:12px">Shift</div>
-            <div style="display:flex;align-items:center;gap:8px;border:1px solid var(--line,#26302E);border-radius:5px;padding:5px">
-              <button class="stepper-btn" data-shift-minus>&minus;</button>
-              <div class="mono num" data-shift-val style="font-size:28px;color:var(--accent,#E0913F);width:56px;text-align:center;font-weight:600"></div>
-              <button class="stepper-btn" data-shift-plus>+</button>
+          <div style="display:flex;gap:20px;align-items:center">
+            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
+              <div style="display:flex;gap:12px;align-items:center">
+                <div class="lbl" style="font-size:12px">Guitar only</div>
+                <button class="stepper-btn" data-guitar-toggle aria-pressed="false" style="min-width:44px"></button>
+              </div>
+              <div class="mono" style="font-size:12px;color:var(--ink-3,#6A7873);letter-spacing:.03em;min-height:1.2em" data-guitar-status></div>
+            </div>
+            <div style="display:flex;gap:12px;align-items:center">
+              <div class="lbl" style="font-size:12px">Shift</div>
+              <div style="display:flex;align-items:center;gap:8px;border:1px solid var(--line,#26302E);border-radius:5px;padding:5px">
+                <button class="stepper-btn" data-shift-minus>&minus;</button>
+                <div class="mono num" data-shift-val style="font-size:28px;color:var(--accent,#E0913F);width:56px;text-align:center;font-weight:600"></div>
+                <button class="stepper-btn" data-shift-plus>+</button>
+              </div>
             </div>
           </div>
           <div class="mono" style="font-size:14px;color:var(--ink-3,#6A7873);letter-spacing:.03em" data-tuning-caption></div>
@@ -552,6 +666,8 @@ export function mount(el, payload) {
   const breadcrumbEl = root.querySelector('[data-breadcrumb]');
   const shiftValEl = root.querySelector('[data-shift-val]');
   const tuningCaptionEl = root.querySelector('[data-tuning-caption]');
+  const guitarToggleEl = root.querySelector('[data-guitar-toggle]');
+  const guitarStatusEl = root.querySelector('[data-guitar-status]');
   const speedCellEl = root.querySelector('[data-speed-cell]');
   const speedSubEl = root.querySelector('[data-speed-sub]');
   const repsValEl = root.querySelector('[data-reps-val]');
@@ -631,6 +747,10 @@ export function mount(el, payload) {
   // ---- transpose stepper ----
   root.querySelector('[data-shift-minus]').addEventListener('click', () => dispatch('transpose_down', 'ui'));
   root.querySelector('[data-shift-plus]').addEventListener('click', () => dispatch('transpose_up', 'ui'));
+
+  // ---- "Guitar only" toggle (Phase 1.5, S3) ----
+  if (guitarToggleEl) guitarToggleEl.addEventListener('click', toggleGuitarOnly);
+  renderGuitarToggle();
 
   function tuningNote() {
     const rec = payload.recording.tuning;
@@ -840,14 +960,10 @@ export function mount(el, payload) {
         const e = createEngine();
         e.addEventListener('pass', onPass);
         e.addEventListener('error', (err) => console.error('practice.js: engine error', err.detail?.error));
-        await e.loadSection({
-          sectionId: section.id,
-          audioUrl: `/api/audio/${encodeURIComponent(payload.slug)}`,
-          startS: section.start_s,
-          endS: section.end_s,
-          preRollS: preRollSourceSeconds(),
-          preRollEveryPass: payload.practice.pre_roll_every_pass,
-        });
+        // sectionLoadParams() reads `guitarOnly` fresh -- toggling the
+        // "Guitar only" control before the very first play() lands here
+        // already pointed at the isolated clip, not the mix.
+        await e.loadSection(sectionLoadParams());
         e.setSpeedPct(speedPct);
         e.setSemitones(shift);
         engine = e;

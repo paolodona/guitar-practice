@@ -84,7 +84,78 @@
  *   preview player. Never fires 'pass' by construction (see worklet.js's
  *   own module doc): this is the mechanism that lets that screen's
  *   transport never write a rep, not a check either file has to remember.
+ * @property {number} [clipOffsetS] - Phase 1.5, S3. 0 (default): audioUrl
+ *   is the whole recording (GET /api/audio/<slug>), and startS/endS/
+ *   preRollS already are absolute positions into it — the ordinary case.
+ *   Non-zero: audioUrl is instead a CLIP that starts `clipOffsetS` seconds
+ *   into the original recording (GET /api/stem/<slug>/<section>, the
+ *   isolated-guitar clip `separate.isolate_guitar` cuts as
+ *   `[start_s - pre_roll_s, end_s]` — so callers pass
+ *   `clipOffsetS = max(0, section.start_s - preRollSourceSeconds)`,
+ *   the same clamp `isolate_guitar` itself applies).
+ *   `computeSliceFrames` (below) is the ONE place this offset is
+ *   subtracted before slicing and added back before being stored as
+ *   `_sliceStartS`/`_sliceEndS` — `seek(sourceSeconds)` takes an ABSOLUTE
+ *   source-seconds position (the waveform's own coordinate, unaffected by
+ *   which physical file backs playback), so those two fields must stay in
+ *   that same absolute clock regardless of `clipOffsetS`, or a click on
+ *   the waveform while playing the isolated clip would seek to the wrong
+ *   place. This is CLAUDE.md's "two clocks" invariant, applied to a THIRD
+ *   file-local clock (clip-relative frame position) rather than a second
+ *   named one — same rule, same discipline: convert once, at this one
+ *   boundary, never re-derive it elsewhere.
  */
+
+/**
+ * The one function that knows how a SectionLoad's absolute source-second
+ * bounds become frame indices into a buffer that may itself start
+ * `clipOffsetS` seconds into the original recording — see the typedef
+ * above. Pure and exported so it can be tested directly (this repo has no
+ * DOM library to drive a real decodeAudioData/AudioWorkletNode through —
+ * same trade `computeSeekPosition` in screens/practice.js already made).
+ * `decodedLength` is the fetched buffer's own frame count, needed to clamp
+ * `endFrame` the same way `loadSection` always has.
+ * @param {SectionLoad} section
+ * @param {number} sr
+ * @param {number} decodedLength
+ */
+export function computeSliceFrames(section, sr, decodedLength) {
+  const offsetS = section.clipOffsetS || 0;
+  // [start_s - pre_roll_s, end_s] in SOURCE seconds -> sample indices,
+  // re-based onto the fetched buffer's own t=0 (offsetS seconds later
+  // than the recording's own t=0) — CLAUDE.md's two-clock rule: everything
+  // in this line starts as source time, converted to slice-relative here
+  // and nowhere else.
+  let rawStartFrame = Math.round((section.startS - section.preRollS - offsetS) * sr);
+  let loopStartFrame = Math.round(section.preRollS * sr);
+  if (rawStartFrame < 0) {
+    // The pre-roll would reach before the start of whatever was fetched
+    // (the source file's own start when offsetS is 0; the isolated clip's
+    // own start otherwise — isolate_guitar clamps identically server-side,
+    // so this is the expected case for a guitar-only clip, not only an
+    // edge case). Clamp the slice to what actually exists and shrink the
+    // lead-in played to match, rather than reading negative indices or
+    // silently moving the section's start to compensate.
+    loopStartFrame += rawStartFrame; // rawStartFrame is negative here
+    rawStartFrame = 0;
+  }
+  if (section.preRollEveryPass) {
+    // G2: every wrap replays the lead-in, so it always loops from the
+    // very start of what was sliced -- overrides whatever the "skip the
+    // pre-roll" computation above landed on, clamped or not.
+    loopStartFrame = 0;
+  }
+  const endFrame = Math.min(Math.round((section.endS - offsetS) * sr), decodedLength);
+  return {
+    rawStartFrame,
+    loopStartFrame,
+    endFrame,
+    // Converted back to ABSOLUTE source seconds (+offsetS) so seek()'s own
+    // coordinate never has to know a clip offset exists at all.
+    sliceStartS: rawStartFrame / sr + offsetS,
+    sliceEndS: endFrame / sr + offsetS,
+  };
+}
 
 // tuning.MAX_SHIFT (Python, src/woodshed/tuning.py) mirrored here — this
 // file has no way to import a Python module, and the number is a design
@@ -243,27 +314,11 @@ export class RealtimeEngine extends EventTarget {
     const decoded = await this.ctx.decodeAudioData(arrayBuffer);
 
     // [start_s - pre_roll_s, end_s] in SOURCE seconds -> sample indices —
-    // CLAUDE.md's two-clock rule: everything on this line is source
-    // time, and loopStartFrame is the one place it becomes an index into
-    // this particular slice (never reused as a general-purpose clock).
+    // CLAUDE.md's two-clock rule (plus S3's third, clip-local one when
+    // section.clipOffsetS is set — see computeSliceFrames's own doc).
     const sr = decoded.sampleRate;
-    let rawStartFrame = Math.round((section.startS - section.preRollS) * sr);
-    let loopStartFrame = Math.round(section.preRollS * sr);
-    if (rawStartFrame < 0) {
-      // The pre-roll would reach before the source file's own start.
-      // Clamp the slice to what actually exists and shrink the lead-in
-      // played to match, rather than reading negative indices or
-      // silently moving the section's start to compensate.
-      loopStartFrame += rawStartFrame; // rawStartFrame is negative here
-      rawStartFrame = 0;
-    }
-    if (section.preRollEveryPass) {
-      // G2: every wrap replays the lead-in, so it always loops from the
-      // very start of what was sliced -- overrides whatever the "skip the
-      // pre-roll" computation above landed on, clamped or not.
-      loopStartFrame = 0;
-    }
-    const endFrame = Math.min(Math.round(section.endS * sr), decoded.length);
+    const { rawStartFrame, loopStartFrame, endFrame, sliceStartS, sliceEndS } =
+      computeSliceFrames(section, sr, decoded.length);
     if (endFrame <= rawStartFrame) {
       throw new Error(
         'RealtimeEngine.loadSection: section end is at or before its start once clamped to the audio'
@@ -278,8 +333,8 @@ export class RealtimeEngine extends EventTarget {
     // the slice's own bounds in source seconds so seek() can clamp against
     // what is actually loaded, not the section's nominal, unclamped span.
     this._sampleRate = sr;
-    this._sliceStartS = rawStartFrame / sr;
-    this._sliceEndS = endFrame / sr;
+    this._sliceStartS = sliceStartS;
+    this._sliceEndS = sliceEndS;
 
     const channels = decoded.numberOfChannels;
     const source = [];

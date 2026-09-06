@@ -30,6 +30,9 @@ C2's pass, so those were placeholders (0 / omitted) until now:
     GET  /api/peaks/<slug>              -> cached peaks json, 404 if
                                             not built                     (C2)
     GET  /api/audio/<slug>              -> the source file, RANGE-SERVED  (C2)
+    GET  /api/stem/<slug>/<section>     -> the isolated guitar clip,
+                                           RANGE-SERVED, isolating (blocking)
+                                           on a miss (Phase 1.5, S3)         (S3)
     GET  /api/click/<slug>/<section>?speed=&mode=lead_in|full
                                         -> a generated click WAV, own gain (G2)
     GET  /api/render/<slug>/<section>?speed=&semitones=&source=mix|guitar
@@ -358,6 +361,8 @@ class WoodshedHandler(BaseHTTPRequestHandler):
                 self._peaks(path.removeprefix("/api/peaks/"), parsed.query)
             elif path.startswith("/api/audio/"):
                 self._audio(path.removeprefix("/api/audio/"))
+            elif path.startswith("/api/stem/"):
+                self._stem(path.removeprefix("/api/stem/"))
             elif path.startswith("/api/click/"):
                 self._click(path.removeprefix("/api/click/"), parsed.query)
             elif path.startswith("/api/render/"):
@@ -425,6 +430,8 @@ class WoodshedHandler(BaseHTTPRequestHandler):
         reps = list(ledger.read(self.repo))
         readiness = practice.song_readiness(song, reps, song.practice)
 
+        from woodshed.separate import demucs_available
+
         self._json({
             "slug": song.slug,
             "title": song.title,
@@ -435,6 +442,12 @@ class WoodshedHandler(BaseHTTPRequestHandler):
             "practice": song.practice.model_dump(mode="json"),
             "shift": shift,
             "peaks_url": f"/api/peaks/{slug}",
+            # Phase 1.5, S3: screens/practice.js's "Guitar only" toggle
+            # disables itself (with a message naming the fix) when this is
+            # false, the same require_module-backed degrade doctor.py's own
+            # demucs check already reports -- never a hard failure just
+            # because the optional isolation dependency is missing.
+            "demucs_available": demucs_available(),
             "readiness": {
                 "ratio": readiness.ratio,
                 "intervals": [
@@ -626,6 +639,42 @@ class WoodshedHandler(BaseHTTPRequestHandler):
             return
         content_type = mimetypes.guess_type(str(candidate))[0] or "application/octet-stream"
         self._send_file(candidate, content_type)
+
+    def _stem(self, rest: str) -> None:
+        """`GET /api/stem/<slug>/<section>` -- the isolated guitar clip for
+        *section* (Phase 1.5, S3), RANGE-SERVED like `_audio`. Unlike
+        `/api/render`, this is NOT the offline (speed/pitch-baked) cache --
+        `screens/practice.js`'s "Guitar only" toggle points the SAME
+        real-time WASM engine at this clip instead of the mix, so the
+        stretching still happens live; only the SOURCE differs. See
+        `player.js`'s `computeSliceFrames` for the coordinate conversion
+        this implies (the clip does not start at the recording's own t=0).
+
+        Blocking, on purpose: `separate.isolate_guitar` runs Demucs
+        synchronously the first time (genuinely slow on CPU -- doctor.py's
+        S4 check already says so) and this request simply waits for it,
+        same as any cache-miss file read; there is no 202/poll dance here
+        the way `/api/render` needs, because there is no second
+        (rubberband) stage after it -- isolation IS the whole job.
+        `WoodshedError` (missing demucs, missing source audio) surfaces as
+        400 through `do_GET`'s own handler, same as every other route.
+        """
+        raw_slug, _, raw_section = rest.partition("/")
+        slug = self._resolve_slug(raw_slug)
+        if slug is None:
+            self._error(404, f"no such song: {raw_slug!r}")
+            return
+        song = load_song(self.repo.song_dir(slug) / "song.yaml")
+        section = next((s for s in song.sections if s.id == raw_section), None)
+        if section is None:
+            self._error(404, f"no such section: {raw_section!r}")
+            return
+
+        from woodshed.separate import isolate_guitar
+
+        pre_roll_s = pre_roll_seconds(effective_pre_roll_beats(song, section), song.tempo.bpm)
+        clip_path = isolate_guitar(self.repo, song, section, pre_roll_s=pre_roll_s)
+        self._send_file(clip_path, "audio/flac")
 
     def _click(self, rest: str, query: str) -> None:
         """A generated click WAV, in PLAYBACK seconds at the requested
