@@ -1540,9 +1540,8 @@ S: it already names the destination ("an isolated guitar track... is what `demuc
     pair — matched to 13px; `AddSong.dc.html`'s own "● RECORDING" used `.1em` letter-
     spacing against `Capture.dc.html`'s `.08em` for the identical string — matched; and
     its "Change file" button read `#9CAAA4` against `Components.dc.html`'s analogous
-    "Bind file" outline button at `#E8EEEB` — matched. **Signed off: not yet** — P–T's
-    UI-facing halves stay blocked on that per the phase's own Ordering note; their
-    engine/server halves may proceed against the contracts already fixed in this plan.
+    "Bind file" outline button at `#E8EEEB` — matched. **Signed off: 2026-09-06, by
+    Paolo** — P–T's UI-facing halves are unblocked.
 
 **Group P — waveform click-to-seek**
 - **P1 — done, 2026-09-06 (engine half only; P2's UI wiring stays blocked on
@@ -1799,7 +1798,8 @@ what's missing is everything **after** a segment exists and before it is a bound
     `Capture.dc.html` state) and republished to the existing canvas. One thing drafted but
     deliberately left open, not resolved here: every row only creates a brand-new song —
     there is no picker for matching a segment to an existing needs-audio slug already in
-    the setlist, which `bind_segment_to_song` (below) also supports. Still awaiting sign-off.
+    the setlist, which `bind_segment_to_song` (below) also supports. **Signed off:
+    2026-09-06, by Paolo** — U3 is unblocked (still needs U2b, above, which is now done).
 - **U1** `capture.py` gains the shared extraction primitive and two bind functions —
   ```python
   def extract_segment(raw_audio_path: Path, segment: Segment, dest_path: Path) -> None
