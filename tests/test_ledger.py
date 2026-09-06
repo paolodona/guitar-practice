@@ -180,11 +180,11 @@ def test_best_sustained_speed_needs_reps_to_advance_cleans_not_just_one(ledger_r
         make_rep(speed=60.0, clean=True),
         make_rep(speed=80.0, clean=True),  # only one clean at 80
     ]
-    assert ledger.best_sustained_speed(reps, "cant-stop", "solo", reps_to_advance=3) == 0.0
+    assert ledger.best_sustained_speed(reps, "can-t-stop", "solo", reps_to_advance=3) == 0.0
 
     reps += [make_rep(speed=60.0, clean=True), make_rep(speed=60.0, clean=True)]
     # now 60 has 3 cleans, 80 still has 1
-    assert ledger.best_sustained_speed(reps, "cant-stop", "solo", reps_to_advance=3) == 60.0
+    assert ledger.best_sustained_speed(reps, "can-t-stop", "solo", reps_to_advance=3) == 60.0
 
 
 def test_best_sustained_speed_picks_the_highest_qualifying_speed(ledger_repo):
@@ -193,7 +193,7 @@ def test_best_sustained_speed_picks_the_highest_qualifying_speed(ledger_repo):
         + [make_rep(speed=70.0, clean=True) for _ in range(3)]
         + [make_rep(speed=90.0, clean=True) for _ in range(2)]
     )
-    assert ledger.best_sustained_speed(reps, "cant-stop", "solo", reps_to_advance=3) == 70.0
+    assert ledger.best_sustained_speed(reps, "can-t-stop", "solo", reps_to_advance=3) == 70.0
 
 
 # --- a retraction line itself never counts ------------------------------------
@@ -211,9 +211,9 @@ def test_retraction_line_excluded_from_totals_clean_by_speed_and_best_sustained_
     )
     reps = [target, retraction]
 
-    assert ledger.clean_by_speed(reps, "cant-stop", "solo") == {}
-    assert ledger.best_sustained_speed(reps, "cant-stop", "solo", reps_to_advance=1) == 0.0
-    totals = ledger.totals(reps, "cant-stop", "solo")
+    assert ledger.clean_by_speed(reps, "can-t-stop", "solo") == {}
+    assert ledger.best_sustained_speed(reps, "can-t-stop", "solo", reps_to_advance=1) == 0.0
+    totals = ledger.totals(reps, "can-t-stop", "solo")
     assert totals.passes == 0
     assert totals.cleans == 0
     assert totals.minutes == 0.0
@@ -228,13 +228,13 @@ def test_last_practised_is_max_t_among_matching_resolved_reps(ledger_repo):
         make_rep(t="2026-09-05T19:22:41Z"),
         make_rep(t="2026-09-03T08:00:00Z", song="other-song"),
     ]
-    result = ledger.last_practised(reps, "cant-stop", "solo")
+    result = ledger.last_practised(reps, "can-t-stop", "solo")
     assert result is not None
     assert result.isoformat() == "2026-09-05T19:22:41+00:00"
 
 
 def test_last_practised_returns_none_when_nothing_matches(ledger_repo):
-    assert ledger.last_practised([], "cant-stop", "solo") is None
+    assert ledger.last_practised([], "can-t-stop", "solo") is None
 
 
 def test_totals_sums_passes_cleans_and_minutes(ledger_repo):
@@ -243,7 +243,7 @@ def test_totals_sums_passes_cleans_and_minutes(ledger_repo):
         make_rep(passed=True, clean=False, loop_s=30.0),
         make_rep(passed=False, clean=False, loop_s=60.0),
     ]
-    result = ledger.totals(reps, "cant-stop", "solo")
+    result = ledger.totals(reps, "can-t-stop", "solo")
     assert result.passes == 2
     assert result.cleans == 1
     assert result.minutes == pytest.approx(2.0)
@@ -254,8 +254,8 @@ def test_totals_and_last_practised_scope_by_section_when_given(ledger_repo):
         make_rep(section="solo", loop_s=60.0),
         make_rep(section="intro", loop_s=60.0),
     ]
-    assert ledger.totals(reps, "cant-stop", "solo").passes == 1
-    assert ledger.totals(reps, "cant-stop").passes == 2  # no section -> whole song
+    assert ledger.totals(reps, "can-t-stop", "solo").passes == 1
+    assert ledger.totals(reps, "can-t-stop").passes == 2  # no section -> whole song
 
 
 # --- last_speed -----------------------------------------------------------
@@ -270,11 +270,11 @@ def test_last_speed_is_the_most_recently_timestamped_reps_speed(ledger_repo):
         make_rep(t="2026-09-05T19:22:41Z", speed=85.0),
         make_rep(t="2026-09-03T08:00:00Z", speed=70.0),
     ]
-    assert ledger.last_speed(reps, "cant-stop", "solo") == 85.0
+    assert ledger.last_speed(reps, "can-t-stop", "solo") == 85.0
 
 
 def test_last_speed_returns_none_when_nothing_matches(ledger_repo):
-    assert ledger.last_speed([], "cant-stop", "whole-song") is None
+    assert ledger.last_speed([], "can-t-stop", "whole-song") is None
 
 
 def test_last_speed_ignores_clean_flag_unclean_still_counts(ledger_repo):
@@ -284,7 +284,7 @@ def test_last_speed_ignores_clean_flag_unclean_still_counts(ledger_repo):
         make_rep(t="2026-09-01T10:00:00Z", speed=60.0, clean=True),
         make_rep(t="2026-09-05T19:22:41Z", speed=92.0, clean=False),
     ]
-    assert ledger.last_speed(reps, "cant-stop", "solo") == 92.0
+    assert ledger.last_speed(reps, "can-t-stop", "solo") == 92.0
 
 
 def test_last_speed_ignores_a_retracted_last_rep(ledger_repo):
@@ -293,7 +293,7 @@ def test_last_speed_ignores_a_retracted_last_rep(ledger_repo):
     retraction = make_rep(
         t="2026-09-05T19:23:00Z", speed=92.0, retracted=True, retracts=later.id
     )
-    assert ledger.last_speed([original, later, retraction], "cant-stop", "solo") == 60.0
+    assert ledger.last_speed([original, later, retraction], "can-t-stop", "solo") == 60.0
 
 
 def test_last_speed_scopes_by_section(ledger_repo):
@@ -301,7 +301,7 @@ def test_last_speed_scopes_by_section(ledger_repo):
         make_rep(section="solo", speed=90.0, t="2026-09-05T19:22:41Z"),
         make_rep(section="intro", speed=50.0, t="2026-09-06T09:00:00Z"),
     ]
-    assert ledger.last_speed(reps, "cant-stop", "solo") == 90.0
+    assert ledger.last_speed(reps, "can-t-stop", "solo") == 90.0
 
 
 # --- append() creates the parent directory -------------------------------------
