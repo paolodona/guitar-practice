@@ -55,6 +55,16 @@
  *    still works — it lands in the setlist as a `needs_audio` row keyed
  *    by its slugified name — but the row's title IS that slug until the
  *    song is actually bound, since nowhere on disk holds a nicer one yet.
+ *
+ * 5. (Phase 1.5) A `#/capture` link is now always present, in BOTH render
+ *    paths (a real setlist, and the empty "create your first one" state) —
+ *    not conditional on `needs_audio_count`, unlike the existing "Needs
+ *    audio" stat card's own link to the same route. Found live: capturing
+ *    was only reachable through that one card, so a setlist with nothing
+ *    needing audio yet (including a brand-new, empty one) had no door to
+ *    it at all — and recording ahead of creating any song entries at all
+ *    (capture first, name and bind segments after) is a real workflow this
+ *    screen must not block.
  */
 import { get, post, setCurrentSetlist } from '../app.js';
 
@@ -256,6 +266,8 @@ export function mount(el, payload) {
         <div class="mono" style="font-size:14px;letter-spacing:.32em">WOODSHED</div>
         <div style="font-size:17px;color:var(--ink-2,#9CAAA4)">No setlists yet -- create your first one.</div>
         <div data-create-setlist>${createSetlistFormHtml()}</div>
+        <a href="#/capture" class="pill" style="text-decoration:none;border:1px solid var(--line,#26302E)">
+          Or capture some audio first &rarr;</a>
       </div>`;
     wireCreateSetlistForm(el.querySelector('[data-create-setlist]'), async (slug) => {
       setCurrentSetlist(slug);
@@ -303,6 +315,7 @@ function render(el, payload) {
         <div style="display:flex;gap:6px;align-items:center" data-pills>${pills}</div>
         <button class="pill" data-new-setlist-toggle style="border:1px dashed var(--line,#26302E)">+ New setlist</button>
         <div style="margin-left:auto;display:flex;align-items:center;gap:14px">
+          <a href="#/capture" class="pill" style="text-decoration:none;border:1px solid var(--line,#26302E)">Capture</a>
           <div class="mono" style="font-size:13px;color:var(--ink-3,#6A7873);letter-spacing:.06em">${payload.song_count} SONGS</div>
           <div style="border:1px solid var(--line,#26302E);border-radius:4px;padding:6px 12px;font-size:14px">${escapeHtml(payload.tuning)}</div>
         </div>
