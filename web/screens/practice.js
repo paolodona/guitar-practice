@@ -110,7 +110,7 @@
  */
 import { currentSetlist, get, post } from '../app.js';
 import { drawWave, PRACTICE_WAVE_OPTS } from '../wave.js';
-import { computeGrid, drawGrid, sizeCanvas } from '../timeline.js';
+import { computeGrid, drawGrid, sizeCanvas, positionAt } from '../timeline.js';
 import { createEngine } from '../player.js';
 import { ACTIONS, on, dispatch } from '../actions.js';
 import { KEY_MAP } from '../keys.js';
@@ -216,6 +216,29 @@ export const FOOT_ICONS = {
     + '<path d="M15.5 15.5A7 7 0 1 0 15 6" fill="none" stroke="#9CAAA4" stroke-width="1.8" stroke-linecap="round"/>'
     + '<path d="M15 2.5v4.2h4.2" fill="none" stroke="#9CAAA4" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
 };
+
+/**
+ * Phase 1.5, P2's pure half: a click's `clientX`, the waveform host's own
+ * bounding rect, and the current `view()` -> the source seconds it maps to
+ * (clamped to the view's own span) and the 0-1 fraction of that span it
+ * falls at. Exported and unit-tested directly (web/tests/
+ * test_practice_seek.mjs) — this repo has no DOM library to drive a real
+ * `pointerdown` through `waveHost` with (test_seek.mjs/test_ended.mjs/
+ * test_capture_review.mjs already made the identical trade elsewhere in
+ * this phase); `seekToClientX`, below, is the DOM-coupled wiring around
+ * this — calling `engine.seek()`, setting `elapsed`, calling
+ * `renderCheap()` — covered by the manual gate instead.
+ * @param {number} clientX
+ * @param {{left: number}} rect
+ * @param {import('../timeline.js').View} view
+ * @returns {{sourceS: number, frac: number}}
+ */
+export function computeSeekPosition(clientX, rect, view) {
+  const sourceS = Math.min(view.endS, Math.max(view.startS, positionAt(clientX - rect.left, view)));
+  const span = view.endS - view.startS;
+  const frac = span > 0 ? (sourceS - view.startS) / span : 0;
+  return { sourceS, frac: Math.max(0, Math.min(1, frac)) };
+}
 
 /** Slice a whole-song peaks payload down to [startS, endS] — wave.js's own
  *  doc is explicit that this is the caller's job, not its. */
@@ -753,6 +776,31 @@ export function mount(el, payload) {
     renderDiscrete();
     renderCheap();
     renderWave();
+  }
+
+  // ---- Phase 1.5, P2: waveform click-to-seek ----
+  // Click position -> fraction of the visible window (view(), the SAME
+  // view math the ring/playhead already use) -> source seconds ->
+  // engine.seek() (P1). The local wall-clock estimate (module doc,
+  // decision 3) gains a new sync point here, alongside 'pass' (onPass's
+  // own `elapsed = 0`, above): a seek resets `elapsed` to the clicked
+  // fraction IMMEDIATELY (renderCheap() called synchronously, not left
+  // for the next tick() frame), same pattern, same reason. Never itself
+  // counts a rep -- seekToClientX below touches neither `repCount` nor
+  // `/api/rep` (asserted directly, as a lint-style check against its own
+  // source -- see web/tests/test_practice_seek.mjs), and engine.seek()
+  // (P1's own contract) disqualifies whatever lap is in flight rather
+  // than producing one.
+  waveHost.addEventListener('pointerdown', (e) => seekToClientX(e.clientX));
+  function seekToClientX(clientX) {
+    if (elapsed < 0) return; // lead-in -- the overlay already blocks this click in practice
+    const rect = waveHost.getBoundingClientRect();
+    const { sourceS, frac } = computeSeekPosition(clientX, rect, view());
+    if (engineReady) {
+      try { engine.seek(sourceS); } catch { /* no node yet -- nothing to seek */ }
+    }
+    elapsed = frac * cosmeticLoopDur;
+    renderCheap();
   }
 
   // ---- the engine (this unit's half of D7) ----

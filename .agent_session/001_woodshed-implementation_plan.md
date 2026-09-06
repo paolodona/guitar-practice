@@ -1766,6 +1766,24 @@ expose both** — two more real bugs:
   next frame.
   *Test contract*: clicking mid-waveform moves the playhead to the clicked fraction and
   does not itself count a rep.
+  - **Done, 2026-09-06.** Built exactly as specced, with the pure math pulled into its
+    own exported `computeSeekPosition(clientX, rect, view)` (clientX/rect -> `{sourceS,
+    frac}`) so it has a direct unit test — this repo has no DOM library to drive a real
+    `pointerdown` through `waveHost` with, same trade `test_seek.mjs`/`test_ended.mjs`/
+    U3's own `test_capture_review.mjs` already made elsewhere in this phase;
+    `seekToClientX` is the thin, DOM-coupled wrapper (calls `engine.seek()`, sets
+    `elapsed = frac * cosmeticLoopDur`, calls `renderCheap()` synchronously) covered by
+    the manual gate instead. A click during lead-in (`elapsed < 0`) is a no-op — the
+    lead-in overlay already covers the waveform and would intercept the click in
+    practice, but the guard is cheap insurance against a CSS regression leaving a gap.
+    "Does not itself count a rep" is asserted as a lint-style check against
+    `seekToClientX`'s own EXTRACTED source, not the whole file — unlike R1's/U3's
+    identical-sounding check, `practice.js` legitimately POSTs `/api/rep` elsewhere (in
+    `onPass`), so a whole-file grep would be the wrong shape here. `web/tests/
+    test_practice_seek.mjs`: 6 assertions (left/right/mid-point/before/past-the-container
+    clamping, plus the rep-isolation check) — all passing; `node --check` clean on both
+    touched/new files. `uv run pytest` (906, unaffected — JS-only unit) and the no-extras
+    gate (903, unaffected) still green.
 
 **Group Q — chip icons**
 - **Q1** A small self-hosted icon set (inline SVG, matching this repo's "no network at
