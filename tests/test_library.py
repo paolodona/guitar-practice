@@ -55,6 +55,10 @@ def test_slugify_folds_accents_lowercases_and_hyphenates() -> None:
 
 
 def test_slugify_handles_straight_and_curly_apostrophes() -> None:
+    # An apostrophe is a SEPARATOR, deliberately -- not deleted. A slug is a
+    # permanent identity (practice/reps.jsonl names it on every line and is
+    # never rewritten), so this is settled rather than tuned; see slugify's
+    # own docstring and CLAUDE.md's Conventions.
     assert slugify("Can't Stop") == "can-t-stop"
     assert slugify("Can’t Stop") == "can-t-stop"
 

@@ -18,13 +18,15 @@ becoming a fact six months later.
 ## `song.yaml`
 
 ```yaml
-slug: cant-stop
+slug: can-t-stop               # slugify turns the apostrophe into a separator
 title: Can't Stop
 artist: Red Hot Chili Peppers
 album: By the Way
 
 recording:
   file: audio/cant-stop.flac      # relative to the song dir. Bytes never in git.
+                                  # (the FILE keeps whatever name it was bound with;
+                                  #  only the slug is derived)
   sha256: 9f2c…                   # so a re-encode or a re-rip is visible, not silent
   duration_s: 269.41
   tuning: E standard              # what the RECORD is in — not what you play it in
@@ -216,7 +218,7 @@ tuning: Eb standard             # THE BAND'S tuning. This is what makes the tran
 date: 2027-04-17                # optional. Drives the countdown.
 venue: ""
 songs:
-  - cant-stop                   # takes the derived shift for this setlist
+  - can-t-stop                  # takes the derived shift for this setlist
   - slug: manlio
     shift: 0                    # the record is already in E♭ — nothing to move
   - slug: sultans-of-swing
@@ -282,7 +284,7 @@ only file in the repo that cannot be reconstructed from anything else, and
 append-only is what makes it survive a crash mid-session.
 
 ```json
-{"t":"2026-09-05T19:22:41Z","song":"cant-stop","section":"solo","speed":55,
+{"t":"2026-09-05T19:22:41Z","song":"can-t-stop","section":"solo","speed":55,
  "semitones":-1,"pass":true,"clean":true,"loop_s":31.2,"setlist":"gig","source":"midi"}
 ```
 

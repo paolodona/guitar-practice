@@ -115,7 +115,13 @@ paths in code. Those live in `songs/`, `setlists/` and `config.yaml`.
 
 * Python 3.12+, `uv` for env and running (`uv run woodshed ...`), `ruff` for lint.
 * Schemas are Pydantic models in the module that owns them; YAML is the on-disk form.
-* Slugs are lowercase-kebab, accents folded (`cant-stop`, `sultans-of-swing`).
+* Slugs are lowercase-kebab, accents folded (`perche-no`, `sultans-of-swing`).
+  **An apostrophe is a separator, not a deletion**: `Can't Stop` is `can-t-stop`.
+  That is deliberate and settled — a slug is a permanent identity, because
+  `practice/reps.jsonl` names it on every line and that file is never rewritten.
+  Prettier slugs would cost exactly the one thing this repo promises not to do.
+  Matching (the library scan) strips apostrophes instead of splitting on them —
+  that is a matching concern, and it is not the same question.
 * CLI errors raise a `WoodshedError` with a message that says what to do next;
   `main()` turns those into one line and exit code 2. Anything else is a
   traceback, which is a bug.

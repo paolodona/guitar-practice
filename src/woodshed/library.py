@@ -28,6 +28,24 @@ def slugify(text: str) -> str:
     Lifted from rambass-live/src/rambass/project.py:48. Accented characters
     are folded down to ASCII rather than dropped: ``"Perché No"`` ->
     ``"perche-no"``.
+
+    **An apostrophe becomes a separator, not nothing**: ``"Can't Stop"`` ->
+    ``"can-t-stop"``, never ``"cant-stop"``. Settled 2026-09-06 after
+    ``sources.py`` (the Spotify import, the first thing that derives a slug
+    from a title someone else typed) made the two readings collide.
+
+    It reads a little worse and it stays, because **a slug is a permanent
+    identity**: ``practice/reps.jsonl`` names it on every line, and that file
+    is append-only and never rewritten (CLAUDE.md's own invariant). Changing
+    what a title slugifies to would mean either rewriting the one
+    irreplaceable file in the repo, or carrying an alias table forever so two
+    names mean one song. Neither is worth a prettier directory name.
+
+    Matching is a different question and gets a different answer:
+    ``sources._tokens`` strips apostrophes before comparing, so a library
+    file called ``Cant Stop.flac`` still matches the song ``Can't Stop``.
+    Identity is exact; matching is fuzzy; conflating them is what this
+    docstring exists to prevent.
     """
     folds = {
         "à": "a", "á": "a", "â": "a", "ä": "a", "è": "e", "é": "e", "ê": "e",
