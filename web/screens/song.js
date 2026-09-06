@@ -509,7 +509,7 @@ export function mount(el, payload) {
       // no-op-and-abort rather than a real desync; only the throw itself
       // needs swallowing here.
       try { engine.pause(); } catch { /* no node between loads -- see above */ }
-      stopPlayhead();
+      pausePlayhead();
     }
   });
 
@@ -656,6 +656,24 @@ export function mount(el, payload) {
     if (playheadRafId !== null) cancelAnimationFrame(playheadRafId);
     playheadRafId = null;
     playheadSourceS = null;
+    renderPlayhead();
+  }
+
+  /** Cancels the rAF loop WITHOUT clearing `playheadSourceS` -- unlike
+   *  stopPlayhead (a real end: nothing to show a position for any more),
+   *  a pause is the whole point of this workflow: Paolo, live 2026-09-06,
+   *  hunting for a section's exact start by playing at 50%, hitting pause
+   *  the instant it sounds right, then reading the timestamp off the
+   *  frozen counter -- "upon pausing the playhead disappears and timer
+   *  goes back to 0.000s, which prevents me from finding exactly where
+   *  the start of the solo is." The marker stays put (and stays click-
+   *  seekable, per seekToClientX's own doc above) until the next
+   *  startPlayhead (a fresh press elsewhere) or stopPlayhead (a real end)
+   *  moves or clears it. */
+  function pausePlayhead() {
+    if (playheadRafId !== null) cancelAnimationFrame(playheadRafId);
+    playheadRafId = null;
+    playheadLastTs = null;
     renderPlayhead();
   }
 
