@@ -574,6 +574,9 @@ def cmd_capture(args: argparse.Namespace) -> int:
             'now: `woodshed capture "Song title" --artist ...`.'
         )
 
+    if args.split:
+        return _cmd_capture_split(args)
+
     if not args.title:
         raise WoodshedError('a title is required: `woodshed capture "Song title" --artist ...` '
                              "(or --list-devices to see what's available)")
@@ -655,6 +658,121 @@ def cmd_capture(args: argparse.Namespace) -> int:
              "`woodshed doctor` names the installer for auto-detection)")
     else:
         _say(f"  bpm {song.tempo.bpm:g} (source: {song.tempo.source}, peaks cached)")
+    return 0
+
+
+# ── commands: capture --split, capture-bind (Phase 1.5, Group U, U4) ─────
+#
+# CLI parity for the capture-first workflow `screens/capture.js` and
+# `server.py`'s `/api/capture/*` routes already give the browser -- "lower
+# priority, may be cut without blocking this phase's gate" per the plan,
+# built anyway since both read/write the SAME on-disk session state U2
+# defines (`capture_session.py`), not a second bookkeeping scheme.
+#
+# One naming departure from the plan's own text, worth saying rather than
+# silently diverging: the plan describes `woodshed capture bind <index>
+# "<title>" ...` as a SUBCOMMAND of `capture`. argparse cannot host that
+# alongside `capture`'s own existing bare `title` positional (H2's single-
+# song flow) without an ambiguity between "the next token is a sub-command
+# name" and "the next token is the title" -- so binding is its own
+# top-level command, `capture-bind`, instead.
+def _cmd_capture_split(args: argparse.Namespace) -> int:
+    """`woodshed capture --split`: record until Ctrl-C (or `--gap-s`
+    trailing silence), split on silence, and print one line per detected
+    segment -- never binding anything itself. Writes the SAME
+    `capture_session.py` sidecar `POST /api/capture/start|stop` does
+    (`capture_runner.CaptureRunner._run`'s own `capture(raw_path=...)` +
+    `start_session` call, mirrored here rather than imported, since this
+    runs in the foreground on the CLI's own main thread, not a background
+    one)."""
+    if args.title:
+        raise WoodshedError(
+            "--split records a whole capture session and doesn't take a title -- "
+            'omit it, or drop --split and use `woodshed capture "Song title" '
+            "--artist ...` for a single song"
+        )
+
+    from woodshed import capture_session
+    from woodshed.capture import capture as run_capture
+    from woodshed.capture import default_device, list_devices
+
+    if args.device:
+        needle = args.device.lower()
+        device = next((d for d in list_devices() if needle in d.name.lower()), None)
+        if device is None:
+            raise WoodshedError(
+                f"no loopback device matching {args.device!r} -- "
+                "`woodshed capture --list-devices` lists what's available"
+            )
+    else:
+        device = default_device()
+
+    repo = _repo()
+    repo.capture_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+    raw_path = repo.capture_dir / f"{timestamp}.wav"
+
+    _say(f"arming {device.name!r} ({device.sample_rate} Hz) -- press play over "
+         f"there now; ctrl-c (or {args.gap_s:g}s of trailing silence) stops the capture")
+    segments = list(run_capture(
+        device, raw_path.parent, floor_db=args.floor_db, gap_s=args.gap_s,
+        raw_path=raw_path,
+    ))
+
+    if not segments:
+        raw_path.unlink(missing_ok=True)
+        raise WoodshedError("nothing captured -- no sound crossed the noise floor")
+
+    session = capture_session.start_session(repo, raw_path, segments)
+    for entry in session.entries:
+        flag = "  OVERFLOW -- not safe to bind, re-capture it" if entry.overflowed else ""
+        _say(f"[{entry.index}] {entry.duration_s:.1f}s{flag}")
+    _say(
+        f'{len(session.entries)} segment(s) captured -- `woodshed capture-bind <index> '
+        '"<title>" --artist ... --tuning ...` to bind one'
+    )
+    return 0
+
+
+def cmd_capture_bind(args: argparse.Namespace) -> int:
+    """`woodshed capture-bind <index> "<title>" --artist ... --tuning ... [--setlist
+    <slug>]` -- binds one pending segment from the CURRENT capture session
+    (`capture_session.current_session`) as a brand-new song, calling the
+    SAME `bind_segment_as_new_song` `POST /api/capture/bind`'s `mode="new"`
+    calls (`server.py`'s own docstring for that route names it explicitly)
+    -- not a second binding path that could drift from the server's."""
+    from woodshed import capture_session
+    from woodshed.capture import Segment, bind_segment_as_new_song
+    from woodshed.setlist import add_song
+    from woodshed.setlist import load as load_setlist
+    from woodshed.setlist import save as save_setlist
+
+    repo = _repo()
+    session = capture_session.current_session(repo)
+    if session is None:
+        raise WoodshedError(
+            "no capture session pending -- `woodshed capture --split` first"
+        )
+    entry = next((e for e in session.pending if e.index == args.index), None)
+    if entry is None:
+        raise WoodshedError(f"no such pending capture segment: {args.index}")
+
+    segment = Segment(
+        start_frame=entry.start_frame, end_frame=entry.end_frame,
+        sample_rate=entry.sample_rate, overflowed=entry.overflowed,
+    )
+    slug = bind_segment_as_new_song(
+        repo, session.raw_path, segment,
+        title=args.title, artist=args.artist, tuning=args.tuning,
+    )
+    capture_session.resolve(repo, args.index, capture_session.STATUS_BOUND)
+
+    _say(f"bound segment {args.index} ({segment.duration_s:.1f}s) -> {slug!r}")
+    if args.setlist:
+        setlist = load_setlist(repo, args.setlist)
+        setlist = add_song(setlist, slug)
+        save_setlist(repo, args.setlist, setlist)
+        _say(f"  added to setlist {args.setlist!r}")
     return 0
 
 
@@ -871,7 +989,27 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--queue", default=None, metavar="SETLIST",
                     help="capture a whole setlist's tracklist in one pass "
                          "(needs Phase 3's Spotify import; not yet available)")
+    p.add_argument("--split", action="store_true",
+                    help="record a whole set, split on silence, and print the "
+                         "segments found -- binds nothing; follow with "
+                         "`woodshed capture-bind` (Phase 1.5, Group U, U4)")
     p.set_defaults(func=cmd_capture)
+
+    # -- capture-bind: U4's own CLI parity for POST /api/capture/bind's
+    #    mode="new" --
+    p = sub.add_parser(
+        "capture-bind",
+        help="bind one pending `capture --split` segment as a new song",
+    )
+    p.add_argument("index", type=int,
+                    help="the segment's index, from `capture --split`'s own output")
+    p.add_argument("title", help="song title")
+    p.add_argument("--artist", default="")
+    p.add_argument("--tuning", choices=KNOWN_TUNINGS, default="E standard",
+                    help="what the RECORDING is in -- not what you play it in")
+    p.add_argument("--setlist", default=None, metavar="SLUG",
+                    help="also add the new song to this setlist")
+    p.set_defaults(func=cmd_capture_bind)
 
     # -- not yet implemented, registered so `--help` is honest about the
     #    tool's eventual shape (docs/01-architecture.md's full command list) --

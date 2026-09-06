@@ -2394,6 +2394,25 @@ what's missing is everything **after** a segment exists and before it is a bound
   capture bind <index> "<title>" --artist "..." --tuning "..." [--setlist <slug>]` calls
   the same `bind_segment_as_new_song` the server endpoint uses. Both read the same
   on-disk raw-file/pending-segment state U2 defines — not a second bookkeeping scheme.
+  - **Done, 2026-09-06** (picked back up rather than cut). One naming departure from
+    this bullet's own text, named rather than silently diverged: binding is
+    `woodshed capture-bind <index> "<title>" ...`, a separate top-level command, not a
+    `capture bind` sub-command — argparse cannot host a sub-command selector on the
+    SAME parser as `capture`'s own pre-existing bare `title` positional (H2's
+    single-song flow) without an ambiguity between "next token is a sub-command name"
+    and "next token is the title". `capture --split` refuses outright if a title is
+    also given (the two flows don't compose); it shares `capture`'s own
+    `--device`/`--floor-db`/`--gap-s` flags, writes the SAME `capture_session.py`
+    sidecar `POST /api/capture/start|stop` does (mirrored rather than shared code,
+    since this runs in the foreground on the CLI's own thread, not
+    `capture_runner.CaptureRunner`'s background one), and cleans up the raw file when
+    nothing crossed the noise floor, same as the live-capture path already does.
+    `capture-bind` calls the identical `bind_segment_as_new_song` the server's
+    `mode="new"` uses (confirmed: `server.py`'s own docstring names that function
+    directly) — not a second binding path. 11 new tests in `test_cli.py`, all against
+    a mocked device/`capture()`/`extract_segment` — never real hardware or a real
+    ffmpeg cut, same limit the existing H2 capture tests already accept. Full suite
+    969 passed (was 962); ruff clean.
 
 ### Ordering
 

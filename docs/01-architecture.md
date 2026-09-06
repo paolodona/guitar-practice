@@ -118,6 +118,8 @@ woodshed section <slug> add "Full solo" 178.4 262.9
 woodshed section <slug> add "Solo — tapping" 178.4 201.15   # overlaps, deliberately
 woodshed setlist new <name> --tuning Eb
 woodshed capture --queue <setlist>     # arm loopback, split a playlist on the gaps
+woodshed capture --split              # record a whole set, print the segments found
+woodshed capture-bind 0 "Song title" --artist ... --tuning ...  # bind one, by index
 woodshed render <slug> --section solo --speed 60 --semitones -1
 woodshed status [--setlist <name>]   # the dashboard, as text
 woodshed log <slug> <section> --speed 60 --clean   # a rep, from anywhere

@@ -196,6 +196,148 @@ def test_capture_list_devices_reports_the_missing_extra_cleanly(
         assert "pyaudiowpatch" in capsys.readouterr().err
 
 
+# ── capture --split, capture-bind (Phase 1.5, Group U, U4) -- CLI parity for
+#    the capture-first workflow the server/browser already have. The device
+#    itself is always mocked here -- same "only the argument-parsing / degrade
+#    paths need real hardware" limit the H2 tests above already accept.
+
+
+def _fake_device():
+    from woodshed.capture import Device
+
+    return Device(index=0, name="Fake Loopback", sample_rate=48000, channels=2)
+
+
+def test_capture_split_with_a_title_refuses_cleanly(
+    repo: Repo, capsys: pytest.CaptureFixture
+) -> None:
+    rc = cli.main(["capture", "--split", "Some Title"])
+    assert rc == 2
+    assert "doesn't take a title" in capsys.readouterr().err
+
+
+def test_capture_split_prints_one_line_per_segment(
+    repo: Repo, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+) -> None:
+    from woodshed.capture import Segment
+
+    monkeypatch.setattr("woodshed.capture.default_device", _fake_device)
+
+    def fake_capture(device, out_dir, *, floor_db, gap_s, raw_path=None, **kw):
+        Path(raw_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(raw_path).write_bytes(b"fake raw audio")
+        yield Segment(start_frame=0, end_frame=48000 * 10, sample_rate=48000)
+        yield Segment(
+            start_frame=48000 * 12, end_frame=48000 * 20, sample_rate=48000, overflowed=True
+        )
+
+    monkeypatch.setattr("woodshed.capture.capture", fake_capture)
+
+    rc = cli.main(["capture", "--split"])
+
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "[0] 10.0s" in out
+    assert "[1] 8.0s" in out
+    assert "OVERFLOW" in out
+    assert "capture-bind" in out
+
+
+def test_capture_split_refuses_when_nothing_captured(
+    repo: Repo, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("woodshed.capture.default_device", _fake_device)
+    written_raw_path = {}
+
+    def fake_capture(device, out_dir, *, floor_db, gap_s, raw_path=None, **kw):
+        written_raw_path["path"] = Path(raw_path)
+        Path(raw_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(raw_path).write_bytes(b"")
+        return iter(())
+
+    monkeypatch.setattr("woodshed.capture.capture", fake_capture)
+
+    rc = cli.main(["capture", "--split"])
+    assert rc == 2
+    assert not written_raw_path["path"].exists()  # cleaned up, not left as debris
+
+
+def test_capture_bind_refuses_with_no_pending_session(repo: Repo) -> None:
+    rc = cli.main(["capture-bind", "0", "New Song"])
+    assert rc == 2
+
+
+def _start_fake_session(repo: Repo, *, duration_s: float = 30.0):
+    from woodshed import capture_session
+    from woodshed.capture import Segment
+
+    raw_path = repo.capture_dir / "20260101-000000.wav"
+    raw_path.parent.mkdir(parents=True, exist_ok=True)
+    raw_path.write_bytes(b"fake raw audio")
+    return capture_session.start_session(
+        repo, raw_path,
+        [Segment(start_frame=0, end_frame=int(48000 * duration_s), sample_rate=48000)],
+    )
+
+
+def test_capture_bind_binds_the_named_segment(
+    repo: Repo, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from woodshed import capture_session
+
+    _start_fake_session(repo)
+    monkeypatch.setattr("woodshed.cli.analyze_after_bind", lambda *a, **k: None)
+
+    def fake_extract(raw_audio_path, segment, dest_path) -> None:
+        dest_path = Path(dest_path)
+        dest_path.parent.mkdir(parents=True, exist_ok=True)
+        dest_path.write_bytes(b"fake-flac-bytes")
+
+    monkeypatch.setattr("woodshed.capture.extract_segment", fake_extract)
+
+    rc = cli.main(
+        ["capture-bind", "0", "New Song", "--artist", "Someone", "--tuning", "Eb standard"]
+    )
+
+    assert rc == 0
+    song = load_song(repo.song_dir("new-song") / "song.yaml")
+    assert song.title == "New Song"
+    assert song.artist == "Someone"
+    assert song.recording.tuning == "Eb standard"
+    # the session's own sidecar is gone -- every entry resolved
+    assert capture_session.current_session(repo) is None
+
+
+def test_capture_bind_unknown_index_refuses(repo: Repo) -> None:
+    _start_fake_session(repo)
+
+    rc = cli.main(["capture-bind", "5", "New Song"])
+    assert rc == 2
+
+
+def test_capture_bind_adds_to_a_setlist_when_given(
+    repo: Repo, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from woodshed.manifest import Setlist
+    from woodshed.setlist import create as create_setlist
+    from woodshed.setlist import load as load_setlist
+
+    create_setlist(repo, "gig", Setlist(name="Gig", tuning="E standard"))
+    _start_fake_session(repo)
+    monkeypatch.setattr("woodshed.cli.analyze_after_bind", lambda *a, **k: None)
+    monkeypatch.setattr(
+        "woodshed.capture.extract_segment",
+        lambda raw, seg, dest: Path(dest).parent.mkdir(parents=True, exist_ok=True)
+        or Path(dest).write_bytes(b"x"),
+    )
+
+    rc = cli.main(["capture-bind", "0", "New Song", "--setlist", "gig"])
+
+    assert rc == 0
+    setlist = load_setlist(repo, "gig")
+    assert any(entry.slug == "new-song" for entry in setlist.songs)
+
+
 # ── WoodshedError -> one line on stderr, exit 2 ──────────────────────────
 def test_woodshederror_prints_one_line_and_exits_2(
     repo: Repo, capsys: pytest.CaptureFixture
