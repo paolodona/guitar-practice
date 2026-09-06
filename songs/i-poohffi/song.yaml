@@ -1,0 +1,47 @@
+slug: i-poohffi
+title: I Poohffi
+artist: Ramba SS
+recording:
+  file: audio/02 I PoohFFI.wav
+  sha256: 2f4a6590f21bc7adfa31b9aa0fbc553c02576ef166ee3e48a4556498919d9f5c
+  duration_s: 299.49387755102043
+  tuning: Eb standard
+tempo:
+  bpm: 87.92
+  source: refined
+  grid_offset_s: 0.094
+  time_signature: 4/4
+  confidence: 0.185
+practice:
+  start_speed: 50.0
+  ladder_step: 5.0
+  reps_to_advance: 3
+  pre_roll_beats: 4.0
+  pre_roll_every_pass: false
+  click: 'off'
+  loop_crossfade_ms: 10.0
+sections:
+- id: whole-song
+  name: Whole song
+  start_s: 0.0
+  end_s: 299.49387755102043
+  snapped: free
+  target_speed: 100.0
+  counts_toward_readiness: true
+  full_song: true
+- id: 436c3b14
+  name: Vinceremo
+  start_s: 133.39901969521435
+  end_s: 161.51744051332324
+  snapped: free
+  target_speed: 100.0
+  counts_toward_readiness: true
+  full_song: false
+- id: d6f23b46
+  name: New section
+  start_s: 199.7715711612156
+  end_s: 228.87086712414225
+  snapped: free
+  target_speed: 100.0
+  counts_toward_readiness: true
+  full_song: false

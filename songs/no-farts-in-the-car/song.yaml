@@ -21,14 +21,6 @@ practice:
   click: 'off'
   loop_crossfade_ms: 10.0
 sections:
-- id: whole-song
-  name: Whole song
-  start_s: 0.0
-  end_s: 123.12278303384278
-  snapped: free
-  target_speed: 100.0
-  counts_toward_readiness: true
-  full_song: true
 - id: cba6288b
   name: New section
   start_s: 41.678869558951966

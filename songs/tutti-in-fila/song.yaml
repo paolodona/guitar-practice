@@ -29,14 +29,6 @@ sections:
   target_speed: 100.0
   counts_toward_readiness: true
   full_song: false
-- id: full-solo
-  name: Full solo
-  start_s: 150.0
-  end_s: 262.38120587658227
-  snapped: beat
-  target_speed: 100.0
-  counts_toward_readiness: true
-  full_song: false
 - id: whole-song
   name: Whole song
   start_s: 0.0
@@ -45,3 +37,11 @@ sections:
   target_speed: 100.0
   counts_toward_readiness: true
   full_song: true
+- id: full-solo
+  name: Full solo
+  start_s: 150.0
+  end_s: 262.38120587658227
+  snapped: beat
+  target_speed: 100.0
+  counts_toward_readiness: true
+  full_song: false
