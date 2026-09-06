@@ -117,17 +117,20 @@ function pct(sourceS, view) {
  * lanes are plain positioned DOM elements so drag handles can be real
  * elements with their own hit-testing.
  *
- * Selection is local UI state owned entirely by this function's closure —
- * the payload carries no "selected" field, so a click just swaps which
- * tile looks selected (and grows drag handles) without touching the
- * network; only a drag-end or a rename reaches out via *handlers*.
- * Re-running renderSections (e.g. after a commit's response comes back)
- * always starts unselected, since the fresh sectionsData has no way to
- * say which id a caller wants re-selected — a caller that wants selection
- * to survive a redraw has to re-select the tile itself. This is an
- * unavoidable consequence of `renderSections`' two-argument-plus-handlers
- * shape carrying no `selectedId` (fixed by D0); flagged, not silently
- * patched around by inventing a new parameter.
+ * Selection is the CALLER's state, passed in as `options.selectedId`, and
+ * this function only draws it — plus keeping its own copy between clicks so
+ * a click repaints immediately rather than waiting for the caller's own
+ * redraw to come back. A click reports the new id through
+ * `options.onSelect`; nothing here touches the network.
+ *
+ * It used to be closure-local with no way in, which meant every redraw
+ * triggered by a server round-trip (committing an inspector field, say)
+ * visually deselected the tile even though `screens/song.js`'s own
+ * `selectedId` was still perfectly correct — the tile you were editing
+ * stopped looking selected and lost its drag handles mid-edit. Fixed
+ * 2026-09-06 by widening the fifth parameter from a bare handlers bag to an
+ * options bag: the caller already owned the state, so the right fix was to
+ * let it say so, not to have it re-click its own tile after every redraw.
  * `grid` (Phase 1, G1) is passed straight through to `attachDragHandlers` —
  * see that function's doc for how it snaps a live drag. `{bars: [], beats:
  * []}` (an empty grid — no tempo, or a caller not yet passing one) means no
@@ -136,7 +139,10 @@ function pct(sourceS, view) {
  * @param {SectionView[]} sectionsData
  * @param {import('./timeline.js').View} view
  * @param {import('./timeline.js').Grid} [grid]
- * @param {{onSelect?: (id: string) => void, onDragCommit?: (patch: object) => void}} [handlers]
+ * @param {{selectedId?: string | null, onSelect?: (id: string) => void,
+ *          onDragCommit?: (patch: object) => void}} [options] - the caller's
+ *   selection plus its callbacks. Named `handlers` internally for the
+ *   callbacks it still mostly is.
  */
 export function renderSections(laneRoot, sectionsData, view, grid = { bars: [], beats: [] }, handlers = {}) {
   // Children are positioned with `left`/`top` in absolute terms against
@@ -158,7 +164,9 @@ export function renderSections(laneRoot, sectionsData, view, grid = { bars: [], 
   const maxLane = sectionsData.reduce((m, s) => Math.max(m, s.lane ?? 0), 0);
   laneRoot.style.height = `${Math.max(2, maxLane + 1) * LANE_HEIGHT}px`;
 
-  let selectedId = null;
+  // The caller's selection, or nothing. Kept in a local so a click can
+  // repaint at once; the caller's own value wins again on the next redraw.
+  let selectedId = handlers.selectedId ?? null;
   /** @type {(() => void) | null} */
   let detachDrag = null;
 

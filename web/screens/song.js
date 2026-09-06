@@ -102,18 +102,14 @@
  * with playedFraction 0 here — see decision 2 above for why there is no
  * real transport position to feed it.
  *
- * Section selection/highlighting is sections.js's own internal state (see
- * its module doc: "Re-running renderSections... always starts unselected
- * ... a caller that wants selection to survive a redraw has to re-select
- * the tile itself"). This screen's own `selectedId` (used to drive the
- * inspector panel and the waveform highlight box, both owned here) is
- * therefore a SEPARATE, parallel piece of state from whatever tile
- * sections.js currently paints as visually "selected" — after any
- * server-round-trip redraw (a commit, a create), the lane tile's own
- * selected look resets even though this screen's inspector keeps showing
- * the same section. This is sections.js's own documented, not-silently-
- * patched-around gap, not something introduced here; flagged again in
- * this unit's report.
+ * Section selection is THIS screen's state and nothing else's: `selectedId`
+ * drives the inspector panel, the waveform highlight box, and — since
+ * 2026-09-06 — the lane tile's own selected look, by being passed into
+ * `renderSections(..., {selectedId, ...})`. Before that, sections.js kept
+ * its own closure-local copy with no way in, so every server-round-trip
+ * redraw (committing an inspector field, creating a section) visually
+ * deselected the tile mid-edit while the inspector carried on showing it.
+ * One piece of state, one owner.
  */
 import { currentSetlist, get, post } from '../app.js';
 import { drawWave, SONG_WAVE_OPTS } from '../wave.js';
@@ -745,6 +741,10 @@ export function mount(el, payload) {
   let detachCreateHandler = null;
   function renderLanes() {
     renderSections(laneRoot, sections, view(), grid, {
+      // This screen owns the selection; sections.js only draws it. Passing
+      // it back in is what keeps the tile you are editing selected across
+      // the redraw a committed inspector field triggers.
+      selectedId,
       onSelect: (id) => { selectedId = id; renderSelectionHighlight(); renderInspector(); },
       onDragCommit: (patch) => { patchSection(patch.id, patch); },
     });
