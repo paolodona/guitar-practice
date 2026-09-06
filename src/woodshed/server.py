@@ -552,6 +552,17 @@ class WoodshedHandler(BaseHTTPRequestHandler):
             # demucs check already reports -- never a hard failure just
             # because the optional isolation dependency is missing.
             "demucs_available": demucs_available(),
+            # Every patch the sibling gx100 repo knows for THIS song, so the
+            # song screen's patch field can suggest real ids instead of
+            # asking someone to remember them (Paolo asked for a dropdown;
+            # it is a datalist, not a hard select -- naming a patch before
+            # you have designed it in gx100 has to stay possible, and the
+            # inspector already says out loud when an id does not resolve).
+            # Empty list for every kind of absence, same as patch_ref.
+            "gx100_patches": [
+                {"id": p.id, "profile": p.profile, "slot": p.slot}
+                for p in sorted(patches.values(), key=lambda p: p.id)
+            ],
             "readiness": {
                 "ratio": readiness.ratio,
                 "intervals": [

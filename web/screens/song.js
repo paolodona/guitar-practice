@@ -230,6 +230,24 @@ function selectOptions(presets, current, fmt = (v) => String(v)) {
  * into a Program Change number: a PC names a slot, not a memory, and that
  * mapping lives in rambass-live's config/gx100.yaml (docs/05-foot-control.md).
  */
+/**
+ * The sibling repo's own patch ids, as `<datalist>` suggestions (Paolo
+ * asked for a dropdown of his actual patches rather than remembering ids).
+ *
+ * A datalist and not a `<select>`, deliberately: naming a patch before it
+ * exists in `gx100` has to stay possible — that is a normal order of work,
+ * design the part then build the sound — and `patchRefHtml` below already
+ * says out loud when an id does not resolve. A hard dropdown would turn a
+ * "not yet" into a "not allowed". With no sibling repo configured the list
+ * is simply empty and the field is exactly the free-text box it was.
+ */
+function patchOptionsHtml(payload) {
+  return (payload.gx100_patches ?? []).map((p) => {
+    const label = [p.profile, p.slot].filter(Boolean).join(' · ');
+    return `<option value="${escapeHtml(p.id)}"${label ? ` label="${escapeHtml(label)}"` : ''}></option>`;
+  }).join('');
+}
+
 function patchRefHtml(sec) {
   if (!sec.patch) return '';
   const ref = sec.patch_ref;
@@ -866,7 +884,10 @@ export function mount(el, payload) {
       </div>
       <div>
         <div class="flbl">GX-100 patch</div>
-        <input class="fld" data-f="patch" value="${escapeHtml(sec.patch ?? '')}" style="font-size:14px">
+        <input class="fld" data-f="patch" list="ws-gx100-patches"
+               value="${escapeHtml(sec.patch ?? '')}" style="font-size:14px"
+               placeholder="${payload.gx100_patches?.length ? 'start typing…' : 'free text'}">
+        <datalist id="ws-gx100-patches">${patchOptionsHtml(payload)}</datalist>
         ${patchRefHtml(sec)}
       </div>
       <div style="margin-top:auto;display:flex;flex-direction:column;gap:12px">

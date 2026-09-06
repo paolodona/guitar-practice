@@ -2205,3 +2205,23 @@ def test_a_full_song_section_reports_no_rung_progress(served):
     _status, data = _get_json(base, f"/api/song/{slug}")
     row = next(s for s in data["sections"] if s["id"] == song.sections[0].id)
     assert row["clean_at_speed"] == 0
+
+
+def test_song_payload_lists_every_gx100_patch_for_the_suggest_field(served, tmp_path):
+    base, repo, slug = served
+    sibling = tmp_path / "gx100"
+    gx_song = sibling / "songs" / slug / "song.yaml"
+    gx_song.parent.mkdir(parents=True)
+    gx_song.write_text(
+        "patches:\n  - {id: lead, slot: U02-3}\n  - {id: clean, slot: U01-1}\n",
+        encoding="utf-8",
+    )
+    repo.config_path.write_text(f"gx100:\n  path: {sibling.as_posix()}\n", encoding="utf-8")
+    _status, data = _get_json(base, f"/api/song/{slug}")
+    assert [p["id"] for p in data["gx100_patches"]] == ["clean", "lead"]
+
+
+def test_song_payload_lists_no_patches_when_there_is_no_sibling_repo(served):
+    base, _repo, slug = served
+    _status, data = _get_json(base, f"/api/song/{slug}")
+    assert data["gx100_patches"] == []
