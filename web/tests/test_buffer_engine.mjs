@@ -400,6 +400,44 @@ await test('position() holds still while paused', async () => {
   assert.ok(Math.abs(engine.position() - 7) < 1e-9);
 });
 
+await test('a wait says which stage it is waiting on, and says when it ends', async () => {
+  const ctx = new FakeContext();
+  const engine = new BufferEngine(ctx);
+  engine.pollMs = 1;
+  const seen = [];
+  engine.addEventListener('rendering', (e) => seen.push(e.detail.stage));
+  globalThis.fetch = fetchStub([
+    { status: 202, body: { rendering: true, stage: 'separating' } },
+    { status: 202, body: { rendering: true, stage: 'rendering' } },
+    { status: 200 },
+  ]);
+  await engine.loadSection(makeSection({ source: 'guitar' }));
+  assert.deepEqual(seen, ['separating', 'rendering', null]);
+});
+
+await test('a cache hit says nothing at all', async () => {
+  const ctx = new FakeContext();
+  const engine = new BufferEngine(ctx);
+  const seen = [];
+  engine.addEventListener('rendering', (e) => seen.push(e.detail.stage));
+  globalThis.fetch = fetchStub([{ status: 200 }]);
+  await engine.loadSection(makeSection());
+  assert.deepEqual(seen, []);
+});
+
+await test('a wait that ends in a failure still says it ended', async () => {
+  // Otherwise the status line would sit on "rendering…" forever after the
+  // one thing that was never going to finish.
+  const ctx = new FakeContext();
+  const engine = new BufferEngine(ctx);
+  engine.pollMs = 1;
+  const seen = [];
+  engine.addEventListener('rendering', (e) => seen.push(e.detail.stage));
+  globalThis.fetch = fetchStub([{ status: 202 }, { status: 500 }]);
+  await assert.rejects(() => engine.loadSection(makeSection()));
+  assert.deepEqual(seen, ['rendering', null]);
+});
+
 await test('createEngine picks the engine, and still defaults to the real-time one', () => {
   // docs/03-audio-engine.md's table: exploring gets the stretcher,
   // practising gets the buffer. Every caller that has not asked for the

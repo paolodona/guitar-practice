@@ -667,6 +667,12 @@ const TICK_MS = 50;
  *    render), and a lint test in tests/test_web_lint.py greps this whole
  *    directory to keep it that way.
  *
+ * Fires 'rendering' — CustomEvent<{stage, speedPct, semitones, polls}> —
+ * while the server answers 202, and once more with `stage: null` when the
+ * wait ends however it ends. A cache hit fires nothing at all, so a
+ * listener that shows `detail.stage` shows something exactly when there is
+ * something to say.
+ *
  * The 'pass' contract is unchanged from RealtimeEngine's — only the clock
  * it reads. A native loop fires no boundary event, so the seam is computed
  * (`seamTimeAt`) and polled; pause() and seek() disqualify the lap in
@@ -858,21 +864,52 @@ export class BufferEngine extends EventTarget {
     const url = renderUrl(this._section, speedPct, semitones);
     const cached = this._buffers.get(url);
     if (cached) return cached;
+    let announced = false;
     for (let poll = 0; poll < this.maxPolls; poll++) {
       const res = await fetch(url);
       if (res.status === 202) {
+        // Say so. A render is seconds and a Demucs separation ahead of one
+        // is minutes, and until this event existed, pressing play during
+        // either was silence with no explanation. The server's own 202 body
+        // carries the only two stages it can honestly report (`separating`
+        // then `rendering` -- Demucs has no progress readout, and inventing
+        // a percentage would be a measurement the tool cannot make).
+        let stage = 'rendering';
+        try {
+          const body = await res.json();
+          if (body && body.stage) stage = body.stage;
+        } catch {
+          // A 202 with no JSON body still means "not built yet".
+        }
+        announced = true;
+        this.dispatchEvent(new CustomEvent('rendering', {
+          detail: { stage, speedPct, semitones, polls: poll + 1 },
+        }));
         await new Promise((resolve) => setTimeout(resolve, this.pollMs));
         continue;
       }
       if (!res.ok) {
+        if (announced) this._announceRenderDone(speedPct, semitones);
         throw new Error(`BufferEngine: fetch ${url}: ${res.status} ${res.statusText}`);
       }
       const bytes = await res.arrayBuffer();
       const buffer = await this.ctx.decodeAudioData(bytes);
       this._buffers.set(url, buffer);
+      if (announced) this._announceRenderDone(speedPct, semitones);
       return buffer;
     }
+    if (announced) this._announceRenderDone(speedPct, semitones);
     throw new Error(`BufferEngine: gave up waiting for the render at ${url}`);
+  }
+
+  /** The other edge of 'rendering': `stage: null` means whatever was being
+   *  waited for is no longer being waited for, however it ended. Only ever
+   *  fired if a wait was announced in the first place, so a cache hit stays
+   *  completely silent. */
+  _announceRenderDone(speedPct, semitones) {
+    this.dispatchEvent(new CustomEvent('rendering', {
+      detail: { stage: null, speedPct, semitones },
+    }));
   }
 
   async _changeRender(speedPct, semitones) {

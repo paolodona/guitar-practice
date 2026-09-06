@@ -53,21 +53,22 @@
  *    correct locally regardless of whether the write lands.
  *
  * 3. Playback PROGRESS (the one 0-1 fraction driving the ring, the
- *    waveform's clip-path and the playhead) has no authoritative source in
- *    player.js's current contract: RealtimeEngine exposes no position
- *    getter and no per-frame progress event, only the discrete 'pass'
- *    event at loop boundaries (confirmed against web/player.js as
- *    written — see the `tick`/`currentP` functions below). This
- *    screen therefore keeps its own local wall-clock estimate — reset to
- *    an exact 0 at every 'pass' (the one authoritative sync point) and
- *    interpolated between passes from `performance.now()` deltas. This is
- *    NOT re-deriving "was this a pass" (player.js/D4 still owns that
- *    exclusively; this screen never counts a rep from its own timer) — it
- *    is only smoothing the COSMETIC progress indicator between two
- *    'pass' events the engine already fired. Flagged as a real gap in
- *    this unit's report: a `getPosition()` or per-frame 'progress' event
- *    on RealtimeEngine would let a later pass replace this estimate with
- *    an exact one.
+ *    waveform's clip-path and the playhead) is read from the engine when
+ *    the engine can answer, and estimated when it cannot. `BufferEngine`
+ *    (the practice engine since Phase 2) answers exactly: a native loop's
+ *    position is arithmetic — start time, elapsed AudioContext time,
+ *    wrapped at the loop points — so `tick()` reads `engine.position()`
+ *    and the ring is truth, not a guess.
+ *    `RealtimeEngine` still has no position, deliberately: the only
+ *    position inside it is the worklet's `readPos`, the next SOURCE frame
+ *    fed to the stretcher, which leads the audible output by whatever the
+ *    stretcher currently holds. Reporting that as "where you are" would be
+ *    confidently wrong by a variable margin, which is worse than a
+ *    wall-clock estimate that is honestly approximate. So when that engine
+ *    is in use (the fallback path, no render cache), this screen keeps its
+ *    own estimate, resynced to 0 at every 'pass'.
+ *    Neither path ever re-derives "was this a pass": player.js owns that
+ *    exclusively and this screen never counts a rep from its own timer.
  *
  * 4. Twelve of the seventeen actions are wired here (play_pause, next_section,
  *    prev_section, speed_up, speed_down, retract_rep, confirm_clean,
@@ -362,6 +363,12 @@ export function mount(el, payload) {
   // like it isn't (a tick at the seam), which is the one thing Phase 2's
   // manual gate is listening for.
   let engineKind = null;
+  // What the engine is waiting for, if anything: 'separating' while Demucs
+  // isolates a guitar stem, 'rendering' while rubberband stretches, null
+  // otherwise. Until this existed, pressing play before a section's render
+  // was built was silence with no explanation -- and a first guitar-only
+  // render is minutes of it.
+  let renderStage = null;
   let guitarOnly = false;
   let guitarBusy = false; // true only while a loadSection() swap is in flight
   const demucsAvailable = payload.demucs_available !== false; // undefined degrades to "available"
@@ -445,6 +452,8 @@ export function mount(el, payload) {
    *  engine is actually making the sound. Empty for the buffer engine --
    *  that is the expected case and does not need announcing. */
   function engineStatusText() {
+    if (renderStage === 'separating') return 'isolating the guitar… (first time only)';
+    if (renderStage === 'rendering') return 'rendering this speed…';
     return engineKind === 'realtime' ? 'live stretch — no render cache' : '';
   }
 
@@ -1006,6 +1015,11 @@ export function mount(el, payload) {
   async function startEngine(kind) {
     const e = createEngine(undefined, { kind });
     e.addEventListener('pass', onPass);
+    // Only BufferEngine fires this; RealtimeEngine has nothing to wait for.
+    e.addEventListener('rendering', (event) => {
+      renderStage = event.detail.stage;
+      renderGuitarToggle();
+    });
     e.addEventListener('error', (err) => console.error('practice.js: engine error', err.detail?.error));
     // Speed and shift BEFORE loadSection: for the buffer engine they
     // decide WHICH file is fetched, so setting them afterwards would
@@ -1119,13 +1133,26 @@ export function mount(el, payload) {
   // play_pause below), and was already doing everything this dead copy
   // attempted, correctly.
 
-  // ---- local wall-clock progress estimate (module doc, decision 3) ----
+  // ---- playback progress: engine truth when there is any, else the local
+  // wall-clock estimate (module doc, decision 3) ----
   let rafId = null;
   let lastTs = null;
   let lastWaveDrawTs = 0;
   function tick(ts) {
     if (playing) {
-      if (lastTs != null) elapsed += (ts - lastTs) / 1000;
+      // BufferEngine knows exactly where it is -- a native loop's position
+      // is arithmetic (start time, elapsed context time, wrapped at the
+      // loop points), not a guess -- so read it rather than integrating
+      // requestAnimationFrame deltas that drift under load and reset only
+      // at each 'pass'. `position()` is in the render's own playback
+      // seconds with the lead-in at the head, so subtracting the pre-roll
+      // gives exactly what `elapsed` means here: seconds since the section
+      // started, negative during the lead-in.
+      if (engineReady && typeof engine.position === 'function') {
+        elapsed = engine.position() - cosmeticPreRoll;
+      } else if (lastTs != null) {
+        elapsed += (ts - lastTs) / 1000;
+      }
       lastTs = ts;
     } else {
       lastTs = null;
