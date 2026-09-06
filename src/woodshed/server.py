@@ -562,7 +562,6 @@ class WoodshedHandler(BaseHTTPRequestHandler):
         if slug is None:
             self._error(404, f"no such song: {raw_slug!r}")
             return
-        level = parse_qs(query).get("level", [None])[0]
         try:
             from woodshed import peaks as peaks_module
         except ImportError:
@@ -571,6 +570,13 @@ class WoodshedHandler(BaseHTTPRequestHandler):
             # documented choice for a cache that is not built yet.
             self._error(404, f"peaks for {slug!r} are not built yet")
             return
+        # Found live 2026-09-06: `song.js`/`practice.js` both fetch
+        # `peaks_url` bare, with no `?level=` -- there is no zoom feature
+        # yet for either to pick one from. A missing/blank param defaults
+        # to peaks.py's own DEFAULT_LEVEL (its coarsest, whole-song-overview
+        # resolution); an explicit `?level=` still selects a specific one.
+        raw_level = parse_qs(query).get("level", [None])[0]
+        level = int(raw_level) if raw_level else peaks_module.DEFAULT_LEVEL
         data = peaks_module.read_peaks(self.repo, slug, level)
         if data is None:
             self._error(404, f"no cached peaks for {slug!r} at level {level!r}")

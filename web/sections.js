@@ -146,6 +146,18 @@ export function renderSections(laneRoot, sectionsData, view, grid = { bars: [], 
   // should win over a default this module imposes as a fallback.
   if (!laneRoot.style.position) laneRoot.style.position = 'relative';
 
+  // Found live 2026-09-06: laneRoot's own template hard-codes a 2-lane
+  // height (song.js: "height:88px"), which was fine while nothing nested
+  // deeper than a container + one child. A THIRD lane (a section nested
+  // inside a section that is itself inside another) overflowed the fixed
+  // box and visually overlapped the transport bar below it, rather than
+  // pushing it down. Height now tracks the actual deepest lane in use --
+  // at least 2 lanes' worth (the prior fixed default, so an empty or
+  // shallow song doesn't shrink to a cramped single-row strip), growing
+  // as real nesting demands more.
+  const maxLane = sectionsData.reduce((m, s) => Math.max(m, s.lane ?? 0), 0);
+  laneRoot.style.height = `${Math.max(2, maxLane + 1) * LANE_HEIGHT}px`;
+
   let selectedId = null;
   /** @type {(() => void) | null} */
   let detachDrag = null;

@@ -386,6 +386,34 @@ def test_api_peaks_unknown_slug_is_404(served):
     assert caught.value.code == 404
 
 
+def test_api_peaks_defaults_to_the_coarsest_level_when_none_given(served):
+    """Found live 2026-09-06: song.js/practice.js both fetch payload's
+    peaks_url bare, with no ?level= at all (there is no zoom feature yet
+    for either to pick one from) -- this must serve the cached peaks, not
+    404 on a param neither caller ever sends."""
+    from woodshed import peaks as peaks_module
+
+    base, repo, slug = served
+    peaks_module.write_peaks(repo, slug, {1024: [(-0.5, 0.5)], 4096: [(-0.2, 0.2)]})
+
+    status, data = _get_json(base, f"/api/peaks/{slug}")
+
+    assert status == 200
+    assert data["level"] == 1024
+
+
+def test_api_peaks_explicit_level_still_selects_that_level(served):
+    from woodshed import peaks as peaks_module
+
+    base, repo, slug = served
+    peaks_module.write_peaks(repo, slug, {1024: [(-0.5, 0.5)], 4096: [(-0.2, 0.2)]})
+
+    status, data = _get_json(base, f"/api/peaks/{slug}?level=4096")
+
+    assert status == 200
+    assert data["level"] == 4096
+
+
 # ── GET /api/audio/<slug> ───────────────────────────────────────────────────
 
 

@@ -1638,6 +1638,32 @@ restored in this venv -- both cached peaks and a real detected tempo (confidence
 0.36 respectively; reported honestly, not discarded for being low). Full suite 900
 passed (was 894); ruff clean; no-extras gate 897 passed, 3 deselected.
 
+**Twelfth thing, found 2026-09-06, same review pass, once peaks finally existed to
+expose both** — two more real bugs:
+1. **Peaks still 404'd with real peaks on disk.** `server.py`'s `_peaks` read `level`
+   from `?level=`, but neither `screens/song.js` nor `screens/practice.js` ever sends
+   that query param (`get(payload.peaks_url)`, bare -- there is no zoom feature yet for
+   either to pick a level from). A missing param passed straight through as Python
+   `None`, which `read_peaks` formatted into a `peaks-None.json` path that could never
+   exist -- masked completely until this session's own Eleventh-thing fix made peaks
+   exist at all. Fixed with a new `peaks.DEFAULT_LEVEL = 1024` (the coarsest,
+   whole-song-overview resolution `multi_resolution` already produces) that `_peaks`
+   falls back to when `level` is absent or blank; an explicit `?level=` still selects a
+   specific one. 2 new `test_server.py` tests (default level served when none given;
+   an explicit one still wins).
+2. **A third lane overlapped the transport bar instead of pushing it down.**
+   `song.js`'s `data-lane-root` hard-coded `height:88px` (exactly 2 lanes), fine while
+   nothing nested deeper than a container plus one child -- Tutti in Fila's real
+   sections (Whole song / Full solo / Tapping, three levels of containment) needed a
+   third lane and overflowed the fixed box, visually overlapping the player controls
+   below rather than shifting them down. `sections.renderSections` now sets
+   `laneRoot`'s height from the ACTUAL deepest lane in the data it was just handed
+   (`Math.max(2, maxLane + 1) * LANE_HEIGHT` -- the `2` keeps the prior fixed height as
+   a floor for an empty or shallow song, never shrinking below it), so a flex column's
+   own layout naturally pushes every sibling below it down as nesting grows, rather
+   than a caller having to know the deepest lane in advance. Full suite 902 passed (was
+   900); ruff clean; no-extras gate 899 passed, 3 deselected; `node --check` clean.
+
 ### Work units
 
 **Group O — design first (∥ with nothing; everything else in this phase reads it)**

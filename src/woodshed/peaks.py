@@ -27,6 +27,17 @@ if TYPE_CHECKING:
 #: fall back to stride 1 so a small bucket is not starved of samples.
 _STRIDE4_THRESHOLD = 32
 
+#: The level `GET /api/peaks/<slug>` serves when the caller names none --
+#: `multi_resolution`'s own coarsest ("whole song overview") level. Found
+#: live 2026-09-06: `screens/song.js`/`screens/practice.js` both fetch
+#: `payload.peaks_url` bare, with no `?level=` at all (there is no zoom
+#: feature yet for either to pick one from) -- server.py's own `_peaks`
+#: used to pass that missing param straight through as `None`, which
+#: `read_peaks` then formatted into a `peaks-None.json` path that could
+#: never exist, 404ing even once real peaks were cached. This is what a
+#: whole-song-width view actually wants regardless.
+DEFAULT_LEVEL = 1024
+
 
 def compute_peaks(samples: np.ndarray, buckets: int) -> list[tuple[float, float]]:
     """Bucket *samples* into *buckets* (min, max) pairs for waveform drawing.
