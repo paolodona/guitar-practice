@@ -25,10 +25,38 @@ and even that only opens and immediately closes it.
 and knows nothing about which application produced the sound or which
 service it came from -- CLAUDE.md's "Don't" list and docs/04-sources.md's
 "Two separate questions" are both explicit about this boundary.
+
+**Phase 1.5, Group U** adds the capture-first workflow: capture a whole
+set against an empty setlist, THEN split and name each piece. Three
+functions below own everything after a `Segment` exists and before it is
+a bound song -- `extract_segment` (an ffmpeg frame-range cut, the same
+subprocess-cut shape `render.py` will use for section spans),
+`bind_segment_to_song` (T2's own missing finishing step, shared rather
+than duplicated) and `bind_segment_as_new_song`. They import
+`woodshed.library`/`woodshed.manifest` at module top level -- unlike
+`sections.py`'s deliberate Tier-0 purity, this module was never in that
+enumerated stdlib+numpy-only tier (it already needs `pyaudiowpatch`), and
+these three functions are, in effect, "write a song.yaml" operations of
+the same kind `cli.py`/`server.py` already perform at the top of the
+stack, not maths that has to stay provable with nothing installed.
+
+**`capture()` gained a `raw_path` parameter** for this workflow: the
+existing `out_dir`/per-segment-WAV behaviour (H2's single-song CLI path)
+is completely unchanged when `raw_path` is omitted. When given, the whole
+continuous recording is kept as ONE file there instead (CLAUDE.md's fourth
+server-write category, `capture/<timestamp>.wav`) and no per-segment files
+are written at all -- `extract_segment` cuts a segment out of it later, on
+demand, once that segment has a name. The post-recording split/write logic
+is factored into `_finish_capture`, which takes plain arrays and paths (no
+device, no PyAudioWPatch) specifically so this new branch is exercisable
+with synthetic audio, the same "two pure-enough functions carry the actual
+risk" reasoning the module docstring above already gives for
+`split_on_silence`/`bind_segments`.
 """
 
 from __future__ import annotations
 
+import subprocess
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -36,7 +64,9 @@ from pathlib import Path
 import numpy as np
 
 from woodshed.errors import WoodshedError
-from woodshed.tools import require_module
+from woodshed.library import Repo, slugify
+from woodshed.manifest import Recording, Song, hash_file, save_song
+from woodshed.tools import locate_tool, require_module
 
 __all__ = [
     "Device",
@@ -48,7 +78,17 @@ __all__ = [
     "list_devices",
     "default_device",
     "capture",
+    "extract_segment",
+    "bind_segment_to_song",
+    "bind_segment_as_new_song",
 ]
+
+#: `bind_segment_to_song`'s fallback when no explicit tuning is supplied --
+#: the same literal default `cli.py`'s `add`/`capture` subcommands already
+#: give `--tuning` (there is no setlist parameter here to derive one from;
+#: see the function's own docstring for why that reading of the plan's
+#: "setlist's own tuning" note doesn't fit this signature).
+_DEFAULT_TUNING = "E standard"
 
 
 @dataclass(frozen=True)
@@ -232,10 +272,20 @@ def capture(
     floor_db: float = -50.0,
     gap_s: float = 1.2,
     on_level: Callable[[float], None] | None = None,
+    raw_path: str | Path | None = None,
 ) -> Iterator[Segment]:
     """Arm *device*, record until Ctrl-C (or the stream ends on its own),
-    then split on silence and yield one `Segment` per track found -- each
-    written out to its own WAV file (`segment-NNN.wav`) under *out_dir*.
+    then split on silence and yield one `Segment` per track found.
+
+    Two mutually exclusive output modes, selected by *raw_path* -- see
+    `_finish_capture` for exactly what each writes:
+    - omitted (default, H2's single-song CLI path): each segment is its own
+      WAV file (`segment-NNN.wav`) under *out_dir*, unchanged from before
+      Group U existed.
+    - given (Group U's capture-first path): the whole continuous recording
+      is written as ONE file at *raw_path* and no per-segment files are
+      written at all; `Segment.start_frame`/`end_frame` stay valid frame
+      offsets into that file for `extract_segment` to cut from later.
 
     **Ring buffer to disk, not memory, DURING the live capture**
     (docs/04-sources.md: "an hour of stereo float32 at 48kHz is 1.4GB"):
@@ -309,18 +359,54 @@ def capture(
     samples = np.fromfile(scratch_path, dtype=np.float32)
     scratch_path.unlink(missing_ok=True)
 
+    yield from _finish_capture(
+        samples, device.sample_rate, floor_db, gap_s, overflow_positions,
+        out_dir, raw_path,
+    )
+
+
+def _finish_capture(
+    samples: np.ndarray,
+    sample_rate: int,
+    floor_db: float,
+    gap_s: float,
+    overflow_positions: Sequence[int],
+    out_dir: str | Path,
+    raw_path: str | Path | None,
+) -> Iterator[Segment]:
+    """The part of `capture()` that runs after the live recording ends --
+    factored out so it can be exercised directly with synthetic audio (no
+    PyAudioWPatch, no device), unlike `capture()` itself, which the module
+    docstring already leaves unverified without real hardware.
+
+    See `capture()`'s own docstring for the two output modes; this is
+    where they're actually implemented.
+    """
+    if raw_path is not None:
+        raw_path = Path(raw_path)
+        raw_path.parent.mkdir(parents=True, exist_ok=True)
+        _write_wav_mono_16bit(raw_path, samples, sample_rate)
+        for start, end in split_on_silence(samples, sample_rate, floor_db, gap_s):
+            overflowed = any(start <= pos < end for pos in overflow_positions)
+            yield Segment(
+                start_frame=start, end_frame=end, sample_rate=sample_rate,
+                overflowed=overflowed,
+            )
+        return
+
+    out_dir = Path(out_dir)
     existing = len(list(out_dir.glob("segment-*.wav")))
     for offset, (start, end) in enumerate(
-        split_on_silence(samples, device.sample_rate, floor_db, gap_s), start=1
+        split_on_silence(samples, sample_rate, floor_db, gap_s), start=1
     ):
         overflowed = any(start <= pos < end for pos in overflow_positions)
         _write_wav_mono_16bit(
             out_dir / f"segment-{existing + offset:03d}.wav",
             samples[start:end],
-            device.sample_rate,
+            sample_rate,
         )
         yield Segment(
-            start_frame=start, end_frame=end, sample_rate=device.sample_rate,
+            start_frame=start, end_frame=end, sample_rate=sample_rate,
             overflowed=overflowed,
         )
 
@@ -339,3 +425,165 @@ def _write_wav_mono_16bit(path: Path, samples: np.ndarray, sample_rate: int) -> 
         writer.setsampwidth(2)
         writer.setframerate(sample_rate)
         writer.writeframes(pcm16.tobytes())
+
+
+# ── Phase 1.5, Group U: split now, name later ───────────────────────────────
+
+
+def extract_segment(raw_audio_path: str | Path, segment: Segment, dest_path: str | Path) -> None:
+    """ffmpeg-cuts `[start_frame/sample_rate, end_frame/sample_rate)` out of
+    *raw_audio_path* -- the single continuous recording `capture(raw_path=
+    ...)` wrote -- into *dest_path* (FLAC).
+
+    A real ffmpeg process, the same subprocess-cut shape `render.py`
+    (Phase 2) will use for section spans, not a manual sample copy -- so the
+    output is real, playable, seekable audio, and works on whatever format
+    the raw file happens to be in.
+    """
+    raw_audio_path = Path(raw_audio_path)
+    dest_path = Path(dest_path)
+    if not raw_audio_path.is_file():
+        raise WoodshedError(f"no such raw capture recording: {raw_audio_path}")
+
+    start_s = segment.start_frame / segment.sample_rate
+    duration_s = segment.duration_s
+    ffmpeg = locate_tool("ffmpeg").path
+    dest_path.parent.mkdir(parents=True, exist_ok=True)
+    result = subprocess.run(
+        [
+            ffmpeg, "-v", "error", "-nostdin", "-y",
+            "-ss", f"{start_s:.6f}",
+            "-i", str(raw_audio_path),
+            "-t", f"{duration_s:.6f}",
+            str(dest_path),
+        ],
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        tail = result.stderr.decode("utf-8", "replace").strip().splitlines()[-6:]
+        raise WoodshedError(
+            f"ffmpeg could not extract a segment from {raw_audio_path}:\n"
+            + "\n".join(tail)
+        )
+
+
+def bind_segment_to_song(
+    repo: Repo,
+    slug: str,
+    raw_audio_path: str | Path,
+    segment: Segment,
+    *,
+    tuning: str | None = None,
+) -> None:
+    """Finish binding one already-captured *segment* to *slug*'s audio.
+
+    This is T2's own missing finishing step ("it never says how a finished
+    segment actually becomes the target song's bound audio") and Group U's
+    "existing" bind mode both need -- shared here rather than each inventing
+    a copy.
+
+    *slug* must already exist somewhere (a setlist's running order, say)
+    with no `song.yaml` of its own yet -- `manifest.Song.recording` is a
+    required field, so "needs-audio, nothing bound" can only mean no
+    song.yaml is on disk at all (see `library.py`/`setlist.py`, and
+    `dashboard.js`'s own note that a needs-audio row's title IS its slug
+    until bound). Refuses outright when a song.yaml already exists for
+    *slug* -- this can never silently overwrite a song that already has
+    real audio. An overflowed segment is refused unconditionally, same as
+    `bind_segments`' own rule -- not relaxed just because the caller is new.
+
+    *tuning* defaults to `_DEFAULT_TUNING` when not given. The plan's own
+    note ("defaults to the setlist's own tuning... `add`'s existing
+    default") doesn't fit this signature -- there is no setlist parameter
+    here to derive one from, and `add`'s *actual* existing default
+    (`cli.py`'s `--tuning`) is the fixed literal `"E standard"`, not
+    anything setlist-derived -- so that literal is what's reused. A
+    documented judgement call, same pattern P1/R1 already used for a plan
+    note that didn't quite match the code it described.
+    """
+    if segment.overflowed:
+        raise WoodshedError(
+            "this segment reported an audio callback overflow -- a dropout is "
+            "silent, so it is not safe to bind; re-capture it"
+        )
+    song_path = repo.song_dir(slug) / "song.yaml"
+    if song_path.is_file():
+        raise WoodshedError(
+            f"'{slug}' already has a song.yaml -- bind_segment_to_song refuses "
+            "to overwrite a song that already has real audio"
+        )
+
+    dest_dir = repo.audio_dir(slug)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / f"{slug}.flac"
+    extract_segment(raw_audio_path, segment, dest)
+
+    song = Song(
+        slug=slug,
+        title=slug,
+        artist="",
+        recording=Recording(
+            file=f"audio/{dest.name}",
+            sha256=hash_file(dest),
+            duration_s=segment.duration_s,
+            tuning=tuning or _DEFAULT_TUNING,
+            source="capture",
+        ),
+    )
+    song_path.parent.mkdir(parents=True, exist_ok=True)
+    save_song(song, song_path)
+
+
+def bind_segment_as_new_song(
+    repo: Repo,
+    raw_audio_path: str | Path,
+    segment: Segment,
+    *,
+    title: str,
+    artist: str,
+    tuning: str,
+) -> str:
+    """Bind *segment* as a brand-new song -- Group U's own step, for a
+    segment that doesn't correspond to any slug already sitting in a
+    setlist. Returns the new slug.
+
+    Refuses a title that slugifies to an existing song, naming the
+    collision rather than silently colliding with it. Same unconditional
+    overflow refusal as `bind_segment_to_song`.
+    """
+    if segment.overflowed:
+        raise WoodshedError(
+            "this segment reported an audio callback overflow -- a dropout is "
+            "silent, so it is not safe to bind; re-capture it"
+        )
+    slug = slugify(title)
+    if not slug:
+        raise WoodshedError(f"{title!r} does not slugify to anything usable")
+    if slug in repo.list_songs():
+        raise WoodshedError(
+            f"{title!r} slugifies to {slug!r}, which already names a song -- "
+            "pick a different title"
+        )
+
+    dest_dir = repo.audio_dir(slug)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / f"{slug}.flac"
+    extract_segment(raw_audio_path, segment, dest)
+
+    song = Song(
+        slug=slug,
+        title=title,
+        artist=artist,
+        recording=Recording(
+            file=f"audio/{dest.name}",
+            sha256=hash_file(dest),
+            duration_s=segment.duration_s,
+            tuning=tuning,
+            source="capture",
+        ),
+    )
+    song_path = repo.song_dir(slug) / "song.yaml"
+    song_path.parent.mkdir(parents=True, exist_ok=True)
+    save_song(song, song_path)
+    return slug

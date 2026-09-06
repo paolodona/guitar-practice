@@ -74,6 +74,7 @@ def test_repo_directory_properties_resolve_under_root(tmp_path: Path) -> None:
     assert repo.practice_dir == tmp_path / "practice"
     assert repo.config_path == tmp_path / "config.yaml"
     assert repo.web_dir == tmp_path / "web"
+    assert repo.capture_dir == tmp_path / "capture"
 
 
 def test_repo_per_song_paths(tmp_path: Path) -> None:

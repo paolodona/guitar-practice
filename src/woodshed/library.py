@@ -78,6 +78,14 @@ class Repo:
         return self.root / "practice"
 
     @property
+    def capture_dir(self) -> Path:
+        # Phase 1.5, Group U: CLAUDE.md's fourth server-write category --
+        # raw, unrepeatable capture recordings, kept until every segment
+        # split from one has been bound to a song or discarded. Not cache;
+        # never evicted the way songs/*/cache/ is.
+        return self.root / "capture"
+
+    @property
     def config_path(self) -> Path:
         return self.root / "config.yaml"
 
