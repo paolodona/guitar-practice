@@ -2152,3 +2152,56 @@ def test_song_payload_with_no_gx100_repo_shows_no_patch_rather_than_failing(serv
     status, data = _get_json(base, f"/api/song/{slug}")
     assert status == 200
     assert all(s["patch_ref"] is None for s in data["sections"])
+
+
+# ── clean_at_speed: progress WITHIN the current rung, across sittings ─────
+
+
+def test_song_payload_carries_progress_toward_the_next_rung(served):
+    """Two clean reps at the rung you are on are worth remembering: without
+    this the practice screen zeroed them on every mount, so three clean reps
+    spread over two sittings never advanced anything."""
+    base, _repo, slug = served
+    for _ in range(2):
+        _post(base, "/api/rep", {
+            "song": slug, "section": "solo-full", "speed": 50.0, "semitones": 0,
+            "pass": True, "clean": True, "loop_s": 30.0, "source": "ui",
+        })
+    _status, data = _get_json(base, f"/api/song/{slug}")
+    row = next(s for s in data["sections"] if s["id"] == "solo-full")
+    assert row["starting_speed_pct"] == 50.0
+    assert row["clean_at_speed"] == 2
+
+
+def test_progress_within_a_rung_resets_when_the_rung_is_earned(served):
+    """The third clean rep advances the rung, and progress toward the NEXT
+    one starts at zero -- ladder.py's own two-counters rule, arrived at from
+    the ledger rather than kept anywhere."""
+    base, _repo, slug = served
+    for _ in range(3):
+        _post(base, "/api/rep", {
+            "song": slug, "section": "solo-full", "speed": 50.0, "semitones": 0,
+            "pass": True, "clean": True, "loop_s": 30.0, "source": "ui",
+        })
+    _status, data = _get_json(base, f"/api/song/{slug}")
+    row = next(s for s in data["sections"] if s["id"] == "solo-full")
+    assert row["starting_speed_pct"] == 55.0
+    assert row["clean_at_speed"] == 0
+
+
+def test_a_full_song_section_reports_no_rung_progress(served):
+    """A full_song section is a rep counter, not a ladder target (it resumes
+    at the last speed played, not at an earned rung), so there is no
+    'progress toward the next rung' to report for it."""
+    base, repo, slug = served
+    song_path = repo.song_dir(slug) / "song.yaml"
+    song = load_song(song_path)
+    song.sections[0].full_song = True
+    save_song(song, song_path)
+    _post(base, "/api/rep", {
+        "song": slug, "section": song.sections[0].id, "speed": 70.0, "semitones": 0,
+        "pass": True, "clean": True, "loop_s": 30.0, "source": "ui",
+    })
+    _status, data = _get_json(base, f"/api/song/{slug}")
+    row = next(s for s in data["sections"] if s["id"] == song.sections[0].id)
+    assert row["clean_at_speed"] == 0

@@ -29,18 +29,16 @@
  *
  * Four scope decisions, made explicit rather than silently assumed:
  *
- * 1. Ladder state (which rung, how many clean reps at it) starts FRESH
- *    every mount. There is no ledger-read endpoint in this phase —
- *    server.py's GET routes are exactly /api/song, /api/peaks, /api/audio
- *    (POST /api/rep only appends) — so there is no way to ask "how many
- *    clean reps already happened at this speed". Starting from
- *    `payload.practice.start_speed` with zero clean reps mirrors exactly
- *    what `woodshed.ladder.starting_speed` returns when handed an empty
- *    `clean_by_speed` history — the honest behaviour for "no data yet",
- *    not an invented one. `rungs()`/`nextRung()` below are a small,
- *    deliberate client-side port of ladder.py's pure percent-domain maths
- *    (mirrored, not imported — ladder.py is Python and this file cannot
- *    reach it), needed only because that read endpoint does not exist.
+ * 1. Ladder state is RESUMED, not restarted. Both halves come off the
+ *    song payload, each derived from the ledger server-side: which rung
+ *    (`section.starting_speed_pct`, `ladder.starting_speed` over the
+ *    ledger's clean counts) and how far into it (`section.clean_at_speed`,
+ *    added 2026-09-06 — before it, mid-rung progress was forgotten on every
+ *    mount, so three clean reps spread over two sittings never advanced
+ *    anything). The rules themselves live in `web/ladder.js`, a mirror of
+ *    `ladder.py` checked against it by `tests/test_ladder_mirror.py`;
+ *    mirrored rather than fetched because this file cannot import a Python
+ *    module.
  *
  * 2. The transpose stepper is fully interactive and drives the engine live
  *    (`engine.setSemitones`). Persistence (Phase 1, F3) is conditional on
@@ -328,7 +326,16 @@ export function mount(el, payload) {
   // Auto-confirm on by default: see ladder.js's module doc for why the
   // default falls towards counting, and why that is still a human's
   // judgement rather than the tool's.
-  const ladder = new Ladder({ cfg, speed: speedPct, autoConfirm: true });
+  // `clean_at_speed` comes from the server too (derived from the ledger,
+  // beside `starting_speed_pct`) -- without it, mid-rung progress was
+  // forgotten on every mount, so three clean reps across two sittings never
+  // advanced anything. Falls back to 0 for an older cached payload.
+  const ladder = new Ladder({
+    cfg,
+    speed: speedPct,
+    cleanAtSpeed: section.clean_at_speed ?? 0,
+    autoConfirm: true,
+  });
   let shift = clampShift(payload.shift ?? 0);
   let repCount = 0;
   let lastRepId = null;

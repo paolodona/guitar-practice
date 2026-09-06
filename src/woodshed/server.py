@@ -468,6 +468,34 @@ class WoodshedHandler(BaseHTTPRequestHandler):
         clean_counts = ledger.clean_by_speed(reps, song.slug, section.id)
         return starting_speed(clean_counts, cfg)
 
+    @staticmethod
+    def _section_clean_at_speed(reps: list[Rep], song, section: Section) -> int:
+        """Progress toward the NEXT rung, for the rung this section resumes
+        at -- `ladder.LadderState.clean_at_speed`, derived from the ledger
+        instead of started at zero.
+
+        Without it the practice screen forgot mid-rung progress on every
+        mount, so three clean reps spread over two sittings never advanced
+        anything: you would come back to a section, play two clean, close
+        the laptop, and the ladder would be exactly where it was. The
+        number is the count of clean reps already banked AT the resumed
+        rung, which is `< reps_to_advance` by construction -- once it
+        reaches `reps_to_advance`, `starting_speed` has already moved the
+        resumed rung up past it, and this reads 0 at the new one.
+
+        `full_song` sections have no rung to make progress toward (see
+        `_section_starting_speed`), so they always report 0.
+        """
+        if section.full_song:
+            return 0
+        reps_to_advance = (
+            section.reps_to_advance if section.reps_to_advance is not None
+            else song.practice.reps_to_advance
+        )
+        rung = WoodshedHandler._section_starting_speed(reps, song, section)
+        banked = ledger.clean_by_speed(reps, song.slug, section.id).get(rung, 0)
+        return min(banked, max(0, reps_to_advance - 1))
+
     def _song(self, raw_slug: str, query: str = "") -> None:
         slug = self._resolve_slug(raw_slug)
         if slug is None:
@@ -542,6 +570,7 @@ class WoodshedHandler(BaseHTTPRequestHandler):
                     "lane": lanes[section.id],
                     "ancestors": [a.id for a in sections.ancestors(spans, section.id)],
                     "starting_speed_pct": self._section_starting_speed(reps, song, section),
+                    "clean_at_speed": self._section_clean_at_speed(reps, song, section),
                     "patch_ref": (
                         None if section.patch is None or section.patch not in patches
                         else {
