@@ -1664,6 +1664,41 @@ expose both** — two more real bugs:
    than a caller having to know the deepest lane in advance. Full suite 902 passed (was
    900); ruff clean; no-extras gate 899 passed, 3 deselected; `node --check` clean.
 
+**Thirteenth thing, found 2026-09-06, live at the machine — the gate's own item 6**
+("start and stop one real capture from the Capture screen"): the Tenth thing's fix
+(2s join + client-side polling) was not enough against real WASAPI loopback hardware —
+Paolo's first attempt sat at "Stopping..." indefinitely, no progress at all. Root cause
+one layer deeper than the Tenth thing found: `capture()`'s `stream.read()` is a
+BLOCKING call with no timeout, and `stop_event` is only ever checked *between* reads —
+a real loopback device that stops delivering packets entirely (the backing track
+finished, then Stop was pressed) means the in-flight read never returns and
+`stop_event` is never seen again. The capture thread is wedged for good, not merely
+slow; no join timeout, however patient, recovers it on its own. Fixed by handing
+`CaptureRunner` the raw PyAudio stream the moment it opens (`capture()`'s new
+`on_stream_ready` parameter) so `stop()` can force-close it from the caller's own
+thread once the first join times out — closing a PortAudio stream out from under a
+blocked `read()` unsticks it (the call raises rather than hanging), which `capture()`
+now treats as a clean stop when `stop_event` is already set, not a fabricated overflow;
+its own `finally` teardown tolerates a stream already force-closed out from under it.
+Exercised only via a fake stream in the test suite, same "device half is unverified"
+honesty the module doc already carries — but the real capture that followed, on
+retry, completed cleanly: **Can't Stop** (Red Hot Chili Peppers) captured, bound as a
+brand-new song (`bind_segment_as_new_song`), auto-analysed (Eleventh thing's
+`analyze_after_bind` — tempo 182.66 BPM, confidence 0.347, peaks cached at all three
+levels) and added to the `funk-grunge` setlist at shift −1, all without a second
+manual step. **Gate item 6: PASSED.** 5 new `capture.py` tests + 2 new
+`capture_runner.py` tests; full suite green; ruff clean.
+
+**Fourteenth thing, found 2026-09-06, same live session, two small gaps**:
+`screens/capture.js` had no way back to the dashboard except the browser's own back
+button — the Sixth thing's nav link only goes the other direction (dashboard →
+Capture) — fixed with a back chevron by the heading. And `screens/song.js`'s preview
+transport never actually subscribed to `keys.js`'s existing `play_pause` (Space)
+binding — only the button's own click toggled it, `practice.js`'s equivalent handler
+being the only one wired up until now — fixed by sharing the same
+`togglePreviewPlaying` between the two. Neither is Python-side; `node --check` clean,
+no new test harness, same convention the Eighth thing's own small UI fixes used.
+
 ### Work units
 
 **Group O — design first (∥ with nothing; everything else in this phase reads it)**
@@ -2493,8 +2528,9 @@ step is U1's `bind_segment_to_song`, not a separate function.
   the specific failure this session was asked to close off.
 
 **Gate progress, live session 2026-09-06** (Paolo at the machine, this checklist's
-items 1-5; items 6-9 below are all capture, explicitly deferred by Paolo — the
-Focusrite interface was busy reamping for `gx100` at the time):
+items 1-5; items 6-9 below are all capture, explicitly deferred by Paolo at first — the
+Focusrite interface was busy reamping for `gx100` at the time — then picked back up
+later the same day; see item 6's own result below and the Thirteenth thing above):
 
 1. **Waveform click-to-seek — FAILED first, then fixed, not yet RE-confirmed.**
    Paolo: "the playhead does not move to the position I have clicked it goes to
@@ -2543,11 +2579,21 @@ missing border on the toggle, per a screenshot Paolo sent. See BACKLOG.md's
 `feat(web): song/practice screen UX pass from live testing, 2026-09-06`) for the
 full detail on each — not restated here.
 
-**Not done, deferred by Paolo this session** (items 6-9 of this gate's own
+**Not done at first, deferred by Paolo this session** (items 6-9 of this gate's own
 checklist — the capture workflow, U0-U3): "I will do the capture checks later
 because the other project is reamping now" (the Focusrite interface this repo's
-capture path needs was in use by `gx100` for real reamping work). Nothing here
-was touched or is suspected broken; it is simply unexercised this pass.
+capture path needs was in use by `gx100` for real reamping work).
+
+**Item 6 — picked back up later the same day, PASSED** (see the Thirteenth thing
+above for the bug that surfaced and got fixed along the way): a real single-song
+capture, started and stopped from the Capture screen, produced **Can't Stop**
+(Red Hot Chili Peppers) — bound, auto-analysed, added to `funk-grunge` at shift −1.
+**Items 7-9 — still not exercised**: a multi-song pass against a brand-new empty
+setlist (U0-U3's own reverse-order workflow), the split-boundary editing UI
+(merge/split/adjust against a deliberately over- or under-split pass, U2b/U3), and
+the double-click Add/Discard guard. Nothing here is touched or suspected broken —
+`onceGuard`'s own unit tests (U3's "Done" note above) already cover the guard's pure
+half — it is simply unexercised hands-on, same as before.
 
 **A sixth thing, out of scope for this gate but requested live in the same
 session and built anyway**: screens/song.js's own preview transport gained a
