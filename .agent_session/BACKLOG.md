@@ -3,6 +3,49 @@
 Out-of-scope items discovered while planning or implementing. Format:
 `- [ ] **[Plan <NNN>]** <description>`
 
+## Requested live during Phase 1.5's own manual gate, 2026-09-06
+- [ ] **[Plan 001]** Setlist/dashboard screen: a drag handle to reorder songs in a
+      setlist's running order, appearing only on hover, on the left of each row.
+      Not built yet -- needs a `POST` to actually persist the new order (the plan's
+      module map has `POST /api/setlist/<slug>/songs` for ADDING a song, nothing for
+      reordering the existing list) and a decision on the drag mechanism (native HTML5
+      drag-and-drop vs. a pointer-based sort library, given this repo's own
+      no-bundler/no-framework constraint -- CLAUDE.md's "vanilla ES modules").
+- [ ] **[Plan 001]** Found live 2026-09-06, Paolo's own capture-screen testing: a
+      capture session correctly split one segment (41.2s), but the review screen
+      showed "NaN:NaN / NaN:NaN" for its duration and the console logged `GET
+      /api/capture/raw-audio 404` / `GET /api/capture/raw-peaks 404` ("no such page").
+      **Diagnosed, not a code bug**: those two routes (U3, already committed) exist in
+      the checkout `do_GET` dispatches to, but Paolo's own long-running `woodshed
+      serve` process was started before that commit and never restarted, so it was
+      still running the OLD dispatch table from memory -- `GET /api/capture/segments`
+      (U2, committed earlier) worked for the same reason it 404'd for the newer two.
+      Restarting `woodshed serve` should fix both display bugs with no code change.
+      Told Paolo directly; left here so a future session isn't puzzled by "it 404s
+      in this report but the route is right there in server.py."
+      A second, unrelated console error in the same report (`Cannot read properties
+      of undefined (reading 'startTime')` at `reportAllChanges`, `VM895:2`) is a
+      browser extension's own injected script, not this app's code -- no `woodshed`
+      source defines `reportAllChanges` anywhere, and `VM<n>` names a
+      dynamically-evaluated script, not a page resource. Likely a Web-Vitals/
+      performance-monitoring extension; confirm by reproducing in a clean profile.
+- [ ] **[Plan 001]** Paolo's own live capture testing, 2026-09-06: input level is hard
+      to judge before pressing "start", leading to repeated arm/stop/re-arm cycles.
+      Two candidate fixes, not mutually exclusive, neither built: (a) a "monitor" mode
+      -- arm the device and show the SAME live level meter `GET /api/capture/status`
+      already reports mid-capture, but before committing to record (would need
+      `capture_runner.CaptureRunner` to support opening the stream without writing to
+      disk yet, or a second lightweight peek-only path); (b) normalize captured audio
+      after the fact (loudness normalization on the raw WAV, or per extracted
+      segment). (b) is the bigger philosophical question -- CLAUDE.md's capture.py
+      "knows nothing about any service" and today applies zero processing to what it
+      records; normalizing loudness would be the tool's first ever alteration of
+      captured audio, worth deciding deliberately rather than folding in as a minor
+      convenience. Leaning toward (a) first (solves the actual pain -- judging level
+      BEFORE recording -- without touching the "don't alter what was captured"
+      invariant at all), with (b) only if (a) still leaves clipping/quiet passes in
+      practice. Needs Paolo's own call on both before either is built.
+
 ## Requested live during Phase 0 manual testing, 2026-09-06
 - [ ] **[Plan 001]** Raised the real-time engine's manual speed ceiling to 110% (was
       100) so Paolo can deliberately overlearn a section faster than the recording --
