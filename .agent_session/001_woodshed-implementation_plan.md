@@ -2492,6 +2492,82 @@ step is U1's `bind_segment_to_song`, not a separate function.
   Discard) on the same row never produces two ledger/setlist entries or a visible error**,
   the specific failure this session was asked to close off.
 
+**Gate progress, live session 2026-09-06** (Paolo at the machine, this checklist's
+items 1-5; items 6-9 below are all capture, explicitly deferred by Paolo — the
+Focusrite interface was busy reamping for `gx100` at the time):
+
+1. **Waveform click-to-seek — FAILED first, then fixed, not yet RE-confirmed.**
+   Paolo: "the playhead does not move to the position I have clicked it goes to
+   another point (before the place I have clicked)". Root cause found: every
+   screen's `root` is CSS-scaled (`transform: scale(s)`) to fit the window, so
+   `clientX`/`rect.left` (viewport pixels) were being divided by
+   `waveHost.clientWidth` (layout pixels, untouched by the transform) — reads a
+   fraction lower than the true click at any `s < 1`. Fixed in
+   `timeline.computeSeekPosition` (moved there from screens/practice.js, now
+   shared with screens/song.js's own new click-to-seek, below); 2 new
+   regression tests pin a scaled-container case. **Needs Paolo's own re-click
+   to confirm it now lands where he clicks — not yet done.**
+2. **Foot-icon recognisability — addressed, not yet RE-confirmed.** Paolo's own
+   request evolved through three rounds live: bigger icons/taller chips, then
+   "even taller, 1.5x, add padding" once the icons still read as sitting at the
+   chip's bottom edge (root cause: a flexbox `min-height:auto` overflow, not a
+   centring bug — `.chip__icon{min-height:0}` fixed it). Chips are now 186px
+   tall, 88px icons, `min-height:0` on the icon area. **Not yet visually
+   re-confirmed by Paolo.**
+3. **Song page play — PASSED.** Paolo: "yes it plays correctly."
+4. **Guitar-only toggle — demucs installed, functional behaviour NOT YET
+   exercised.** First attempt failed with "install demucs: uv sync --extra
+   separate" — genuinely missing (`woodshed doctor` confirmed), not a bug (S3's
+   own documented degrade, working as designed). `uv sync --extra separate` run
+   this session (torch + demucs 4.1.0 installed, doctor now reports `[ok]`).
+   **The two-stage progress / instant-second-time behaviour itself has not been
+   manually exercised yet** — do that next.
+5. **Add a song via the dashboard form — PASSED, functionally**, `songs/
+   i-poohffi/` exists from Paolo's own real upload. Found live in the same pass:
+   zero feedback while `POST /api/song/upload`'s tempo detection ran (several
+   seconds), reading as "not working" until the row appeared unannounced.
+   Fixed: the form now disables itself and shows "Importing…" for that window
+   (dashboard.js). **Not yet re-confirmed with the fix in place.**
+
+Also fixed this same session, found live outside the checklist's own wording but
+while exercising song.js/practice.js hands-on (none of these need re-verification
+beyond normal use, but are new enough to flag): a "remember the last speed"
+request (`ledger.last_speed`, `server._section_starting_speed`, wired into both
+screens); a song-deletion route + UI
+(`POST /api/song/delete`); Escape exits the practice screen's lead-in overlay
+(new `cancel_lead_in` action) and a click on it now starts the count-in (same
+action as Space); the Guitar-only/Shift header row's vertical misalignment and a
+missing border on the toggle, per a screenshot Paolo sent. See BACKLOG.md's
+"Requested live" sections and the two 2026-09-06 commits
+(`feat(practice): remember per-section practice speed; add song deletion`,
+`feat(web): song/practice screen UX pass from live testing, 2026-09-06`) for the
+full detail on each — not restated here.
+
+**Not done, deferred by Paolo this session** (items 6-9 of this gate's own
+checklist — the capture workflow, U0-U3): "I will do the capture checks later
+because the other project is reamping now" (the Focusrite interface this repo's
+capture path needs was in use by `gx100` for real reamping work). Nothing here
+was touched or is suspected broken; it is simply unexercised this pass.
+
+**A sixth thing, out of scope for this gate but requested live in the same
+session and built anyway**: screens/song.js's own preview transport gained a
+live, speed-scaled seconds counter (Paolo: "I need... to see the precise moment
+a section starts... and key into the start or end input boxes"), waveform
+click-to-seek (mirroring practice.js's, now shared via timeline.js), and — the
+bigger change — a selected section now LOOPS continuously while previewing
+(was R1's one-shot `loop: false`) with any boundary edit to the section
+currently playing reloading the loop immediately, resuming from wherever the
+cosmetic playhead currently reads rather than restarting at the section's own
+start. This is real new scope on top of R1's original brief (one-shot, no seek), not
+merely a bug fix — flagged here so a future reader does not go looking for
+which lettered unit "owns" it. **Also not yet manually re-confirmed** — the four
+behaviours it bundles (counter, seek, continuous loop, live-reload-on-edit)
+have automated coverage only where this file's own established pattern already
+draws that line (computeSeekPosition's pure math; everything DOM-coupled —
+playPreview, patchSection's reload, seekToClientX — relies on this same manual
+gate, exactly as `startPlayhead`/`stopPlayhead`/`onPreviewEnded` already did
+before this session touched them).
+
 ---
 
 ## Phase 2 — the ladder, and a seam you cannot hear
