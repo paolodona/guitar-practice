@@ -46,8 +46,12 @@ foot or a single glance, it belongs on a setup screen, not in the practice view.
   wrong". A rep is a pass through the loop; whether it was *clean* is something
   you tell it with a footswitch. Inventing a measurement the tool cannot make is
   the failure mode `gx100/CLAUDE.md` spends a page on, and it applies here.
-* **It does not edit audio.** No mixing, no EQ, no stem separation. If you want
-  the drums replaced, that is `rambass-live`.
+* **It does not edit audio.** No mixing, no EQ. If you want the drums replaced,
+  that is `rambass-live`. **Revised 2026-09-06**: one narrow exception —
+  guitar-only isolation for practice, when a solo needs to go below the
+  stretcher's honest floor (see `docs/03-audio-engine.md`'s "What good enough
+  sounds like"). One stem, one purpose, cached per section; not a mixing
+  surface, and general stem separation is still `rambass-live`'s job.
 * **It is not multi-user, not hosted, not authenticated.** `127.0.0.1`, one
   person, one machine.
 

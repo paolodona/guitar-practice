@@ -467,20 +467,37 @@ directly rather than trusting the remembered count.
 
 ---
 
-## Phase 1 gate — automated half done, manual half still pending
+## Phase 1 gate — CLOSED (Paolo, 2026-09-06)
 
 Every unit above is built and its own automated checks are green. The
-gate's **manual** half (`docs/00-spec.md`'s own words: "detect the tempo of
-a real song, check the bar ruler lands on the downbeat by ear with the
-click on; step the shift from −1 to 0 and hear the pitch move") needs a
-human at the actual machine and was explicitly deferred, twice over, by
-Paolo's own choice earlier in this run -- once for Group E's own gate, once
-again for Group D's real-time-engine listening check. All of its code-side
-prerequisites now exist: G1's bar ruler and grid, F3's transpose stepper,
-G2's audible click. Phase 2 (the render cache, the ladder in the UI, the
-progress screen) should not start until this gate is actually run, per the
-plan's own rule ("the phase gate is the join... the next phase begins by
-re-reading what actually shipped").
+manual half ran at the actual machine: slowing down and speeding up sound
+right, and the pitch shift is correct. **The metronome/click is
+deliberately not being chased further** — some of these are live band
+recordings without perfect timing underneath them, so a rough click is the
+honest ceiling, not a bug to keep fixing; this is Paolo's own product call,
+the same kind of "yours to make" judgement `docs/04-sources.md` already
+makes explicit for capture. No further click/grid-accuracy work is queued
+because of this gate — it passed.
+
+Two small things were found and fixed the same day, after the gate, while
+using the app for real rather than during a Group's own build: a hand-typed
+`tuning: Eb` (not "Eb standard") in a real `setlists/*.yaml` blanked the
+whole dashboard silently (load succeeded, the 400 only surfaced when
+something later needed the shift, and `app.js`'s router has no `.catch`) —
+fixed by validating `tuning` at the `Recording`/`Setlist` model itself
+(same reasoning as `SetlistEntry`'s existing shift-range check) and by
+turning every place a tuning name is typed (the dashboard's "new setlist"
+form, `--tuning` on `add`/`capture`/`setlist create`) into a fixed choice
+instead of free text, so the typo can't recur (`00976b0`, `361c75e`). And
+the "Needs audio" stat card's own "BIND A FILE →" caption was never
+actually a link — `#/capture` (H2) had no path to it anywhere in the UI
+(`04d65b0`).
+
+Phase 2 (the render cache, the ladder in the UI, the progress screen) can
+start. **Phase 1.5, below, was inserted ahead of it** — four things Paolo
+asked for after using the practice screen for real, sized and contracted
+the same way every other phase in this document is, before implementation
+starts in a fresh session.
 
 ---
 
@@ -1434,6 +1451,223 @@ Both are likely to have moved.
 
 ---
 
+## Phase 1.5 — a real transport, a real add-song path, and one isolated string
+
+**Goal**: five things Paolo asked for after actually practising with the app, sized and
+contracted the same way every other phase here is, so a fresh session can implement
+against this document without re-deriving the design. Inserted ahead of Phase 2 because
+none of it depends on the render cache, and two of the five groups touch the same files
+Phase 2's Group J will — see the ordering note at the end.
+
+**Before starting**: this phase requires companion edits to three files outside
+`.agent_session/`, already made alongside this plan update, not left for the
+implementer to discover:
+- `CLAUDE.md`'s Layering section now names `separate.py` as a third module (beside
+  `analyze.py` and `render.py`) allowed a heavy/external dependency.
+- `docs/00-spec.md`'s "It does not edit audio" bullet now scopes the stem-separation
+  prohibition to mixing/EQ, carving out guitar-only isolation by name.
+- `docs/07-roadmap.md`'s "later, if it earns it" list no longer carries the demucs-stem
+  bullet — it points here instead.
+Re-read `docs/03-audio-engine.md`'s "What good enough sounds like" section before Group
+S: it already names the destination ("an isolated guitar track... is what `demucs` in
+`rambass-live` already does"), Group S is only automating and caching that, in-app.
+
+### Work units
+
+**Group O — design first (∥ with nothing; everything else in this phase reads it)**
+- **O1** Using the `design` skill, produce/update the artboards this phase's screens are
+  built against — the same ground-truth role `design/Main.dc.html`,
+  `design/SongPage.dc.html` etc. played for Phase 0. Concretely: `design/Main.dc.html`
+  gains (a) an icon inside each of the six foot chips, right-aligned and vertically
+  centred against the existing label, and (b) a "Guitar only" toggle placed beside the
+  transpose stepper in the header (not a seventh foot chip — the six-chip rule in "Rules
+  the brief states as prohibitions" is unchanged) with its progress state (isolating /
+  ready) designed as a real state, not an afterthought. A new `design/AddSong.dc.html`
+  (or an added state on `design/Dashboard.dc.html` — implementer's call, whichever the
+  design skill produces more coherently) covers the real add-song form: file picker,
+  title/artist fields, the tuning **dropdown** (Phase 1's fixed-choice convention, not
+  free text — see `web/screens/dashboard.js`'s `createSetlistFormHtml`), and a capture
+  variant (arm / level meter / elapsed timer / stop). Sign off with Paolo before P–T
+  build against it, matching how every existing screen's ground truth was fixed before
+  its D-unit implemented it.
+
+**Group P — waveform click-to-seek**
+- **P1** `player.js`'s `RealtimeEngine` gains `seek(sourceSeconds)`. This engine
+  currently has **no seek method on purpose** (see its own module doc: "kept for a
+  future scrub/seek feature... this engine has no seek method yet") — every lap today
+  starts at exactly sample 0 or `loopStartFrame`, which is why "started within 250ms of
+  the section's beginning" needed no tolerance check. `seek` breaks that invariant on
+  purpose, so it must **disqualify the in-flight lap** the same way `pause()` already
+  does (`_onBoundary()`'s existing qualify/disqualify bookkeeping), and
+  `PASS_START_TOLERANCE_S` — reserved in the source for exactly this — becomes live: a
+  natural wrap after a seek re-qualifies the next lap, same as after a pause. Needs a new
+  message type in the worklet's protocol (`web/vendor/rubberband/worklet.js`) to jump the
+  read position within the currently loaded section; the worklet owns the source samples
+  and the frame-accurate clock, so the jump happens there, not in `player.js`.
+  *Test contract*: a synthetic-worklet test asserting a lap that was seeked into never
+  fires `pass`; a lap that reaches the end via a natural wrap **after** a seek does fire
+  it (re-qualification); seeking outside `[0, sectionDuration]` clamps rather than
+  throwing.
+- **P2** `screens/practice.js` wires a pointerdown/click handler on the section
+  waveform's container: click position → fraction of the visible window (same view math
+  the ring/playhead already use) → source seconds → `engine.seek(...)`. The local
+  progress estimate (decision 3 in this file's own module doc — "reset to an exact 0 at
+  every authoritative sync point") gains a new sync point here, alongside `'pass'`: a
+  seek resets the wall-clock estimate to the clicked position immediately, not on the
+  next frame.
+  *Test contract*: clicking mid-waveform moves the playhead to the clicked fraction and
+  does not itself count a rep.
+
+**Group Q — chip icons**
+- **Q1** A small self-hosted icon set (inline SVG, matching this repo's "no network at
+  runtime" rule — same reason the fonts are vendored, not a CDN icon font) for the six
+  foot actions: play, pause (swapped live on the engine's actual playing state, not a
+  static play glyph), next section, previous section, faster, slower, retract. Update the
+  chip markup (`footEl.innerHTML` in `screens/practice.js`) to place the icon right-
+  aligned and vertically centred against the label, per Group O's artboard. A
+  completeness test — every `ACTIONS` entry with a foot `cc` has a matching icon —
+  belongs beside `actions.js`'s existing "one action table" discipline: an icon silently
+  missing for a real foot action is the same class of bug as a missing CC.
+  *Test contract*: `node --check`; the icon-completeness assertion above.
+
+**Group R — the song page gets a real preview**
+- **R1** `screens/song.js`'s transport currently updates **local UI state only** — a
+  deliberate D6 scope cut ("Building a second, independent playback consumer here... is
+  not required by the D0/D6 contract"), made before `player.js`'s engine existed. It now
+  does, so wire a real, non-looping playback of the selected section (or the whole
+  recording with none selected). This must **never** fire `'pass'` or `POST /api/rep` —
+  it is an audition, not a practice rep, and D6's original "must not duplicate or
+  disagree about who owns pass-counting" concern still holds even though the reason for
+  the cut (no engine yet) doesn't. Implementer's choice how: a `loop: false` option
+  threaded through `RealtimeEngine.loadSection` that fires `'ended'` at the section end
+  instead of wrapping, or a second lightweight non-looping player — either way, only one
+  code path may ever produce a `'pass'` event, and this unit is not it.
+  *Test contract*: a non-looping load that reaches the end fires `'ended'`, never
+  `'pass'`; no ledger write happens from `screens/song.js` under any test in this suite.
+
+**Group S — guitar-only isolation (∥ with T)**
+- **S1** `src/woodshed/separate.py` (Demucs, optional heavy dependency — the third
+  module CLAUDE.md's Layering section now names, beside `analyze.py`/`render.py`).
+  ```python
+  def demucs_available() -> bool
+  def stem_fingerprint(song, section, *, pre_roll_s) -> str
+      # same shape as render.span_fingerprint, minus crossfade_ms/speed/semitones
+      # (isolation happens BEFORE the speed/pitch stretch, not after) plus a
+      # SEPARATOR_VERSION constant, bumped by hand when the demucs invocation changes
+  def stem_cache_path(repo, slug, section_id, fp) -> Path
+      # cache/stems/<section_id>-guitar-<fp>.flac -- a NEW cache subdirectory,
+      # still "always safe to delete", still owed to Group I's evict() (see the
+      # note on I below)
+  def isolate_guitar(repo, song, section, *, pre_roll_s, model="htdemucs_6s",
+                     device=None, force=False) -> Path
+      # ffmpeg-cuts [start - pre_roll, end] (the same span render.render_section
+      # cuts) THEN runs demucs --two-stems guitar -n htdemucs_6s on that clip only
+      # -- not the whole song; a section is usually far shorter, and
+      # htdemucs_6s is the only Demucs model with a guitar stem at all (the
+      # default htdemucs/htdemucs_ft four-stem split has no guitar output --
+      # confirmed against rambass-live/src/rambass/stems.py's own MODELS list
+      # and its own reasoning comment). Keeps the "guitar" file, discards
+      # "no_guitar", writes FLAC, skips the work when force=False and the
+      # fingerprinted cache file already exists (same skip-if-cached rule as
+      # render_section).
+  ```
+  Cross-reference, never copy, per CLAUDE.md's rule for the sibling repos: the demucs
+  invocation (model list, `--two-stems`, `-j`/`-d` flags, the flatten-output-then-
+  `shutil.rmtree` cleanup) mirrors `rambass-live/src/rambass/stems.py`'s `separate()` —
+  read it for the subprocess shape, don't import it (no cross-repo import exists
+  anywhere in this codebase and this is not the place to start). The `separate` extra
+  name (`pyproject.toml`, `demucs>=4.0.1`) is deliberately the same name
+  `rambass-live/pyproject.toml` uses for the same dependency.
+- **S2** `render.py`'s `render_section` gains a `source: Literal["mix", "guitar"] = "mix"`
+  parameter, threaded through `span_fingerprint`/`cache_key`/`cache_path` (so the two
+  variants get different cache filenames, e.g. `solo@60x-1st-mix-3f9a2c11.flac` vs
+  `...-guitar-...`, never collide, and a guitar-only render survives a fingerprint change
+  exactly like a mix render does). `source="guitar"` calls `separate.isolate_guitar(...)`
+  first (itself cached) and feeds *that* file into the existing rubberband/crossfade
+  pipeline instead of the original recording.
+  `GET /api/render/<slug>/<section>` gains `?source=guitar` (default `mix`, so every
+  existing caller is unaffected). The 202 "not built yet" response gains a coarse
+  `"stage": "separating" | "rendering"` field when `source=guitar` — **not** a fabricated
+  smooth percentage. Demucs has no natural fine-grained progress readout and inventing
+  one is exactly the failure mode CLAUDE.md spends a page on ("the tool never judges...
+  inventing a measurement it cannot make" — same instinct, different measurement). Two
+  honest stages is what there actually is to report.
+  *Test contract*: mirrors `render.py`'s existing suite — argv asserted, demucs
+  subprocess mocked; moving the section boundary misses BOTH the isolated-stem cache and
+  the render cache; `source="mix"` behaviour is provably unchanged (the whole existing
+  `test_render.py` suite still passes with the new parameter defaulted).
+- **S3** `screens/practice.js` gains a "Guitar only" toggle (Group O's header placement,
+  not a seventh foot chip). On: request `?source=guitar`; while the first isolation for
+  this section is in flight, show Group O's progress state (the two honest stages from
+  S2, not a bar with invented granularity); cached thereafter, so toggling off and back
+  on is instant. Degrades — disabled, with a message naming the fix — when `doctor`
+  reports `demucs` missing, the same `require_module` pattern `pyaudiowpatch`/`librosa`
+  already use.
+- **S4** `doctor.py` gains a `demucs` check (installed? — and a CPU-only note, since
+  Demucs on CPU is genuinely slow; `rambass-live`'s own doc already measures
+  `htdemucs_ft` at roughly 4× `htdemucs`'s time, worth surfacing rather than letting the
+  first isolation feel like a hang). `evict()` (Group I) is extended to also walk
+  `cache/stems/` — a new, potentially large cache directory the 20 GB budget doctor
+  check must actually see, or "cache: X GB used of a 20 GB budget" quietly stops being
+  true.
+  A new pytest marker, `needs_demucs`, joins `needs_rubberband`/`needs_librosa`/
+  `needs_device` in `pyproject.toml`; the one real end-to-end isolation test is marked
+  with it and excluded from the no-extras gate, same as the other three.
+
+**Group T — add a song for real (∥ with S)**
+- **T1** `POST /api/song/upload` (multipart) — the file-binding half of `cli.py`'s
+  `cmd_add` (hash, duration via the already-doctor-checked `ffprobe`, write
+  `songs/<slug>/audio/<file>` + a minimal `song.yaml`), reachable from a browser for the
+  first time. Refactor the binding logic into one function `cli.py`'s `cmd_add` and this
+  endpoint both call — CLAUDE.md's "one action table" instinct extends naturally to "one
+  binding function", not a second copy that can drift. Replaces `dashboard.js`'s current
+  "Add song" text field (which only ever produced a `needs_audio` placeholder row,
+  never actually bound a file) with Group O's real form: file picker, title/artist, the
+  tuning **dropdown**.
+- **T2** `POST /api/capture/start` / `GET /api/capture/status` / `POST /api/capture/stop`
+  — runs `capture.py`'s `capture()` generator (which already accepts an `on_level`
+  callback for exactly this, unused until now) on a background thread, one capture at a
+  time (a loopback device has one reader; a second `start` while one is running is
+  refused, not queued). `status` reports elapsed time, current level, and whether an
+  overflow was seen (H3's existing `Segment.overflowed` rule — refuse to bind a segment
+  that reported one, same as the CLI path); `stop` finalizes the in-progress segment the
+  same way the silence-detector would. This is the endpoint `capture.js`'s own module doc
+  named as the reason its live meters couldn't be built honestly yet ("no `/api/capture`
+  in server.py's routes... building the live meters against nothing would be exactly the
+  failure mode CLAUDE.md spends a page on") — it now can be, because it is backed by a
+  real running capture, not a fabricated one.
+  `screens/capture.js` gains Group O's live variant (arm / level meter / elapsed timer /
+  stop) and falls back to the current copy-paste command list when `doctor` reports
+  `pyaudiowpatch` missing.
+  *Test contract*: a second `start` while one is running is refused, not silently
+  dropped or queued; the status shape is asserted; the background-thread wrapper is
+  tested against a mocked `capture()` generator — never a real device in this suite.
+
+### Ordering
+
+Group O blocks the UI-facing halves of P/Q/S/T (icon placement, toggle placement, the
+add-song form layout) but not their engine/server halves, which can start immediately
+against the contracts fixed above — same "the contract is in this plan, not in the code"
+rule Phase 2 already relies on. **P1 and Group J (Phase 2) both touch `player.js`** —
+sequence P1 before J, or have one person own both, rather than two units editing the
+same file's seek/loop-boundary logic in parallel. S and T are the two large, mutually
+independent subsystems and may run fully in parallel with each other and with P/Q/R.
+
+**Phase 1.5 gate**
+- Automated: `uv run pytest` green; the no-extras gate green and unaffected by
+  `separate.py` (same "nothing above the heavy-dependency line imports it" rule
+  `analyze.py`/`render.py` already prove); `needs_demucs` registered and excluded the
+  same way the other three hardware/binary markers are.
+- Manual (Paolo, at the machine): click mid-waveform during practice and confirm the
+  playhead jumps there and no false rep is counted; recognise every foot action by its
+  icon alone from normal sitting distance; open a song's page and confirm pressing play
+  actually plays it; toggle "Guitar only" on a section never isolated before, watch the
+  two-stage progress state, toggle off and back on and confirm the second time is
+  instant; add a new song through the dashboard's real form, by file; start and stop one
+  real capture from the Capture screen.
+
+---
+
 ## Phase 2 — the ladder, and a seam you cannot hear
 
 **Goal**: the render cache, the discrete-speed practice engine, the ladder, retraction,
@@ -1540,9 +1774,11 @@ The plan is shaped for fan-out. The rules that make it safe:
 4. **The phase gate is the join.** All units in a phase must be green before the next
    phase starts — and the next phase begins by re-reading what actually shipped, because
    these signatures will have moved.
-5. **Model allocation**: B3 (`sections.py` coverage maths), I2 (the crossfade) and J2 (the
-   boundary swap) carry the most subtle risk — give those the strongest model. Everything
-   else is mechanical against a fixed contract and a cheaper model is appropriate.
+5. **Model allocation**: B3 (`sections.py` coverage maths), I2 (the crossfade), J2 (the
+   boundary swap), P1 (the worklet seek/pass-qualification interaction) and S2 (threading
+   `source` through the render cache's fingerprint without breaking the existing mix path)
+   carry the most subtle risk — give those the strongest model. Everything else is
+   mechanical against a fixed contract and a cheaper model is appropriate.
 
 ---
 
@@ -1551,9 +1787,16 @@ The plan is shaped for fan-out. The rules that make it safe:
 - No pitch detection, no scoring of the playing, ever.
 - No Spotify audio path, no DRM decryption, no bundled downloader.
 - No mobile layout, no light theme, no authentication, no multi-user.
-- No mixing, EQ or stem separation — that is `rambass-live`.
-- No `demucs` stem practice, no Chromaprint fingerprinting, no chart export, no "session"
-  concept. Those are the roadmap's "later, if it earns it" and stay there.
+- No mixing or EQ, and no general stem separation — that is still `rambass-live`'s job.
+  **Revised 2026-09-06**: guitar-only isolation for practice is now explicitly in scope
+  (Phase 1.5, Group S) — Paolo asked for it directly, `docs/03-audio-engine.md` already
+  named "an isolated guitar track" as the honest answer below 50% speed, and it was
+  sitting on the roadmap's "later, if it earns it" list. It earned it. This is narrower
+  than what was ruled out: one stem (guitar), one purpose (practice below the stretcher's
+  honest floor), reusing `rambass-live`'s own Demucs choice rather than reinventing it —
+  not a mixing/EQ surface, which stays out.
+- No Chromaprint fingerprinting, no chart export, no "session" concept. Those are the
+  roadmap's "later, if it earns it" and stay there.
 - No feature branches, no PRs. Work on `main`.
 
 ---

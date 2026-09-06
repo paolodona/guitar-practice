@@ -240,4 +240,6 @@ knowing before you conclude something is broken.
 and no parameter tuning gets around it. If a particular solo needs to be slower
 than 50 % and still clear, the answer is a different *source* — an isolated
 guitar track, which is what `demucs` in `rambass-live` already does — not a
-better stretcher.
+better stretcher. **As of the plan's Phase 1.5, Group S**, this no longer means
+a manual trip to `rambass-live`: a "Guitar only" toggle isolates and caches the
+guitar stem per section, in-app, reusing `rambass-live`'s own Demucs choice.

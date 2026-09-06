@@ -98,11 +98,12 @@ owns them (see Conventions) and the validators that matter — a bare-string or 
 setlist entry, the shift range, `end_s > start_s` — are exactly what it does well.
 `sections`, `ladder`, `ledger`, `clock` and `tuning` import stdlib and numpy and
 nothing else, so the hard maths stays provably pure whatever happens to the
-dependency. `analyze.py` (librosa) and
-`render.py` (the rubberband binary) are the only modules allowed a heavy or
-external dependency, and nothing above that line may import them at module top
-level. Use a `require_module()` helper so a missing extra prints an install hint
-naming the installer that actually exists, not an `ImportError` traceback.
+dependency. `analyze.py` (librosa), `render.py` (the rubberband binary), and
+`separate.py` (Demucs, guitar-only isolation — plan Phase 1.5, Group S) are the
+only modules allowed a heavy or external dependency, and nothing above that
+line may import them at module top level. Use a `require_module()` helper so a
+missing extra prints an install hint naming the installer that actually
+exists, not an `ImportError` traceback.
 
 `src/woodshed/` is **generic**: no song names, no artist names, no personal file
 paths in code. Those live in `songs/`, `setlists/` and `config.yaml`.

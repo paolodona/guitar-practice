@@ -61,7 +61,9 @@ app counts. Everything after this is making that better, not making it work.
 ## Later, if it earns it
 
 * Chromaprint fingerprint matching for the library scan.
-* Practising against a `demucs` stem when a solo needs to go below 50 %.
+* ~~Practising against a `demucs` stem when a solo needs to go below 50 %.~~
+  Moved into the active plan 2026-09-06 — see
+  `.agent_session/001_woodshed-implementation_plan.md`, Phase 1.5 Group S.
 * Export a practice log to a chart, or to the band.
 * A "session" concept — a plan for tonight, twenty minutes, four sections.
 
