@@ -154,6 +154,8 @@ woodshed/
   songs/<slug>/cache/              # gitignored — rendered variants, peaks
   setlists/<slug>.yaml             # tracked
   practice/reps.jsonl              # tracked. append-only. the one irreplaceable file
+  capture/<timestamp>.<ext>        # gitignored — raw, unrepeatable; kept until
+                                    # every segment split from it is resolved
   config.yaml                      # tracked — library paths, defaults, MIDI map
   src/woodshed/                    # generic. no song names, no personal paths
   web/                             # the front end

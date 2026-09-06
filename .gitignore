@@ -1,6 +1,7 @@
 # Audio bytes never enter git.
 songs/*/audio/
 songs/*/cache/
+capture/
 *.wav
 *.mp3
 *.flac
