@@ -1641,6 +1641,23 @@ S: it already names the destination ("an isolated guitar track... is what `demuc
   and the no-extras gate (786, unaffected) still green.
 
 **Group S — guitar-only isolation (∥ with T)**
+
+**Flagged, 2026-09-06, before building any of S2/S4's evict-touching half**:
+this group's own goal line says Phase 1.5 was "inserted ahead of Phase 2
+because none of it depends on the render cache" — true for O/P/Q/R/T/U, but
+**not true for S2/S4**. `render.py` (`render_section`, `span_fingerprint`,
+`cache_path`) is Phase 2 Group I's own deliverable and does not exist yet
+(confirmed: no `src/woodshed/render.py`, no `/api/render` route, Phase 2's
+Group I carries no "done" annotation) — so S2 ("`render.py`'s `render_section`
+gains a `source` parameter") has nothing to extend, and S4's "`evict()` is
+extended to also walk `cache/stems/`" has no `evict()` to extend either (also
+Group I3, Phase 2). This is a real phase-ordering gap in the plan, not an
+implementation detail — S1 (`separate.py`/`isolate_guitar` itself, which only
+needs `ffmpeg` + a section's own start/end, no render cache) is independent
+and buildable now; S2/S4 are not, until Phase 2 Group I lands first (either
+build Group I out of its documented order, or defer S2/S4 until it does).
+Raised rather than silently worked around, same as this plan's other
+architectural calls get raised for Paolo rather than asserted.
 - **S1** `src/woodshed/separate.py` (Demucs, optional heavy dependency — the third
   module CLAUDE.md's Layering section now names, beside `analyze.py`/`render.py`).
   ```python
@@ -1785,6 +1802,27 @@ what's missing is everything **after** a segment exists and before it is a bound
   a `recording`; `bind_segment_as_new_song` refuses a title that slugifies to an
   existing song; both refuse an overflowed segment unconditionally; both accept an
   explicit `tuning` and default to the setlist's own when none is given.
+  - **Done, 2026-09-06.** Built exactly as specced, with one judgement call and
+    one signature addition beyond what's written above. `capture()` gained an
+    optional `raw_path` parameter (H2's existing single-song CLI path is
+    unchanged when it's omitted — still one WAV per segment under `out_dir`;
+    given, the whole continuous recording is kept as ONE file there instead
+    and no per-segment files are written, so `extract_segment` has something
+    to cut a named segment out of later) — the post-recording split/write
+    logic was pulled into a new `_finish_capture(samples, sample_rate, ...,
+    out_dir, raw_path)` (plain arrays and paths, no device, no PyAudioWPatch),
+    so both modes are exercisable with synthetic audio, the same "pure-enough
+    functions carry the actual risk" reasoning the module already gives for
+    `split_on_silence`/`bind_segments`. `library.Repo` gained a `capture_dir`
+    property. Judgement call: the "default to the setlist's own tuning" note
+    above doesn't fit `bind_segment_to_song`'s signature (no setlist parameter
+    exists to derive one from) — `add`'s *actual* existing default (`cli.py`'s
+    `--tuning`) is the fixed literal `"E standard"`, reused instead. Also fixed
+    alongside, found while reviewing the capture/ amendment itself:
+    `docs/01-architecture.md`'s disk-layout tree never listed `capture/`, and
+    `.gitignore` had no explicit `capture/` entry. 45 new tests, all passing;
+    full suite 804 passed; ruff clean; no-extras gate (801 passed, 3
+    deselected) unaffected.
 - **U2** Server: capture-session bookkeeping + endpoints. Storage decision, made here
   so U2 doesn't have to re-derive it: one raw file per capture-and-stop cycle under
   `capture/<timestamp>.<ext>` (extension matches whatever `capture()`'s own device-write
@@ -1811,6 +1849,27 @@ what's missing is everything **after** a segment exists and before it is a bound
   *Test contract*: binding an already-resolved index refuses; discarding then binding
   the same index refuses; the raw file is deleted exactly when the last pending segment
   resolves (bound or discarded), asserted against a temp dir, never the real repo.
+  - **Done, 2026-09-06.** A new module, `capture_session.py`, owns the sidecar:
+    one `<raw file>.json` beside the raw recording, entries never removed or
+    renumbered, only marked — `index` is a stable, permanent position, which is
+    what makes both named test contracts hold by construction rather than a
+    lucky renumbering. `current_session` reads "the most recent raw file" only
+    (newest `*.json` sidecar by filename) — an older, not-fully-resolved cycle
+    becomes unreachable through this API once a newer one starts (still on
+    disk, just invisible to the GET); a documented limitation, not hidden.
+    `segment-audio` cuts to a `tempfile.NamedTemporaryFile` (system temp, never
+    under the repo — a throwaway preview extract isn't one of CLAUDE.md's four
+    write categories) and deletes it after serving. Found while wiring bind:
+    `extract_segment` is imported by name into two module namespaces
+    (`server.py`'s own direct call, and `capture.py`'s two bind functions'
+    internal one) — a test mocking it has to patch both. Found while extending
+    `test_server_writes_nothing_else`: binding a segment writes the song's own
+    audio bytes under `songs/<slug>/audio/` alongside its `song.yaml` — the
+    same thing `woodshed add`/`woodshed capture` always did from the CLI, just
+    reachable from the server for the first time (T1 will hit the identical
+    thing) — allow-listed alongside `cache/`/`capture/` rather than treated as
+    a surprise. 23 new tests, all passing; full suite 823 passed; ruff clean;
+    no-extras gate (820 passed, 3 deselected) unaffected.
 - **U3** `screens/capture.js` gains U0's segment-review UI: one row per pending segment,
   a preview-play control reusing `player.js`'s `loop: false` engine from **R1** —
   literally the same "audition, no rep" mechanism, pointed at `segment-audio` instead of
