@@ -539,6 +539,14 @@ def _parse_vorbis_comment(payload: bytes) -> dict[str, str]:
         count = int.from_bytes(payload[offset:offset + 4], "little")
         offset += 4
         for _ in range(count):
+            # Bounded by the payload, not by the count: that count is a
+            # 32-bit field read straight off the file, and an out-of-range
+            # slice below returns empty bytes rather than raising -- so a
+            # corrupt or truncated FLAC claiming four billion comments span
+            # four billion times and the scan looked like it had hung
+            # (found by review 2026-09-07).
+            if offset + 4 > len(payload):
+                break
             size = int.from_bytes(payload[offset:offset + 4], "little")
             offset += 4
             entry = payload[offset:offset + size].decode("utf-8", "replace")

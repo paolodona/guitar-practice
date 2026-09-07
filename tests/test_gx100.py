@@ -118,3 +118,15 @@ def test_slot_is_never_turned_into_a_program_change_number() -> None:
         name for name in dir(gx100)
         if "program" in name.lower() or name.lower().startswith("send")
     )
+
+
+def test_a_sibling_file_that_is_not_utf8_degrades_too(tmp_path: Path) -> None:
+    """FOUND BY REVIEW 2026-09-07: only OSError and YAMLError were caught,
+    so a latin-1 `song.yaml` in the sibling repo raised UnicodeDecodeError
+    and 500'd the whole song and practice screens -- against this module's
+    one contract, that absence degrades and never errors. A file in ANOTHER
+    repo can be in any encoding it likes."""
+    path = tmp_path / "songs" / "cant-stop" / "song.yaml"
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"patches:\n  - {id: caf\xe9, slot: U01-1}\n")
+    assert gx100.load_patches(tmp_path, "cant-stop") == {}

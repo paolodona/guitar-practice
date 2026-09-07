@@ -730,3 +730,58 @@ def os_utime(path: Path, minutes_ago: int) -> None:
     now = time.time()
     stamp = now - (10 - minutes_ago) * 60  # spread them out, oldest first
     os.utime(path, (stamp, stamp))
+
+
+# ── evict(keep=...) ───────────────────────────────────────────────────────
+
+
+def test_evict_never_deletes_a_render_it_was_told_to_keep(tmp_path: Path) -> None:
+    """FOUND BY REVIEW 2026-09-07: the server evicts after every render, so
+    with a budget smaller than one file the sweep deleted the very render
+    the request was waiting for -- and `_render`'s 202 poll then started it
+    again, forever. Whatever the budget says, you never evict the thing you
+    just made for the request in flight."""
+    repo = Repo(root=tmp_path)
+    section = _section()
+    song = _song(sections=[section])
+    _write_song(repo, song)
+    fp = _current_fp(song, section)
+    fresh = cache_path(repo, song.slug, section.id, 60.0, 0, fp)
+    fresh.parent.mkdir(parents=True, exist_ok=True)
+    fresh.write_bytes(b"x" * 1_000_000)
+
+    deleted = evict(repo, 0.0, keep=[fresh])
+
+    assert fresh.is_file(), "the just-rendered file survived a zero budget"
+    assert deleted == []
+
+
+def test_evict_keeps_a_protected_file_even_if_it_looks_like_an_orphan(
+    tmp_path: Path,
+) -> None:
+    """A file named `keep` is by definition the CURRENT fingerprint -- the
+    render a request is waiting on this instant. Reaping it as an orphan
+    would be the same forever-loop by another route."""
+    repo = Repo(root=tmp_path)
+    song = _song(sections=[_section()])
+    _write_song(repo, song)
+    stale = cache_path(repo, song.slug, "solo", 60.0, 0, "deadbeef")
+    stale.parent.mkdir(parents=True, exist_ok=True)
+    stale.write_bytes(b"x")
+
+    assert evict(repo, 20.0, keep=[stale]) == []
+    assert stale.is_file()
+
+
+def test_evict_with_nothing_to_keep_still_honours_the_budget(tmp_path: Path) -> None:
+    repo = Repo(root=tmp_path)
+    section = _section()
+    song = _song(sections=[section])
+    _write_song(repo, song)
+    fp = _current_fp(song, section)
+    path = cache_path(repo, song.slug, section.id, 60.0, 0, fp)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"x" * 1_000_000)
+
+    assert evict(repo, 0.0) == [path]
+    assert not path.is_file()

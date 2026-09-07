@@ -400,3 +400,22 @@ def test_scan_never_binds_anything(tmp_path) -> None:
     before = {p: p.stat().st_mtime_ns for p in tmp_path.rglob("*")}
     sources.scan_library([library], title="Can't Stop")
     assert {p: p.stat().st_mtime_ns for p in tmp_path.rglob("*")} == before
+
+
+def test_a_corrupt_flac_comment_count_does_not_hang_the_scan(tmp_path) -> None:
+    """FOUND BY REVIEW 2026-09-07: the Vorbis comment count is a 32-bit
+    field read straight off the file, and out-of-range slices return empty
+    bytes rather than raising -- so a corrupt (or truncated) FLAC claiming
+    four billion comments spun four billion times and the scan looked like
+    it had hung. The loop is bounded by the payload it is actually reading."""
+    path = tmp_path / "corrupt.flac"
+    body = (
+        (8).to_bytes(4, "little") + b"woodshed"
+        + (0xFFFFFFFF).to_bytes(4, "little")  # "four billion comments follow"
+        + (12).to_bytes(4, "little") + b"TITLE=Real  "
+    )
+    comment = bytes([0x80 | 4]) + len(body).to_bytes(3, "big") + body
+    path.write_bytes(b"fLaC" + comment)
+
+    tags = sources.read_tags(path)  # must return promptly, not spin
+    assert tags.get("title", "").startswith("Real")

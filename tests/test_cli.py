@@ -19,7 +19,7 @@ from woodshed import cli
 from woodshed.errors import WoodshedError
 from woodshed.ledger import read as ledger_read
 from woodshed.library import Repo
-from woodshed.manifest import Tempo, load_song
+from woodshed.manifest import Tempo, load_song, save_song
 
 
 @pytest.fixture
@@ -1119,3 +1119,53 @@ def test_render_unknown_section_refuses(
 ) -> None:
     slug = _renderable_song(repo, monkeypatch, tmp_path)
     assert cli.main(["render", slug, "no-such-section", "--speed", "60"]) == 2
+
+
+def test_binding_audio_does_not_overwrite_a_tempo_someone_typed(
+    repo: Repo, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FOUND BY REVIEW 2026-09-07: the auto-detect condition was
+    `tempo.source == "manual"`, but "manual" is also the pydantic DEFAULT --
+    so it could not tell "nobody has set a tempo" from "I typed this bpm".
+    `bpm <= 0` is the condition every other grid consumer uses, and the one
+    `bind_song_file` means by `bpm is None`."""
+    from woodshed.manifest import Tempo
+    from woodshed.sources import Track, import_tracks
+
+    import_tracks(repo, [Track(spotify_id="x", title="Typed Tempo", artist="Nobody",
+                               album=None, duration_s=100.0)])
+    song_path = repo.song_dir("typed-tempo") / "song.yaml"
+    song = load_song(song_path)
+    song.tempo = Tempo(bpm=138.0, source="manual", grid_offset_s=0.25)
+    save_song(song, song_path)
+
+    called = []
+    monkeypatch.setattr(
+        "woodshed.cli.analyze_after_bind",
+        lambda repo_, slug, path, *, auto_tempo=True: called.append(auto_tempo),
+    )
+    source = tmp_path / "real.wav"
+    _write_wav(source, seconds=1.0)
+    cli.bind_audio_to_song(repo, "typed-tempo", source)
+
+    assert called == [False], "a hand-typed tempo must survive the bind"
+    assert load_song(song_path).tempo.bpm == 138.0
+
+
+def test_binding_audio_does_auto_detect_when_no_tempo_was_ever_set(
+    repo: Repo, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from woodshed.sources import Track, import_tracks
+
+    import_tracks(repo, [Track(spotify_id="x", title="No Tempo", artist="Nobody",
+                               album=None, duration_s=100.0)])
+    called = []
+    monkeypatch.setattr(
+        "woodshed.cli.analyze_after_bind",
+        lambda repo_, slug, path, *, auto_tempo=True: called.append(auto_tempo),
+    )
+    source = tmp_path / "real.wav"
+    _write_wav(source, seconds=1.0)
+    cli.bind_audio_to_song(repo, "no-tempo", source)
+
+    assert called == [True]

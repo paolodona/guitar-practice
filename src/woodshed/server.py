@@ -248,10 +248,18 @@ def render_then_evict(repo: Repo, thunk, max_gb: float):
     """
     path = thunk()
     try:
-        render_module.evict(repo, max_gb)
+        # `keep=[path]`: the sweep must never delete the render this request
+        # is waiting for. With a budget smaller than one file it did, and
+        # `_render`'s own 202 poll then started the render again, forever
+        # (found by review 2026-09-07).
+        render_module.evict(repo, max_gb, keep=[path] if path else [])
     except Exception:  # noqa: BLE001 -- a failed sweep must never fail the render
         pass
     return path
+
+
+#: Ceiling on `GET /api/progress`'s readiness window. See `_progress_weeks`.
+MAX_PROGRESS_WEEKS = 520
 
 
 def _totals_json(totals) -> dict:
@@ -666,10 +674,18 @@ class WoodshedHandler(BaseHTTPRequestHandler):
         raw = parse_qs(query).get("weeks", [""])[0]
         try:
             weeks = int(float(raw))
-        except ValueError:
+        except (ValueError, OverflowError):
+            # OverflowError is `int(float("inf"))`, which is not a
+            # ValueError and used to escape this fallback as a traceback
+            # (found by review 2026-09-07).
             weeks = 0 if raw.strip().lower() == "all" else practice.PROGRESS_WEEKS
         if weeks > 0:
-            return weeks
+            # Capped: every point in the readiness series is a full
+            # re-evaluation of song readiness over the ledger, on a
+            # single-threaded server. Ten years of weeks is already more
+            # history than this tool will ever have; `?weeks=999999999`
+            # would just wedge the handler.
+            return min(weeks, MAX_PROGRESS_WEEKS)
         oldest = min((r.t for r in reps), default=None)
         if oldest is None:
             return practice.PROGRESS_WEEKS

@@ -213,6 +213,10 @@ function wireReorder(el, setlists, currentSetlist) {
   const rowsHost = el.querySelector('[data-rows]');
   if (!rowsHost || !currentSetlist) return;
   let dragging = null;
+  let orderBeforeDrag = null;
+
+  const currentOrder = () =>
+    [...rowsHost.querySelectorAll('[data-song]')].map((row) => row.dataset.song);
 
   for (const grip of rowsHost.querySelectorAll('[data-grip]')) {
     // The grip lives inside the row's anchor; a click on it must not
@@ -220,17 +224,32 @@ function wireReorder(el, setlists, currentSetlist) {
     grip.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); });
     grip.addEventListener('dragstart', (e) => {
       dragging = grip.closest('[data-song]');
+      orderBeforeDrag = currentOrder();
       dragging.classList.add('dragging');
       e.dataTransfer.effectAllowed = 'move';
       // Firefox needs *something* set or the drag never starts.
       e.dataTransfer.setData('text/plain', dragging.dataset.song);
     });
-    grip.addEventListener('dragend', () => {
+    grip.addEventListener('dragend', (e) => {
       if (dragging) dragging.classList.remove('dragging');
       for (const row of rowsHost.querySelectorAll('[data-song]')) {
         row.classList.remove('dropping');
       }
       dragging = null;
+      // FOUND BY REVIEW 2026-09-07: dragend fires for an ABANDONED drag
+      // too (Escape, or a drop outside the list), and the rows have
+      // already been reparented by dragover -- so a cancelled reorder
+      // saved itself. `dropEffect === 'none'` is the browser saying the
+      // drag was not accepted anywhere; put the list back and write
+      // nothing.
+      const before = orderBeforeDrag;
+      orderBeforeDrag = null;
+      if (e.dataTransfer && e.dataTransfer.dropEffect === 'none') {
+        restoreOrder(rowsHost, before);
+        return;
+      }
+      // Nothing moved: no write. A stray click on the grip is not an edit.
+      if (before && before.join('\u0000') === currentOrder().join('\u0000')) return;
       commitOrder(el, rowsHost, setlists, currentSetlist);
     });
   }
@@ -244,6 +263,22 @@ function wireReorder(el, setlists, currentSetlist) {
     const after = e.clientY > box.top + box.height / 2;
     target.parentNode.insertBefore(dragging, after ? target.nextSibling : target);
   });
+}
+
+/** Put the rows back in *order* — the DOM is the only record of where they
+ *  were before the drag started, and dragover has already moved them. */
+function restoreOrder(rowsHost, order) {
+  if (!order) return;
+  const byslug = new Map(
+    [...rowsHost.querySelectorAll('[data-song]')].map((row) => [row.dataset.song, row]),
+  );
+  // Appending each row in the old order rearranges all of them: appending
+  // an existing child MOVES it. `[data-rows]` holds nothing but rows, so
+  // the result is exactly `order`.
+  for (const slug of order) {
+    const row = byslug.get(slug);
+    if (row) rowsHost.appendChild(row);
+  }
 }
 
 /** Read the order off the DOM and write it to the file. */

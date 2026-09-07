@@ -304,7 +304,13 @@ def bind_audio_to_song(repo: Repo, slug: str, source: Path) -> Song:
         song.sections = [whole_song_section(duration_s)]
     save_song(song, song_path)
 
-    analyze_after_bind(repo, slug, dest, auto_tempo=(song.tempo.source == "manual"))
+    # `bpm <= 0` is "no tempo has ever been established", the same condition
+    # every grid consumer uses and what `bind_song_file` means by `bpm is
+    # None`. NOT `source == "manual"`: that is also the pydantic default, so
+    # it could not tell a never-set tempo from one someone typed, and
+    # librosa would overwrite a hand-entered bpm on bind (found by review
+    # 2026-09-07).
+    analyze_after_bind(repo, slug, dest, auto_tempo=(song.tempo.bpm <= 0))
     return load_song(song_path)
 
 

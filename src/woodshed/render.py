@@ -50,6 +50,7 @@ import re
 import subprocess
 import tempfile
 import wave as wave_module
+from collections.abc import Iterable
 from pathlib import Path
 
 import numpy as np
@@ -390,10 +391,16 @@ def plan_ahead(
     return [path]
 
 
-def evict(repo: Repo, max_gb: float) -> list[Path]:
+def evict(repo: Repo, max_gb: float, *, keep: Iterable[Path] = ()) -> list[Path]:
     """Delete cache files, oldest (by **mtime**, not atime) first, until the
     whole repo's cache usage is back under `max_gb` -- or until nothing is
     left. Returns every path actually deleted, oldest first.
+
+    **`keep` is never evicted, whatever the budget says.** The server runs
+    this after every render, and with a budget smaller than one file the
+    sweep would otherwise delete the very render the request in flight is
+    waiting for -- whereupon its 202 poll starts it again, forever (found
+    by review 2026-09-07). You do not evict the thing you just made.
 
     **mtime, not atime**: NTFS last-access updates are off by default on
     Windows, so an atime-ordered LRU silently degenerates to arbitrary
@@ -419,6 +426,9 @@ def evict(repo: Repo, max_gb: float) -> list[Path]:
     deleted: list[Path] = []
     budget_bytes = max_gb * 1e9
     candidates: list[Path] = []
+    # Resolved, because the caller's path and a path built from rglob need
+    # to compare equal for the same file.
+    protected = {Path(p).resolve() for p in keep}
 
     for slug in repo.list_songs():
         cache_dir = repo.cache_dir(slug)
@@ -431,6 +441,11 @@ def evict(repo: Repo, max_gb: float) -> list[Path]:
 
         for path in cache_dir.rglob("*.flac"):
             if not path.is_file():
+                continue
+            if path.resolve() in protected:
+                # Not even as an orphan: `keep` is the render a request is
+                # waiting on right now, and its fingerprint is by
+                # definition the current one.
                 continue
             if song is not None and _is_orphan(song, path):
                 path.unlink(missing_ok=True)

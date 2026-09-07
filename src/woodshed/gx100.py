@@ -75,7 +75,11 @@ def load_patches(gx100_root: Path | str | None, slug: str) -> dict[str, Patch]:
     path = Path(gx100_root) / "songs" / slug / "song.yaml"
     try:
         data = yaml.safe_load(path.read_text(encoding="utf-8"))
-    except (OSError, yaml.YAMLError):
+    except (OSError, UnicodeDecodeError, yaml.YAMLError):
+        # UnicodeDecodeError belongs here for the same reason as the other
+        # two: a file in ANOTHER repo can be in any encoding it likes, and
+        # this module's one contract is that absence degrades rather than
+        # taking a practice screen down (found by review 2026-09-07).
         return {}
     if not isinstance(data, dict):
         return {}

@@ -2005,7 +2005,7 @@ def test_render_then_evict_trims_the_cache_after_the_render(monkeypatch, tmp_pat
     order = []
     monkeypatch.setattr(
         server_module.render_module, "evict",
-        lambda r, gb: order.append(("evict", gb)),
+        lambda r, gb, *, keep=(): order.append(("evict", gb, list(keep))),
     )
 
     def thunk():
@@ -2015,7 +2015,9 @@ def test_render_then_evict_trims_the_cache_after_the_render(monkeypatch, tmp_pat
     result = server_module.render_then_evict(repo, thunk, 20.0)
 
     assert result == tmp_path / "rendered.flac"
-    assert order == [("render", None), ("evict", 20.0)]
+    # `keep` is the render that just finished: the sweep must not be able
+    # to delete the file the request in flight is waiting for.
+    assert order == [("render", None), ("evict", 20.0, [tmp_path / "rendered.flac"])]
 
 
 def test_render_then_evict_never_loses_the_render_to_a_failed_sweep(monkeypatch, tmp_path):
@@ -2023,7 +2025,7 @@ def test_render_then_evict_never_loses_the_render_to_a_failed_sweep(monkeypatch,
 
     repo = Repo(root=tmp_path)
 
-    def boom(_repo, _gb):
+    def boom(_repo, _gb, *, keep=()):
         raise OSError("the disk went away mid-sweep")
 
     monkeypatch.setattr(server_module.render_module, "evict", boom)
@@ -2320,3 +2322,15 @@ def test_capture_start_can_arm_the_meter_without_recording(served, monkeypatch):
     _status, data = _post(base, "/api/capture/start", {})
     assert data["monitor"] is False
     assert seen["monitor"] is False
+
+
+def test_progress_weeks_that_cannot_be_a_window_falls_back(served):
+    """FOUND BY REVIEW 2026-09-07: `int(float("inf"))` raises OverflowError,
+    not ValueError, so it escaped the fallback and became a traceback; and a
+    huge positive value was passed straight into the readiness replay, which
+    recomputes song readiness once per point on a single-threaded server."""
+    base, _repo, slug = served
+    for raw in ("inf", "-inf", "nan", "1e400", "999999999"):
+        status, data = _get_json(base, f"/api/progress/{slug}?weeks={raw}")
+        assert status == 200, raw
+        assert 1 <= data["weeks"] <= 520, f"{raw} -> {data['weeks']}"
