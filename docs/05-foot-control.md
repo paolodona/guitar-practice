@@ -102,12 +102,28 @@ decides which of the 300 memories that slot points at. If you want the display
 to say `U02-3`, the mapping has to come from `config/gx100.yaml` in the
 `rambass-live` repo, not from an assumption.
 
+> **CONTESTED, 2026-09-06 — do not act on either version yet.**
+> `docs/08-unification.md` reports that `gx100` tested this **on the unit** and
+> found the paragraph above wrong twice over: that `PC n` is a plain identity
+> (no `PROGRAM MAP` indirection to resolve), and that the `CC#0 → CC#32 → PC`
+> ordering below **wedged the pedal until its power was pulled**.
+> That is a second-hand report here — this repo has no pedal and cannot check it
+> — so both readings are on the record and neither is settled. Two consequences
+> while it stays that way: the sending half (plan Group N2) must not be built to
+> send that CC pair at all until someone re-verifies it at the unit, which is one
+> more reason `config.gx100.send_program_changes` defaults to false; and if the
+> plain-identity finding holds, N2 gets *simpler*, because there is no mapping to
+> import from anywhere. Settle it in the same sitting as the three questions
+> above.
+
 ### Sending them
 
 The reverse is just as useful and cheaper to build: Woodshed can **send** a Bank
 Select + Program Change when you enter a section, so the sound changes with the
 part. `rambass-live/src/rambass/gx100.py` already builds those messages
-correctly, including the CC#0 → CC#32 → PC ordering and the 0–2 bank limit.
+correctly, including the CC#0 → CC#32 → PC ordering and the 0–2 bank limit —
+**but see the contested note above before sending any of it**: that same ordering
+is reported to have wedged the pedal.
 
 This is where the three repos finally close the loop: `gx100` designs the patch,
 `rambass-live` maps it to a memory and a bar, and `woodshed` puts it under your

@@ -3171,6 +3171,12 @@ touches the network, ever, in a test.
   CC#0 → CC#32 → PC ordering from `rambass-live/src/rambass/gx100.py`. Note the gotcha:
   a PC number names a slot, not a memory; the mapping lives in `rambass-live`'s
   `config/gx100.yaml` and must not be assumed.
+  **Both halves of that last sentence are now CONTESTED** (2026-09-07, on merging
+  `docs/08-unification.md`): `gx100` reports testing it on the unit and finding
+  `PC n` a plain identity, and that this exact CC ordering wedged the pedal until
+  its power was pulled. Second-hand in this repo, so nothing is settled — but N2
+  must not send that CC pair until it is re-verified at the unit. See the note in
+  `docs/05-foot-control.md`.
 
 **Phase 3 gate**
 - Automated: `uv run pytest` green; a test that `midi.js` contains no behaviour beyond a

@@ -20,13 +20,15 @@ missing on any machine but Paolo's own, its file may be mid-edit, and the
 take down a practice screen, so every failure here answers "no patches".
 
 **No slot -> Program Change arithmetic lives here, deliberately.**
-docs/05-foot-control.md and `rambass-live/docs/gx100.md` both spell out the
-gotcha: a PC number does not name a memory, it names a SLOT, and the pedal's
-own PROGRAM MAP decides which of the 300 memories that slot points at. The
-mapping lives in `rambass-live`'s `config/gx100.yaml` and must not be
-assumed -- so this module carries none of it, and a test asserts that it
-carries none of it. Showing `U02-3` because the sibling said `U02-3` is a
-quotation; computing it would be a guess.
+docs/05-foot-control.md and `rambass-live/docs/gx100.md` say a PC number does
+not name a memory but a SLOT, resolved through the pedal's own PROGRAM MAP;
+`docs/08-unification.md` reports that `gx100` tested it on the unit and found
+`PC n` to be a plain identity instead. **This module is correct either way, and
+that is the point of it**: whichever reading holds, the mapping is not this
+repo's to invent, so there is no arithmetic here to be wrong -- and a test
+asserts there is none. Showing `U02-3` because the sibling said `U02-3` is a
+quotation; computing it would be a guess in the first reading and unnecessary
+in the second.
 """
 
 from __future__ import annotations

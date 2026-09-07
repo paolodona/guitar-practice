@@ -16,7 +16,9 @@ constraint into every decision below.
 
 1. Read `CLAUDE.md` in full — binding project instructions, not background.
 2. Read `docs/05-foot-control.md` in full. It is the reference this work exists to
-   satisfy, and it contains the three unanswered questions discussed below.
+   satisfy, and it contains the three unanswered questions discussed below — plus
+   a CONTESTED note about the program map, added 2026-09-07, which you must read
+   before touching anything that sends MIDI.
 3. Read the plan's `## Phase 3` section (search for it) and the `### The front end
    — web/` part of "Module map, with the signatures fixed now". Group L's contract
    is fixed there; implement against it rather than re-deriving it.
@@ -112,11 +114,15 @@ question, and say which.
   pedal: question (3) in `docs/05-foot-control.md` is whether the continuous CC is
   smooth enough and cheap enough in messages to be a speed knob, and that is
   measured at the unit. Do not guess at it.
-- **N2 (Program Change send).** Blocked twice over — see the BACKLOG entry. It
-  needs MIDI *output* and the slot→memory map from `rambass-live`'s
-  `config/gx100.yaml`, which is not checked out here and which two documents say
-  explicitly must not be assumed. `gx100.py` deliberately contains no slot→PC
-  arithmetic and a test asserts that; keep it that way.
+- **N2 (Program Change send).** Blocked twice over — see the BACKLOG entry — and
+  now on a contested fact as well. It needs MIDI *output*, and the program-map
+  question is unsettled: `docs/05-foot-control.md` says a PC names a slot to be
+  resolved through the pedal's `PROGRAM MAP`, while `docs/08-unification.md`
+  reports `gx100` testing it on the unit and finding `PC n` a plain identity —
+  and that the `CC#0 → CC#32 → PC` ordering **wedged the pedal until its power
+  was pulled**. Do not build anything that sends that CC pair. `gx100.py`
+  deliberately contains no slot→PC arithmetic and a test asserts that; it is
+  correct under either reading, so keep it that way.
 - **Both manual gates.** Phase 2's ("loop a real solo at 55% for twenty passes and
   listen for a tick at the seam") and Phase 3's ("practise ten minutes without
   touching the keyboard or mouse"). Build everything that leads up to them, run

@@ -21,12 +21,25 @@ and a decision nobody can find gets re-litigated.
       slot; the pedal's PROGRAM MAP decides which of the 300 memories that is).
       `gx100.py` therefore carries no slot→PC arithmetic and a test says so;
       `config.gx100.send_program_changes` exists and defaults to false, so the
-      safe default is in place ahead of the feature. When it is built: lift the
-      CC#0 → CC#32 → PC ordering from `rambass-live/src/rambass/gx100.py`, keep
-      the toggle explicit, and never send on mount.
+      safe default is in place ahead of the feature. When it is built: keep the
+      toggle explicit and never send on mount.
+      **And settle a contested fact first** (merged 2026-09-07 with
+      `docs/08-unification.md`): that doc reports `gx100` testing the program-map
+      claim ON THE UNIT and finding `PC n` to be a plain identity, and the
+      `CC#0 → CC#32 → PC` ordering this entry used to say to lift **wedged the
+      pedal until its power was pulled**. Second-hand here, so neither version is
+      settled — but do not build N2 to send that CC pair until someone re-verifies
+      it at the pedal. If the plain-identity finding holds, N2 gets simpler: there
+      is no mapping to import from anywhere, which is the same conclusion
+      `gx100.py` already reaches from the other direction.
 - [ ] **[Plan 001]** Settle the three eyes-on-the-unit GX-100 questions in
       `docs/05-foot-control.md` and write the answers back into that file. Group
       L (MIDI in) is blocked on these; they need ten minutes at the actual pedal.
+      **Add a fourth to that sitting**: whether `PC n` is a plain identity and
+      whether the `CC#0 → CC#32 → PC` ordering wedges the unit — `gx100` reports
+      both (see `docs/08-unification.md`) and this repo's own docs still say the
+      opposite. Whichever way it falls, one of the two documents is wrong and
+      should stop saying so.
 - [ ] **[Plan 001]** **Phase 2's manual gate is still open**: loop a real solo at
       55% for twenty passes and listen for a tick at the seam, then let the ladder
       advance to 60% and confirm the change lands at a loop boundary. Everything
@@ -52,6 +65,15 @@ and a decision nobody can find gets re-litigated.
       quality gate in `.claude/plan-project.md` now, which is what the planning
       workflow reads; making it a hook costs ~25 s on every single turn, so that
       is a tax to choose knowingly rather than find.
+
+- [ ] **[Plan 001]** `docs/08-unification.md` (merged 2026-09-07, written by
+      another session on 2026-09-06) proposes folding the three repos into one
+      app. **PROPOSED, nothing agreed**; the argument lives once, in
+      `rambass-live/docs/unification.md`. It is in this list only so it is not
+      forgotten: its own claim is that the shared-song-identity part is free to
+      adopt while `songs/` is small and becomes a three-way migration later. Also
+      note its own counter-argument, which quotes this repo's roadmap warning
+      about practising the tool instead of the guitar.
 
 ## Open — real work, nobody blocked on it
 
