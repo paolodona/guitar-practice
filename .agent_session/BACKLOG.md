@@ -60,6 +60,16 @@ and a decision nobody can find gets re-litigated.
       just that one segment from the review screen — the whole pass has to be
       redone. Not painful yet; would be after a 23-song set.
 
+## Resolved 2026-09-07 (a code review of the two runs above)
+
+- [x] **[Plan 001]** Eleven findings, all fixed with regression tests; four of
+      them silent bugs in `BufferEngine`, one of which (`_adoptSwap` retiring the
+      outgoing node when the seam was *observed*, truncating roughly one 10 ms
+      crossfade in five) would have produced exactly the click Phase 2's
+      listening gate is for. Full account in the plan doc under "Run 5". Worth
+      keeping in mind for the gate itself: the engine has been reviewed but still
+      never *heard*.
+
 ## Resolved 2026-09-06
 
 - [x] **[Plan 001]** **Slug policy: `cant-stop` vs `can-t-stop`.** Settled in

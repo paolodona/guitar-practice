@@ -16,6 +16,55 @@ before fanning out — D0 must land before D1–D7, and P1 gates Groups D / F / 
 
 ## Implementation progress (this run started 2026-09-05, unattended)
 
+**Run 5, 2026-09-07 — a code review of runs 3 and 4, and the eleven findings
+it produced.** Reviewed `a3cd6eb..HEAD` (26 commits) at high effort; every
+finding was driven against the tests' own synthetic AudioContext or a real
+scratch repo before being believed, and each fix landed with a regression test
+naming what it prevents. Suite 1117 -> 1129.
+
+**Four were in `BufferEngine`, and all four were silent** — which is the
+argument for having reviewed it at all, since Group J's own gate is a listening
+test nobody has run yet:
+- `loadSection` never cleared `_playing`, so the `play()` that follows a reload
+  hit its own "already playing" guard and made no node. **Toggling "Guitar only"
+  mid-practice went permanently silent**, and `pause()` no-oped with it.
+- A rung change compared the request against the LIVE speed, which a scheduled
+  swap has not updated yet — so up-then-down before the seam cancelled nothing:
+  the engine played 55% while the screen said 50% and **every rep was logged at
+  50**.
+- `renderClock` read the unclamped pre-roll while the server cuts
+  `[max(0, start_s - pre_roll_s), end_s]`. A section half a second into a
+  recording began every lap late, put `loopEnd` past the end of its own buffer,
+  and had the crossfade baked that far *inside* the section.
+  `clock.Render.effective_pre_roll_s` clamps it once now, in the one place both
+  clocks read; several existing fixtures turned out to describe a lead-in in
+  front of second zero, which is a file nobody can write, and were moved to a
+  section that really has one.
+- **`_adoptSwap` tore the outgoing node down when the seam was *observed*** — but
+  the seam clock is polled every 50 ms and the crossfade is 10 ms, so roughly one
+  fade in five was cut off partway through at ~0.98 gain. That is precisely the
+  click the Phase 2 gate exists to catch, produced by the code written to prevent
+  it. The fade is the mechanism now (its gain holds at 0 on the audio thread
+  regardless of the main thread) and `stop()` is deferred cleanup — which is also
+  what makes cancelling a swap possible, since a scheduled stop cannot be taken
+  back.
+
+The rest: `bind_audio_to_song` could not tell a never-set tempo from a typed one
+(`source == "manual"` is the default) and let librosa overwrite a hand-entered
+bpm; `?weeks=inf` was an uncaught `OverflowError` and a huge finite value wedged
+the single-threaded handler; **eviction could delete the render the request in
+flight was waiting for**, whose 202 poll then restarted it forever (`evict` takes
+`keep=` now); a cancelled drag saved itself, because `dragend` fires for an
+abandoned drag and `dragover` had already moved the rows; a non-UTF-8 sibling
+`song.yaml` 500'd the practice screen; and a corrupt FLAC's 32-bit comment count
+was trusted, so a truncated file could make the library scan look hung.
+
+Checked and found correct: the `loop_end` redefinition from run 3 (identical for
+`pre_roll_every_pass=False`, and `RENDERER_VERSION` was bumped with the
+fingerprint change), `setlist.reorder`'s permutation guard,
+`_post_library_bind`'s path containment, `ladder.js` against `ladder.py`, and
+that the slug decision implied no ledger migration.
+
 **Run 4, 2026-09-06 (same session, unattended).** A backlog sweep rather than a
 phase: every item in `BACKLOG.md` that could be decided or built without hardware
 was, and the file now records each outcome with its reasoning instead of being a
