@@ -64,10 +64,30 @@ class Render:
     pre_roll_every_pass: bool = False
 
     @property
+    def effective_pre_roll_s(self) -> float:
+        """The lead-in that actually EXISTS in the rendered file.
+
+        `render_section` cuts `[max(0, start_s - pre_roll_s), end_s]`, so a
+        section 0.5 s into a recording cannot have a 2 s lead-in however
+        many beats the song asks for -- there is only 0.5 s of recording in
+        front of it. Clamped here, in the one place both clocks read
+        (CLAUDE.md's two-clock rule: convert at the boundary and nowhere
+        else), rather than in each consumer.
+
+        FOUND BY REVIEW 2026-09-07, and it was silent in the worst way:
+        `loop_start` and `total` came off the unclamped value while the
+        file came off the clamped cut, so every lap of such a section
+        started `pre_roll_s - start_s` playback-seconds late, `loop_end`
+        pointed past the end of the file, and `_bake_crossfade` folded the
+        seam that far INSIDE the section instead of at its head.
+        """
+        return max(0.0, min(self.pre_roll_s, self.start_s))
+
+    @property
     def loop_start(self) -> PlaybackSeconds:
         if self.pre_roll_every_pass:
             return PlaybackSeconds(0.0)
-        return PlaybackSeconds(self.pre_roll_s / self.speed)
+        return PlaybackSeconds(self.effective_pre_roll_s / self.speed)
 
     @property
     def loop_end(self) -> PlaybackSeconds:
@@ -84,23 +104,30 @@ class Render:
         # the section's real end and render.py trimmed those samples off
         # the cache file. See tests/test_clock.py for the named test.
         return PlaybackSeconds(
-            (self.pre_roll_s + (self.end_s - self.start_s)) / self.speed
+            (self.effective_pre_roll_s + (self.end_s - self.start_s)) / self.speed
             - self.crossfade_ms / 1000
         )
 
     @property
     def total(self) -> PlaybackSeconds:
-        return PlaybackSeconds((self.pre_roll_s + (self.end_s - self.start_s)) / self.speed)
+        return PlaybackSeconds(
+            (self.effective_pre_roll_s + (self.end_s - self.start_s)) / self.speed
+        )
 
 
 def to_playback(t: SourceSeconds, r: Render) -> PlaybackSeconds:
-    """Convert a position in the original file to a position in the render."""
-    return PlaybackSeconds((t - (r.start_s - r.pre_roll_s)) / r.speed)
+    """Convert a position in the original file to a position in the render.
+
+    The render's own t=0 is `start_s - effective_pre_roll_s`, not
+    `start_s - pre_roll_s`: what was cut is what exists (see
+    `Render.effective_pre_roll_s`).
+    """
+    return PlaybackSeconds((t - (r.start_s - r.effective_pre_roll_s)) / r.speed)
 
 
 def to_source(t: PlaybackSeconds, r: Render) -> SourceSeconds:
     """Inverse of to_playback: a position in the render back to the original file."""
-    return SourceSeconds(t * r.speed + (r.start_s - r.pre_roll_s))
+    return SourceSeconds(t * r.speed + (r.start_s - r.effective_pre_roll_s))
 
 
 def grid_to_playback(grid_s: Sequence[float], r: Render) -> list[PlaybackSeconds]:

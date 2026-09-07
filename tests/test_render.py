@@ -511,8 +511,12 @@ def test_bake_crossfade_every_pass_lead_in_blends_at_sample_zero_and_keeps_the_s
     samples = np.full((total_frames, 1), 0.2, dtype=np.float32)
     samples[-5:, 0] = 0.8  # distinguishable tail
 
+    # start_s 0.5, not 0.0: a section at second 0 has no recording in front
+    # of it, so it has no lead-in either, and since 2026-09-07 the clock
+    # clamps to what was actually cut (Render.effective_pre_roll_s). This
+    # test is about a lead-in that exists.
     render = Render(
-        start_s=0.0, end_s=1.0, pre_roll_s=0.5, speed=1.0, crossfade_ms=50.0,
+        start_s=0.5, end_s=1.5, pre_roll_s=0.5, speed=1.0, crossfade_ms=50.0,
         pre_roll_every_pass=True,
     )
     out = render_module._bake_crossfade(samples, sample_rate, render)
@@ -536,7 +540,7 @@ def test_bake_crossfade_respects_pre_roll_as_the_loop_start() -> None:
     sample_rate = 100
     total_frames = 150
     samples = np.arange(total_frames, dtype=np.float32).reshape(-1, 1)
-    render = Render(start_s=0.0, end_s=1.0, pre_roll_s=0.5, speed=1.0, crossfade_ms=50.0)
+    render = Render(start_s=0.5, end_s=1.5, pre_roll_s=0.5, speed=1.0, crossfade_ms=50.0)
     out = render_module._bake_crossfade(samples, sample_rate, render)
     # loop_end = 50 + 100 - 5 = 145
     assert len(out) == 145

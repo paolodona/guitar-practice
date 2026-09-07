@@ -201,21 +201,27 @@ def test_render_default_crossfade_ms() -> None:
 
 # ---------------------------------------------------------------------------
 # pre_roll_every_pass (Phase 1, G2) -- docs/02-data-model.md:47.
+#
+# Every Render below starts at 60s, not 0s: a section at second 0 cannot
+# have a lead-in at all (there is no recording in front of it), and since
+# the review of 2026-09-07 the clock says so -- `effective_pre_roll_s`
+# clamps to what was actually cut. These tests are about WHERE a lap
+# begins, so they need a section that really does have a lead-in.
 # ---------------------------------------------------------------------------
 
 
 def test_render_pre_roll_every_pass_defaults_false() -> None:
-    r = Render(start_s=0.0, end_s=10.0, pre_roll_s=2.0, speed=1.0)
+    r = Render(start_s=60.0, end_s=70.0, pre_roll_s=2.0, speed=1.0)
     assert r.pre_roll_every_pass is False
 
 
 def test_pre_roll_every_pass_false_puts_loop_start_after_the_pre_roll() -> None:
-    r = Render(start_s=0.0, end_s=10.0, pre_roll_s=2.0, speed=0.5, pre_roll_every_pass=False)
+    r = Render(start_s=60.0, end_s=70.0, pre_roll_s=2.0, speed=0.5, pre_roll_every_pass=False)
     assert r.loop_start == 4.0  # pre_roll_s / speed, unchanged from before this field existed
 
 
 def test_pre_roll_every_pass_true_puts_loop_start_at_zero() -> None:
-    r = Render(start_s=0.0, end_s=10.0, pre_roll_s=2.0, speed=0.5, pre_roll_every_pass=True)
+    r = Render(start_s=60.0, end_s=70.0, pre_roll_s=2.0, speed=0.5, pre_roll_every_pass=True)
     assert r.loop_start == 0.0
 
 
@@ -228,8 +234,8 @@ def test_pre_roll_every_pass_true_keeps_loop_end_at_the_section_end() -> None:
     # truncating the last few seconds of every pass, and render.py would
     # trim those same samples off the cache file. loop_end is the position
     # the SECTION ends at; it does not care where the lap began.
-    always = Render(start_s=0.0, end_s=10.0, pre_roll_s=2.0, speed=0.5, pre_roll_every_pass=True)
-    once = Render(start_s=0.0, end_s=10.0, pre_roll_s=2.0, speed=0.5, pre_roll_every_pass=False)
+    always = Render(start_s=60.0, end_s=70.0, pre_roll_s=2.0, speed=0.5, pre_roll_every_pass=True)
+    once = Render(start_s=60.0, end_s=70.0, pre_roll_s=2.0, speed=0.5, pre_roll_every_pass=False)
     assert always.loop_end == pytest.approx(once.loop_end)
     assert always.loop_end == pytest.approx(always.total - 0.010)
 
@@ -239,8 +245,8 @@ def test_pre_roll_every_pass_true_makes_the_lap_longer_by_the_lead_in() -> None:
     # lap that replays the lead-in lasts the lead-in longer. total is the
     # same either way -- it is a property of what was rendered, not of
     # where the loop points sit.
-    always = Render(start_s=0.0, end_s=10.0, pre_roll_s=2.0, speed=0.5, pre_roll_every_pass=True)
-    once = Render(start_s=0.0, end_s=10.0, pre_roll_s=2.0, speed=0.5, pre_roll_every_pass=False)
+    always = Render(start_s=60.0, end_s=70.0, pre_roll_s=2.0, speed=0.5, pre_roll_every_pass=True)
+    once = Render(start_s=60.0, end_s=70.0, pre_roll_s=2.0, speed=0.5, pre_roll_every_pass=False)
     always_lap = always.loop_end - always.loop_start
     once_lap = once.loop_end - once.loop_start
     assert always_lap - once_lap == pytest.approx(2.0 / 0.5)
@@ -304,3 +310,42 @@ def test_the_ladder_still_never_climbs_past_the_target_by_itself() -> None:
     assert max(rungs(cfg)) == 100.0
     state = LadderState(speed=100.0, clean_at_speed=0)
     assert on_clean(state, cfg).speed == 100.0
+
+
+# ---------------------------------------------------------------------------
+# A lead-in that reaches before the start of the recording (found by review,
+# 2026-09-07). `render_section` cuts [max(0, start_s - pre_roll_s), end_s],
+# so the clock has to clamp the same way or it describes a file nobody wrote.
+
+
+def test_a_pre_roll_longer_than_the_songs_own_head_is_clamped() -> None:
+    r = Render(start_s=0.5, end_s=30.5, pre_roll_s=2.0, speed=0.5)
+    assert r.effective_pre_roll_s == 0.5  # only 0.5s of recording exists in front
+    assert r.loop_start == pytest.approx(1.0)  # 0.5 / 0.5
+    assert r.total == pytest.approx(61.0)  # (0.5 + 30) / 0.5
+    assert r.loop_end == pytest.approx(61.0 - 0.010)
+
+
+def test_the_clamp_is_what_keeps_loop_end_inside_the_rendered_file() -> None:
+    """The failure it prevents: loop_end past the end of the file means a
+    native loop reads silence (or stops early), and `_bake_crossfade` folds
+    the seam that far INSIDE the section rather than at its head."""
+    r = Render(start_s=0.5, end_s=30.5, pre_roll_s=2.0, speed=1.0)
+    rendered_length_s = (r.end_s - max(0.0, r.start_s - r.pre_roll_s))
+    assert r.total == pytest.approx(rendered_length_s)
+    assert r.loop_end <= rendered_length_s
+
+
+def test_the_two_clocks_still_round_trip_through_a_clamped_pre_roll() -> None:
+    r = Render(start_s=0.5, end_s=30.5, pre_roll_s=2.0, speed=0.6)
+    assert to_source(to_playback(10.0, r), r) == pytest.approx(10.0)
+    # The section's own start is still exactly loop_start, which is the
+    # property every consumer actually relies on.
+    assert to_playback(r.start_s, r) == pytest.approx(r.loop_start)
+    assert to_playback(r.end_s, r) == pytest.approx(r.loop_end + r.crossfade_ms / 1000)
+
+
+def test_an_ordinary_pre_roll_is_untouched_by_the_clamp() -> None:
+    r = Render(start_s=60.0, end_s=90.0, pre_roll_s=2.0, speed=0.5)
+    assert r.effective_pre_roll_s == 2.0
+    assert r.loop_start == pytest.approx(4.0)

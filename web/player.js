@@ -549,10 +549,16 @@ export class RealtimeEngine extends EventTarget {
 export function renderClock(section, speedPct) {
   const speed = speedPct / 100;
   const crossfadeS = (section.crossfadeMs ?? 10) / 1000;
-  const loopStart = section.preRollEveryPass ? 0 : section.preRollS / speed;
-  const total = (section.preRollS + (section.endS - section.startS)) / speed;
+  // `clock.Render.effective_pre_roll_s`, mirrored: the server cuts
+  // [max(0, start_s - pre_roll_s), end_s], so a section 0.5s into a
+  // recording has 0.5s of lead-in however many beats the song asks for.
+  // FOUND BY REVIEW 2026-09-07 -- without the clamp every lap of such a
+  // section began late and loopEnd pointed past the end of the buffer.
+  const preRollS = Math.max(0, Math.min(section.preRollS, section.startS));
+  const loopStart = section.preRollEveryPass ? 0 : preRollS / speed;
+  const total = (preRollS + (section.endS - section.startS)) / speed;
   const loopEnd = total - crossfadeS;
-  return { speed, loopStart, loopEnd, total, lap: loopEnd - loopStart, crossfadeS };
+  return { speed, loopStart, loopEnd, total, lap: loopEnd - loopStart, crossfadeS, preRollS };
 }
 
 /**
@@ -732,10 +738,12 @@ export class BufferEngine extends EventTarget {
   /** `position()` converted back to SOURCE seconds — the recording's own
    *  clock, what the waveform and the section boundaries are in. */
   sourcePosition() {
+    // The guard comes FIRST: _clock() dereferences _section, so asking
+    // before a section is loaded used to throw instead of answering 0
+    // (found by review 2026-09-07).
+    if (!this._section) return 0;
     const clock = this._clock();
-    const section = this._section;
-    if (!section) return 0;
-    return this.position() * clock.speed + (section.startS - section.preRollS);
+    return this.position() * clock.speed + (this._section.startS - clock.preRollS);
   }
   /** The shift currently loaded, in semitones. */
   get semitones() { return this._semitones; }
@@ -750,6 +758,13 @@ export class BufferEngine extends EventTarget {
       throw new Error('BufferEngine.loadSection: engine already destroyed');
     }
     this._stopEverything();
+    // `_stopEverything` tore the graph down, so nothing is playing any
+    // more and this must say so. FOUND BY REVIEW 2026-09-07: it did not,
+    // so the play() that follows a reload hit its own "already playing"
+    // guard and created no node -- toggling "Guitar only" mid-practice
+    // (screens/practice.js does exactly loadSection-then-play) went
+    // permanently silent, and pause() no-oped too.
+    this._playing = false;
     this._section = section;
     this._buffer = await this._render(this._speedPct, this._semitones);
     this._position = 0;
@@ -801,7 +816,9 @@ export class BufferEngine extends EventTarget {
     this._require('seek');
     const clock = this._clock();
     const section = this._section;
-    const playback = (sourceSeconds - (section.startS - section.preRollS)) / clock.speed;
+    // The render's own t=0 is start_s minus the pre-roll that actually
+    // exists -- clock.to_playback's exact arithmetic, via the same clamp.
+    const playback = (sourceSeconds - (section.startS - clock.preRollS)) / clock.speed;
     const clamped = Math.min(clock.loopEnd, Math.max(0, playback));
     const wasPlaying = this._playing;
     this._stopEverything();
@@ -913,7 +930,20 @@ export class BufferEngine extends EventTarget {
   }
 
   async _changeRender(speedPct, semitones) {
-    if (speedPct === this._speedPct && semitones === this._semitones) return;
+    // Compare against what the engine is HEADING FOR, not what it is
+    // playing: a scheduled swap has not updated `_speedPct` yet (that
+    // happens when the seam arrives), so comparing against the live value
+    // made ArrowUp-then-ArrowDown before the seam cancel nothing at all --
+    // the engine went to 55% while the screen said 50% and every rep was
+    // logged at 50. FOUND BY REVIEW 2026-09-07.
+    const heading = this._pendingSwap ?? this;
+    if (speedPct === heading.speedPct && semitones === heading.semitones) return;
+    // Asking for exactly what is already playing, with a swap pending, is
+    // "never mind": drop the queued node and put the outgoing one back.
+    if (this._pendingSwap && speedPct === this._speedPct && semitones === this._semitones) {
+      this._cancelPendingSwap();
+      return;
+    }
     if (!this._section) {
       this._speedPct = speedPct;
       this._semitones = semitones;
@@ -964,23 +994,64 @@ export class BufferEngine extends EventTarget {
     // is not a restart, so the lead-in does not replay for it.
     source.start(seamTime, clock.loopStart);
 
+    // Clear any fade a previous (now replaced) swap left scheduled in this
+    // window -- Web Audio refuses a value curve that overlaps another.
+    this._active.gain.gain.cancelScheduledValues(seamTime);
     this._active.gain.gain.setValueCurveAtTime(
       equalPowerCurve(CROSSFADE_POINTS, 'out'), seamTime, crossfadeS,
     );
-    // The old node keeps looping into its own (already crossfaded) head for
-    // the length of the fade, and stops there — two nodes overlap for
-    // exactly one crossfade, never longer.
-    this._active.source.stop(seamTime + crossfadeS);
+    // The FADE is what retires the old node: its gain reaches 0 at
+    // seamTime + crossfadeS on the audio thread and holds there, so the
+    // node is inaudible from that instant whatever the main thread is
+    // doing. stop()/disconnect() is only cleanup, and it is deferred to a
+    // timer rather than done when the seam is *observed* -- the seam clock
+    // is polled every 50ms and the crossfade is 10ms, so retiring the node
+    // on observation cut roughly one fade in five off partway through, at
+    // ~0.98 gain. That is precisely the click Phase 2's listening gate
+    // exists to catch, generated by the code meant to prevent it. FOUND BY
+    // REVIEW 2026-09-07.
+    const outgoing = this._active;
+    const retireIn = Math.max(0, (seamTime + crossfadeS) - this.ctx.currentTime) * 1000;
+    const retireTimer = setTimeout(() => this._retire(outgoing), retireIn + 20);
+    if (retireTimer && typeof retireTimer.unref === 'function') retireTimer.unref();
 
-    this._pendingSwap = { seamTime, source, gain, clock, buffer, speedPct, semitones };
+    this._pendingSwap = {
+      seamTime, source, gain, clock, buffer, speedPct, semitones,
+      outgoing, retireTimer,
+    };
   }
 
+  /** Stop and unhook a node that has finished fading out. Idempotent. */
+  _retire(node) {
+    if (!node || node.retired) return;
+    node.retired = true;
+    try { node.source.stop(); } catch { /* already stopped */ }
+    node.source.disconnect();
+    node.gain.disconnect();
+  }
+
+  /**
+   * Drop a swap that was scheduled but has not been adopted, and undo what
+   * scheduling it did to the node still playing: the queued node is
+   * stopped before it ever sounds, its retirement timer is cleared, and
+   * the outgoing node's fade-out is cancelled and its gain put back to 1.
+   *
+   * That last part is why the old node is no longer *stopped* at the seam
+   * (see `_scheduleSwap`): a scheduled stop cannot be reliably taken back,
+   * so cancelling a swap would have left the music simply ending at a seam
+   * nothing ever crossed.
+   */
   _cancelPendingSwap() {
     if (!this._pendingSwap) return;
-    const { source, gain } = this._pendingSwap;
+    const { source, gain, seamTime, outgoing, retireTimer } = this._pendingSwap;
+    clearTimeout(retireTimer);
     try { source.stop(); } catch { /* never started, or already stopped */ }
     source.disconnect();
     gain.disconnect();
+    if (outgoing && !outgoing.retired) {
+      outgoing.gain.gain.cancelScheduledValues(seamTime);
+      outgoing.gain.gain.setValueAtTime(1, seamTime);
+    }
     this._pendingSwap = null;
   }
 
@@ -989,8 +1060,9 @@ export class BufferEngine extends EventTarget {
   _adoptSwap() {
     const swap = this._pendingSwap;
     this._pendingSwap = null;
-    this._active.source.disconnect();
-    this._active.gain.disconnect();
+    // Deliberately does NOT tear the outgoing node down: it is still
+    // fading, and `_scheduleSwap`'s own timer retires it once it has
+    // finished. See that function for the click this caused.
     this._speedPct = swap.speedPct;
     this._semitones = swap.semitones;
     this._buffer = swap.buffer;
@@ -1018,14 +1090,14 @@ export class BufferEngine extends EventTarget {
   }
 
   _stopEverything() {
+    // Retire whatever is mid-fade first: a node left over from a swap that
+    // was adopted moments ago is still connected on purpose, and a
+    // teardown has to take it with it rather than wait for its timer.
+    const retiring = this._pendingSwap?.outgoing;
     this._cancelPendingSwap();
-    if (this._active) {
-      const { source, gain } = this._active;
-      try { source.stop(); } catch { /* not started */ }
-      source.disconnect();
-      gain.disconnect();
-      this._active = null;
-    }
+    if (retiring && retiring !== this._active) this._retire(retiring);
+    this._retire(this._active);
+    this._active = null;
     this._nextSeam = null;
   }
 
