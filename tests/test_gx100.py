@@ -95,7 +95,12 @@ def test_resolve_looks_a_section_patch_up_and_answers_none_when_unknown(
 def test_repo_path_comes_from_config_and_expands_a_user_path(tmp_path, monkeypatch) -> None:
     from woodshed.config import Config
 
+    # Path.expanduser() resolves "~" from HOME on posix but from USERPROFILE
+    # on Windows (ntpath.expanduser ignores HOME even when it is set) -- both
+    # are set so this test pins gx100.repo_path's behaviour on either platform
+    # rather than only the one whatever container last ran it happened to be.
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     (tmp_path / "gx100").mkdir()
     config = Config.model_validate({"gx100": {"path": "~/gx100"}})
     assert gx100.repo_path(config) == tmp_path / "gx100"

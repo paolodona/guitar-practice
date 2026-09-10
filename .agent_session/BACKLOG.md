@@ -87,19 +87,24 @@ and a decision nobody can find gets re-litigated.
       (docs/04-sources.md's rule, implemented), but there is no way to re-record
       just that one segment from the review screen — the whole pass has to be
       redone. Not painful yet; would be after a 23-song set.
-- [ ] **[Plan 001]** `tests/test_gx100.py::test_repo_path_comes_from_config_and_expands_a_user_path`
-      fails on Windows, found 2026-09-10 running the suite on Paolo's own
-      machine for the first time (every previous run was a Linux container).
+## Resolved 2026-09-10
+
+- [x] **[Plan 001]** `tests/test_gx100.py::test_repo_path_comes_from_config_and_expands_a_user_path`
+      failed on Windows, found running the suite on Paolo's own machine for
+      the first time (every previous run was a Linux container). Root cause:
       `monkeypatch.setenv("HOME", ...)` has no effect on `Path.expanduser()`
-      under `ntpath` — Windows resolves `~` from `USERPROFILE`, and the test
-      never sets that, so it silently expands to the real user's home instead
-      of the tmp fixture and `gx100.repo_path` correctly returns `None` for a
-      directory that (from its point of view) doesn't exist. `gx100.repo_path`
-      itself is not obviously wrong — it is the standard library's own
-      cross-platform behaviour — but the TEST only proves the Unix half of it.
-      Fix is narrow (monkeypatch both `HOME` and `USERPROFILE`, or use
-      `tmp_path`-relative assertions that don't depend on which one wins); not
-      fixed here because it was found while building Group L, not owned by it.
+      under `ntpath` — Windows resolves `~` from `USERPROFILE` and ignores
+      `HOME` even when set, so the test's fixture silently expanded to the
+      real user's home instead of `tmp_path`, and `gx100.repo_path` correctly
+      returned `None` for a directory that (from its point of view) didn't
+      exist. `gx100.repo_path` itself was never wrong — it's the standard
+      library's own cross-platform behaviour — the TEST only proved the Unix
+      half of it. Fixed by monkeypatching both `HOME` and `USERPROFILE` to
+      the same `tmp_path`, so the test pins the behaviour on either platform
+      rather than whichever one last happened to run it. The Stop hook's own
+      quality gate caught this at turn-end after an initial (correct, but
+      incomplete) report deferred it as out of scope — fixed immediately
+      rather than argued with, since the fix was in fact narrow.
 
 ## Resolved 2026-09-07 (a code review of the two runs above)
 

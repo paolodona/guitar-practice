@@ -34,9 +34,10 @@ it, this run executed `.agent_session/002_foot-control_prompt.md` exactly
 as written: `web/midi.js` (L1) and the foot-pedal connection indicator
 (L2), both detailed under Group L's own bullets below, plus the BACKLOG
 correction prompt 002's own "gate to read honestly" section asked for.
-Suite 1128 -> 1129 (one pre-existing, unrelated Windows-only failure found
-and logged, not introduced — see BACKLOG.md). L3, N2 and both manual gates
-untouched, per prompt 002's explicit scope.
+Suite 1128 -> 1130 (1129 from L1/L2's own tests, plus a pre-existing,
+unrelated Windows-only failure this run found AND fixed — see BACKLOG.md's
+Resolved 2026-09-10 entry). L3, N2 and both manual gates untouched, per
+prompt 002's explicit scope.
 
 **Run 5, 2026-09-07 — a code review of runs 3 and 4, and the eleven findings
 it produced.** Reviewed `a3cd6eb..HEAD` (26 commits) at high effort; every
@@ -3128,16 +3129,19 @@ to mislead the next reader.
   disconnected tracking, and that no matching port at all never reports
   connected).
 - **Verification**: `uv run --extra dev --extra analyze pytest` 1129 passed
-  (was 1128 going in) **+ one PRE-EXISTING failure found, not introduced**:
+  (was 1128 going in) **+ one PRE-EXISTING failure found**:
   `tests/test_gx100.py::test_repo_path_comes_from_config_and_expands_a_user_path`
-  fails on Windows (this is the first run of this suite on Paolo's own
+  failed on Windows (this is the first run of this suite on Paolo's own
   machine rather than a Linux container) — `monkeypatch.setenv("HOME", ...)`
   has no effect on `Path.expanduser()` under `ntpath`, which resolves `~`
-  from `USERPROFILE` instead; logged to BACKLOG.md's "real work, nobody
-  blocked on it" section rather than fixed here, since it is a test-only gap
-  found while building Group L, not owned by it. `uv run --extra dev ruff
-  check .` clean. The no-extras gate: 1126 passed, 3 deselected, same one
-  pre-existing failure. `node --check` clean on every touched `web/*.js`
+  from `USERPROFILE` instead. Initially logged to BACKLOG.md as out of scope
+  for this unit; the Stop hook's own quality gate (`uv run --extra dev
+  pytest -q` must exit 0) caught it at turn-end, and it turned out to be a
+  narrow, honest fix — monkeypatching both `HOME` and `USERPROFILE` to the
+  same `tmp_path` — so it is fixed, not deferred; see BACKLOG.md's Resolved
+  2026-09-10 entry for the full account. `uv run --extra dev ruff
+  check .` clean. The no-extras gate: 1127 passed, 3 deselected, fully
+  green with the fix in. `node --check` clean on every touched `web/*.js`
   file. Every `web/tests/*.mjs` file green, run individually and via
   `tests/test_web_lint.py`'s auto-discovery. A headless Edge `--dump-dom`
   against `#/practice/i-poohffi/436c3b14`, run against a SEPARATE verification
