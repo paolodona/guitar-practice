@@ -30,3 +30,11 @@ sections:
   target_speed: 100.0
   counts_toward_readiness: true
   full_song: true
+- id: 21870fe8
+  name: New section
+  start_s: 21.0
+  end_s: 33.30248760780143
+  snapped: free
+  target_speed: 100.0
+  counts_toward_readiness: true
+  full_song: false
