@@ -125,6 +125,7 @@ import { createEngine } from '../player.js';
 import { Ladder, nextRung } from '../ladder.js';
 import { ACTIONS, on, dispatch } from '../actions.js';
 import { KEY_MAP } from '../keys.js';
+import { onConnectionChange } from '../midi.js';
 
 // Human-readable form of the KeyboardEvent.key values KEY_MAP uses — for
 // the help overlay only; keys.js itself never needs a display label.
@@ -704,6 +705,7 @@ export function mount(el, payload) {
       </div>
 
       <div data-foot style="display:flex;gap:12px;padding-top:30px"></div>
+      <div class="mono" data-midi-status style="font-size:12px;color:var(--ink-3,#6A7873);letter-spacing:.03em;padding-top:8px;text-align:right"></div>
     </div>
 
     <div data-leadin-overlay style="position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:6px">
@@ -749,6 +751,7 @@ export function mount(el, payload) {
   const playheadEl = root.querySelector('[data-playhead]');
   const playheadCapEl = root.querySelector('[data-playhead-cap]');
   const footEl = root.querySelector('[data-foot]');
+  const midiStatusEl = root.querySelector('[data-midi-status]');
   const leadInOverlay = root.querySelector('[data-leadin-overlay]');
   const leadInCountEl = root.querySelector('[data-leadin-count]');
   const leadInPillsEl = root.querySelector('[data-leadin-pills]');
@@ -810,6 +813,20 @@ export function mount(el, payload) {
     if (playChipIconEl) playChipIconEl.innerHTML = playing ? PAUSE_ICON : PLAY_ICON;
   }
   renderFootIcon();
+
+  // ---- L2: a quiet foot-pedal connection indicator, driven by midi.js's
+  // own state (this process cannot enumerate a pedal itself -- see
+  // doctor.py's identical "matched in the browser, never from here"). No
+  // settings screen exists for "Chrome/Edge only" to live on (there is no
+  // settings artboard), so the browser note sits here too, at the one
+  // place a disconnected pedal is actually noticed. ----
+  function renderMidiStatus(connected) {
+    if (!midiStatusEl) return;
+    midiStatusEl.textContent = connected
+      ? 'Foot pedal connected'
+      : 'No foot pedal detected — Web MIDI needs Chrome or Edge';
+  }
+  const unsubMidi = onConnectionChange(renderMidiStatus);
 
   // ---- transpose stepper ----
   root.querySelector('[data-shift-minus]').addEventListener('click', () => dispatch('transpose_down', 'ui'));
@@ -1328,6 +1345,7 @@ export function mount(el, payload) {
     clearTimeout(shiftPersistTimer);
     resizeObserver.disconnect();
     window.removeEventListener('resize', applyScale);
+    unsubMidi();
     for (const unsub of unsubs) unsub();
     if (engine) {
       try { engine.destroy(); } catch (err) { /* already torn down or never finished loading */ }

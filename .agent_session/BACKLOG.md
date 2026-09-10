@@ -33,9 +33,15 @@ and a decision nobody can find gets re-litigated.
       is no mapping to import from anywhere, which is the same conclusion
       `gx100.py` already reaches from the other direction.
 - [ ] **[Plan 001]** Settle the three eyes-on-the-unit GX-100 questions in
-      `docs/05-foot-control.md` and write the answers back into that file. Group
-      L (MIDI in) is blocked on these; they need ten minutes at the actual pedal.
-      **Add a fourth to that sitting**: whether `PC n` is a plain identity and
+      `docs/05-foot-control.md` and write the answers back into that file. **Only
+      L3 (expression-pedal-as-speed-knob) is actually blocked on these** — see
+      prompt 002's own re-read, confirmed correct while building L1/L2
+      (2026-09-10): question (1), which CC each switch sends, is config-driven
+      (`config.midi.input`/`config.midi.map`), so `midi.js` never depended on it;
+      question (2)'s fallback (a dedicated USB MIDI controller) changes the
+      hardware, not this code. They still need ten minutes at the actual pedal
+      for L3 and for N2 below. **Add a fourth to that sitting**: whether `PC n` is
+      a plain identity and
       whether the `CC#0 → CC#32 → PC` ordering wedges the unit — `gx100` reports
       both (see `docs/08-unification.md`) and this repo's own docs still say the
       opposite. Whichever way it falls, one of the two documents is wrong and
@@ -81,6 +87,19 @@ and a decision nobody can find gets re-litigated.
       (docs/04-sources.md's rule, implemented), but there is no way to re-record
       just that one segment from the review screen — the whole pass has to be
       redone. Not painful yet; would be after a 23-song set.
+- [ ] **[Plan 001]** `tests/test_gx100.py::test_repo_path_comes_from_config_and_expands_a_user_path`
+      fails on Windows, found 2026-09-10 running the suite on Paolo's own
+      machine for the first time (every previous run was a Linux container).
+      `monkeypatch.setenv("HOME", ...)` has no effect on `Path.expanduser()`
+      under `ntpath` — Windows resolves `~` from `USERPROFILE`, and the test
+      never sets that, so it silently expands to the real user's home instead
+      of the tmp fixture and `gx100.repo_path` correctly returns `None` for a
+      directory that (from its point of view) doesn't exist. `gx100.repo_path`
+      itself is not obviously wrong — it is the standard library's own
+      cross-platform behaviour — but the TEST only proves the Unix half of it.
+      Fix is narrow (monkeypatch both `HOME` and `USERPROFILE`, or use
+      `tmp_path`-relative assertions that don't depend on which one wins); not
+      fixed here because it was found while building Group L, not owned by it.
 
 ## Resolved 2026-09-07 (a code review of the two runs above)
 

@@ -38,6 +38,7 @@
  */
 
 import { attach } from './keys.js';
+import { attach as attachMidi } from './midi.js';
 
 const SCREEN_ROOT_ID = 'screen-root';
 const SETLIST_STORAGE_KEY = 'woodshed:setlist';
@@ -271,6 +272,14 @@ export async function route() {
  */
 export function start() {
   attach(window);
+  // Fire-and-forget: attach()'s own contract is "never throws, never
+  // blocks" (no Web MIDI at all, a refused permission, or no matching
+  // port all degrade to no foot control this session), so start() does
+  // not await it -- the page is interactive on the keyboard/mouse
+  // regardless of how long requestMIDIAccess takes to resolve.
+  attachMidi().catch((err) => {
+    console.warn(`app.js: midi.attach() failed unexpectedly (${err && err.message})`);
+  });
   window.addEventListener('hashchange', () => {
     route();
   });

@@ -16,6 +16,28 @@ before fanning out — D0 must land before D1–D7, and P1 gates Groups D / F / 
 
 ## Implementation progress (this run started 2026-09-05, unattended)
 
+**Run 6, 2026-09-10 — prompt 002 executed (Group L1/L2), on Paolo's own
+machine rather than a container, alongside another surprise: this session
+had independently started re-implementing Phase 2 Group J from scratch,
+not having fetched `origin/main` first and so not knowing Run 3 had already
+built and Run 5 already reviewed it.** That duplicate work (a second,
+never-reviewed `BufferEngine`) was found via `git push`'s own rejection,
+discarded in favour of the real history, and a small amount of genuine data
+that had landed only locally in the meantime (three live practice reps and
+a hand-drawn section on `can-t-stop`, made against the server this same
+session had started earlier for an unrelated request) was reapplied on top
+of `origin/main` rather than lost. Recorded here as the actual process
+lesson: **`/implement-plan`'s own staleness check compares the plan's
+`GitRef` against local `HEAD`, and never fetches** — on a repo more than
+one session can push to, that is not enough by itself. With that behind
+it, this run executed `.agent_session/002_foot-control_prompt.md` exactly
+as written: `web/midi.js` (L1) and the foot-pedal connection indicator
+(L2), both detailed under Group L's own bullets below, plus the BACKLOG
+correction prompt 002's own "gate to read honestly" section asked for.
+Suite 1128 -> 1129 (one pre-existing, unrelated Windows-only failure found
+and logged, not introduced — see BACKLOG.md). L3, N2 and both manual gates
+untouched, per prompt 002's explicit scope.
+
 **Run 5, 2026-09-07 — a code review of runs 3 and 4, and the eleven findings
 it produced.** Reviewed `a3cd6eb..HEAD` (26 commits) at high effort; every
 finding was driven against the tests' own synthetic AudioContext or a real
@@ -3042,11 +3064,93 @@ not care which device sent the CC.
 ### Work units
 
 **Group L — MIDI**
-- **L1** `web/midi.js` — `requestMIDIAccess({sysex: false})`, substring match on
-  `config.midi.input`, `onstatechange` for hot-plug, CC ≥ 64 counts as a press,
-  150 ms debounce. Maps CC → action name and **nothing else**.
-- **L2** the foot legend in the practice view; the settings screen naming Chrome/Edge
-- **L3** optional expression-pedal → speed, snapping to rungs on release
+
+**L1/L2 done, 2026-09-10, per prompt 002's own handoff** (written 2026-09-07 at
+the end of the session that finished Groups J/K/M/N1 — this run executed it,
+unattended, following its scope exactly: L1/L2 built, L3/N2/both manual gates
+explicitly left alone). **The plan's own "Before starting" note turned out to
+be more conservative than the actual dependency**, exactly as prompt 002's own
+"A gate to read honestly, not to ignore" section predicted and this run
+confirmed by re-reading `docs/05-foot-control.md` itself: question (1) is
+config-driven (`config.midi.input`/`config.midi.map`), so L1 never depended on
+it; question (2)'s stated fallback (a dedicated USB controller) changes the
+hardware, not this code; question (3) blocks **L3 only**. BACKLOG.md's entry
+updated to say so, rather than leaving the older "Group L is blocked" reading
+to mislead the next reader.
+- **L1** (done) `web/midi.js` — `requestMIDIAccess({sysex: false})`,
+  case-insensitive substring match on `config.midi.input` (empty/unset matches
+  every port — an explicit, tested degrade, not an accident), `onstatechange`
+  re-scans and (re)attaches/detaches per port so a pedal plugged in after page
+  load still works, CC ≥ 64 counts as a press and only the press (never the
+  release) fires, 150 ms debounce **keyed by action, not by CC** (two CCs
+  mapped to the same action still only fire once — the same "one action,
+  however many inputs name it" reasoning `keys.js`'s own two `retract_rep`
+  keys already establish). `CC_MAP` is `ACTIONS`' own `cc` field inverted,
+  never hand-duplicated; **`config.midi.map` overrides it per CC** (a real
+  design decision the plan itself left open, resolved per prompt 002's own
+  recommendation and stated here rather than only in a commit message): which
+  physical CC a footswitch sends is question (1), answered at the pedal and
+  must be settable without editing this file, while `ACTIONS` stays the only
+  place an action NAME is defined — an unknown action name in
+  `config.midi.map` throws (`resolveCcMap`), caught by `attach()` and logged
+  rather than silently ignored. Never throws, never blocks startup: no
+  `requestMIDIAccess` at all (Safari), a refused permission (Firefox), or a
+  failed `GET /api/config` all degrade to "no foot control this session",
+  matching `screens/practice.js`'s own engine-unavailable degrade pattern.
+  Wired into `app.js`'s `start()` beside `keys.js`'s own `attach(window)`,
+  fire-and-forget (not awaited, so a slow/never-resolving `requestMIDIAccess`
+  cannot delay the page becoming interactive on keyboard/mouse). 19 tests in
+  `web/tests/test_midi.mjs` (port matching, hot-plug, the ≥64 rule, the
+  release-fires-nothing rule, per-action debounce with two different CCs
+  proving it isn't per-CC, the override/unknown-action-throws contract, both
+  "no MIDI at all" degrades, the connection-state pair below) plus the Phase
+  3 gate's own lint contract, written here rather than deferred to the gate:
+  midi.js's own `import` list (statically parsed) contains nothing beyond
+  `./actions.js` and `./app.js` — the concrete, checkable form of "no second
+  place a control's meaning gets decided", modelled on
+  `tests/test_web_lint.py`'s existing `playbackRate` scan as instructed.
+- **L2** (done) — the plan's "settings screen naming Chrome/Edge" does not
+  exist as written: there is no settings screen and no settings artboard
+  (`design/` has nine artboards, none of them this), so building one for a
+  single sentence was rejected in favour of prompt 002's own instruction —
+  "put the note where a person meets the problem". `midi.js` gains
+  `isConnected()`/`onConnectionChange(handler)` (an `EventTarget`-backed
+  singleton — `attach()` is called once, globally, from `app.js`'s `start()`,
+  and a mounted screen reads the current value then subscribes for live
+  changes), set from the SAME `refresh()` that already tracks which ports are
+  attached — not a second MIDI query. `screens/practice.js`'s foot strip
+  gains a quiet caption beneath it (`.mono`, `--ink-3`, matching the "Guitar
+  only" toggle's own status-line styling): "Foot pedal connected" or "No foot
+  pedal detected — Web MIDI needs Chrome or Edge" — the browser note lands
+  exactly where a disconnected pedal is actually noticed, subscribed on
+  mount and unsubscribed on unmount alongside every other listener the
+  screen already tears down. 2 more tests in `test_midi.mjs` (connected/
+  disconnected tracking, and that no matching port at all never reports
+  connected).
+- **Verification**: `uv run --extra dev --extra analyze pytest` 1129 passed
+  (was 1128 going in) **+ one PRE-EXISTING failure found, not introduced**:
+  `tests/test_gx100.py::test_repo_path_comes_from_config_and_expands_a_user_path`
+  fails on Windows (this is the first run of this suite on Paolo's own
+  machine rather than a Linux container) — `monkeypatch.setenv("HOME", ...)`
+  has no effect on `Path.expanduser()` under `ntpath`, which resolves `~`
+  from `USERPROFILE` instead; logged to BACKLOG.md's "real work, nobody
+  blocked on it" section rather than fixed here, since it is a test-only gap
+  found while building Group L, not owned by it. `uv run --extra dev ruff
+  check .` clean. The no-extras gate: 1126 passed, 3 deselected, same one
+  pre-existing failure. `node --check` clean on every touched `web/*.js`
+  file. Every `web/tests/*.mjs` file green, run individually and via
+  `tests/test_web_lint.py`'s auto-discovery. A headless Edge `--dump-dom`
+  against `#/practice/i-poohffi/436c3b14`, run against a SEPARATE verification
+  server instance on a different port (Paolo's own server on 8420 was live —
+  song.yaml/reps.jsonl kept changing under this session's feet — deliberately
+  left untouched rather than restarted or killed) confirmed the screen
+  mounts clean, the real section name renders, and the new "No foot pedal
+  detected — Web MIDI needs Chrome or Edge" caption appears exactly once with
+  no console errors.
+- **L3 — still explicitly out of scope, per prompt 002 and unchanged here**:
+  the one part genuinely blocked on the pedal (question (3) is whether the
+  continuous CC is smooth/cheap enough to be a speed knob, measured at the
+  unit). Do not guess at it.
 
 **Group M — sources (∥)**
 
