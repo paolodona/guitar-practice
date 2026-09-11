@@ -19,13 +19,18 @@ of it is time-limited.**
   correctly attributed. None of them can tell you when the original moves, and
   no test spans the boundary.
 
-- **One fact has already arrived here wrong.** `docs/05-foot-control.md:99-110`
-  repeats `rambass-live`'s program-map claim — *"a PC number does not name a
-  memory"* — and calls its `CC#0 → CC#32 → PC` ordering correct. The `gx100`
-  repo disproved both on the unit on 2026-09-06: `PC n` is a plain identity, and
-  that CC pair wedged the pedal until its power was pulled. This doc's Phase 3
-  "send a Program Change on entering a section" plan is built on the superseded
-  version.
+- **One fact had already arrived here wrong, and is now fixed.** `docs/
+  05-foot-control.md` used to repeat `rambass-live`'s program-map claim — *"a
+  PC number does not name a memory"* — and call its `CC#0 → CC#32 → PC`
+  ordering correct, inferred from a 2023 gig project's Reaper MIDI items and
+  never checked against the unit. The `gx100` repo tested it directly on
+  2026-09-06 and found both wrong: `PC n` is a plain identity (no `PROGRAM
+  MAP` indirection), and that CC pair wedged the pedal until its power was
+  pulled. `docs/05-foot-control.md` now carries the corrected, hardware-
+  verified version (a bare Program Change, range 0–127, never a Bank Select
+  pair) — the kind of drift this whole section is about, caught here because
+  someone finally had the unit in hand, not because a test spanned the
+  boundary.
 
 - **`songs/` is empty, and that is the clock.** The proposal's shared song
   identity is free to adopt today and becomes a three-way migration once this

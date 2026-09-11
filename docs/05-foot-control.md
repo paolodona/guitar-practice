@@ -96,40 +96,53 @@ memories**. So Woodshed can watch that and:
   section. Off by default, because it is delightful once and infuriating if you
   ever switch patches for any other reason.
 
-Note the gotcha `rambass-live/docs/gx100.md` already documents: **a PC number
-does not name a memory.** It names a slot, and the pedal's own `PROGRAM MAP`
-decides which of the 300 memories that slot points at. If you want the display
-to say `U02-3`, the mapping has to come from `config/gx100.yaml` in the
-`rambass-live` repo, not from an assumption.
+`rambass-live/docs/gx100.md`'s own model — a PC number names a *slot*, resolved
+through the pedal's `PROGRAM MAP` to one of 300 memories — was inferred from a
+2023 gig project's Reaper MIDI items, never re-verified against the unit
+itself. It turned out wrong for this hardware.
 
-> **CONTESTED, 2026-09-06 — do not act on either version yet.**
-> `docs/08-unification.md` reports that `gx100` tested this **on the unit** and
-> found the paragraph above wrong twice over: that `PC n` is a plain identity
-> (no `PROGRAM MAP` indirection to resolve), and that the `CC#0 → CC#32 → PC`
-> ordering below **wedged the pedal until its power was pulled**.
-> That is a second-hand report here — this repo has no pedal and cannot check it
-> — so both readings are on the record and neither is settled. Two consequences
-> while it stays that way: the sending half (plan Group N2) must not be built to
-> send that CC pair at all until someone re-verifies it at the unit, which is one
-> more reason `config.gx100.send_program_changes` defaults to false; and if the
-> plain-identity finding holds, N2 gets *simpler*, because there is no mapping to
-> import from anywhere. Settle it in the same sitting as the three questions
-> above.
+> **RESOLVED, 2026-09-06 — `gx100` tested it on the unit; trust that over the
+> inference.**
+> `gx100/docs/protocol/unknowns.md` #28 and `cc-map.md` carry the full story:
+> `PC n` loads memory `n` directly — **a plain identity, no `PROGRAM MAP`
+> indirection at all** — confirmed by watching the display follow ten
+> alternating changes. Two conditions gated every earlier failure, both now
+> pinned down: the pedal must be on its **play screen** (not a `MENU`), and
+> `MAP SELECT` must be `FIX`, not `PROG`.
+>
+> **Bank Select is not just unnecessary here, it is dangerous**: sending
+> `CC#0`/`CC#32` — exactly what the 2023 gig project's own MIDI items did —
+> left the unit unresponsive to SysEx until its power was pulled. A bare
+> Program Change alone never did that. **Never send CC#0 or CC#32 to this
+> pedal.**
+>
+> The real cost of skipping Bank Select: a plain Program Change is a 7-bit
+> value, so it can only address memories **0–127** (`U01-1` through `U32-4`).
+> Everything from `U33-1` onward, and every `P`-bank preset, is unreachable
+> this way. `gx100`'s own SysEx-based `select_patch` has no such ceiling and
+> doesn't care what screen the unit is on — but SysEx is a bigger step
+> (`web/midi.js` deliberately opens with `{sysex: false}` today) and is not
+> what this section builds. Keep every gig patch this feature will switch to
+> inside the first 128 memories, or extend to SysEx later.
 
 ### Sending them
 
-The reverse is just as useful and cheaper to build: Woodshed can **send** a Bank
-Select + Program Change when you enter a section, so the sound changes with the
-part. `rambass-live/src/rambass/gx100.py` already builds those messages
-correctly, including the CC#0 → CC#32 → PC ordering and the 0–2 bank limit —
-**but see the contested note above before sending any of it**: that same ordering
-is reported to have wedged the pedal.
+The reverse is just as useful and cheaper to build: Woodshed can **send** a
+bare Program Change when you enter a section, so the sound changes with the
+part. Group N2's send path sends `0xC0` alone — never a Bank Select pair —
+range-checked to 0–127 before anything goes out.
 
-This is where the three repos finally close the loop: `gx100` designs the patch,
-`rambass-live` maps it to a memory and a bar, and `woodshed` puts it under your
+This is where the three repos finally close the loop: `gx100` designs the
+patch and confirms what the wire protocol actually is, `rambass-live` shows
+the shape of the problem (and got the wire protocol wrong, harmlessly, since
+nothing here ever sent its CC pair), and `woodshed` puts a plain PC under your
 foot while you learn the part.
 
 **Off by default, and behind an explicit toggle.** Sending program changes
 alters your pedal's state. That is the same instinct as `gx100`'s
-edit-buffer-only rule — a practice tool should not silently change the thing you
-are about to play a gig on.
+edit-buffer-only rule — a practice tool should not silently change the thing
+you are about to play a gig on. `MAP SELECT: FIX` and the play screen stay a
+discipline this tool cannot verify for you (`gx100`'s own `select_patch` note:
+"does not depend on what the unit is showing" is the *SysEx* method's
+advantage, not this one's) — the same way a manual PROGRAM MAP alignment used
+to be, just for a different reason now.
