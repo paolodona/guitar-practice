@@ -168,6 +168,11 @@ function ensureStyle() {
     .ws-practice .chip__icon svg { width:88px;height:88px }
     .ws-practice .pill { width:64px;height:6px;border-radius:3px }
     .ws-practice .ws-song-link:hover { color:var(--ink,#E8EEEB);text-decoration:underline }
+    .ws-practice .render-track { width:260px;height:5px;border-radius:3px;overflow:hidden;
+      position:relative;background:var(--hairline,#1C2523) }
+    .ws-practice .render-bar { position:absolute;top:0;bottom:0;width:35%;border-radius:3px;
+      background:var(--accent,#E0913F);animation:ws-indeterminate 1.3s ease-in-out infinite }
+    @keyframes ws-indeterminate { 0% { left:-35% } 100% { left:100% } }
   `;
   document.head.appendChild(style);
 }
@@ -395,6 +400,16 @@ export function mount(el, payload) {
   // was built was silence with no explanation -- and a first guitar-only
   // render is minutes of it.
   let renderStage = null;
+  // Which (speed, shift) renderStage is actually waiting on -- carried on
+  // the SAME 'rendering' event (BufferEngine's own detail: {stage,
+  // speedPct, semitones, polls}), not re-read from `speedPct`/`shift`
+  // above: those may have moved again by the time the wait ends (a second
+  // speed press queues a second render), and the message must name what is
+  // actually building, not whatever the screen currently shows. FOUND LIVE
+  // 2026-09-10, Paolo: without a number attached, "rendering…" didn't say
+  // AT WHAT -- easy to assume a press had already landed when it hadn't.
+  let renderSpeedPct = null;
+  let renderSemitones = null;
   let guitarOnly = false;
   let guitarBusy = false; // true only while a loadSection() swap is in flight
   const demucsAvailable = payload.demucs_available !== false; // undefined degrades to "available"
@@ -472,14 +487,64 @@ export function mount(el, payload) {
         ? 'install demucs: uv sync --extra separate'
         : guitarBusy ? 'separating…' : engineStatusText();
     }
+    renderRenderOverlay();
+  }
+
+  /** "at 75% speed, +2 shift" -- the (speedPct, semitones) a render/
+   *  separation wait is actually FOR, shared between the popover and (were
+   *  it ever needed again) anything else naming a wait. Mirrors the
+   *  shift-sign formatting already inlined at the tuning caption and the
+   *  shift stepper's own display, below. Empty string with nothing to
+   *  report (renderSpeedPct/renderSemitones start null, before any
+   *  'rendering' event has ever fired). */
+  function renderDetailSuffix() {
+    if (renderSpeedPct == null || renderSemitones == null) return '';
+    const shiftText = `${renderSemitones > 0 ? '+' : ''}${renderSemitones}`;
+    return ` at ${renderSpeedPct}% speed, ${shiftText} shift`;
+  }
+
+  /**
+   * FOUND LIVE 2026-09-10, Paolo: the only place a render/separation wait
+   * used to say anything was `guitarStatusEl` -- a small corner caption
+   * next to the "Guitar only" toggle, easy to miss entirely. Missing it is
+   * not cosmetic: the OLD render keeps playing audibly while the new one
+   * builds (`_changeRender`'s own doc -- "keep playing what is already
+   * loaded"), and the cosmetic ring/playhead estimate (module doc, decision
+   * 3) keeps moving throughout, so a speed press that hasn't landed yet
+   * reads as "it changed speed" when it has not -- Paolo pressed Faster and
+   * kept hearing the old speed with no visible explanation. This popover
+   * is the loud replacement for that corner caption (removed from
+   * `engineStatusText()` below, same day, once this existed -- one wait,
+   * one place saying so): centred, boxed, impossible to miss, names the
+   * (speed, shift) it is actually rendering rather than just "this speed"
+   * (a second press before the first lands must not read as if the first
+   * one is what's building), and gone the instant `_announceRenderDone`
+   * fires (renderStage back to null). Not a modal (no backdrop,
+   * `pointer-events:none`), because the old render is still audibly
+   * playing underneath it and every control (including Restart) still
+   * works while it shows. The progress bar is deliberately indeterminate,
+   * not a percentage -- `_render()`'s own doc is explicit that a real
+   * progress readout does not exist (Demucs has none, and `maxPolls` is a
+   * generous give-up ceiling, not an ETA); a bar computed from `polls` would
+   * be exactly the fabricated measurement that doc already refuses.
+   */
+  function renderRenderOverlay() {
+    if (!renderOverlay) return;
+    const detail = renderDetailSuffix();
+    const text = renderStage === 'separating' ? `Isolating the guitar…${detail} (first time only)`
+      : renderStage === 'rendering' ? `Rendering${detail}…`
+      : '';
+    renderOverlay.style.display = text ? 'flex' : 'none';
+    if (renderTextEl) renderTextEl.textContent = text;
   }
 
   /** What the small status line says when it has nothing more urgent: which
    *  engine is actually making the sound. Empty for the buffer engine --
-   *  that is the expected case and does not need announcing. */
+   *  that is the expected case and does not need announcing. A render/
+   *  separation wait used to be reported here too (see renderRenderOverlay's
+   *  own doc) -- removed live 2026-09-10, now that the popover is the one
+   *  place that says so, rather than the same fact in two places at once. */
   function engineStatusText() {
-    if (renderStage === 'separating') return 'isolating the guitar… (first time only)';
-    if (renderStage === 'rendering') return 'rendering this speed…';
     return engineKind === 'realtime' ? 'live stretch — no render cache' : '';
   }
 
@@ -730,6 +795,15 @@ export function mount(el, payload) {
       <div class="mono" data-leadin-caption style="font-size:20px;color:var(--ink-3,#6A7873);letter-spacing:.06em;margin-top:22px"></div>
     </div>
 
+    <div data-render-overlay style="position:absolute;inset:0;display:none;align-items:center;justify-content:center;pointer-events:none">
+      <div style="display:flex;flex-direction:column;align-items:center;gap:14px;background:var(--surface,#131B19);
+                  border:1px solid var(--accent-dim,#8A5C29);border-radius:12px;padding:26px 34px;
+                  min-width:280px;box-shadow:0 16px 50px rgba(0,0,0,.5)">
+        <div class="mono" data-render-text style="font-size:17px;color:var(--ink,#E8EEEB);letter-spacing:.03em;text-align:center"></div>
+        <div class="render-track"><div class="render-bar"></div></div>
+      </div>
+    </div>
+
     <div data-help-overlay style="position:absolute;inset:0;display:none;align-items:center;justify-content:center;
                 background:rgba(12,18,17,.82)">
       <div style="background:var(--surface,#131B19);border:1px solid var(--line,#26302E);border-radius:8px;
@@ -771,6 +845,8 @@ export function mount(el, payload) {
   const leadInCountEl = root.querySelector('[data-leadin-count]');
   const leadInPillsEl = root.querySelector('[data-leadin-pills]');
   const leadInCaptionEl = root.querySelector('[data-leadin-caption]');
+  const renderOverlay = root.querySelector('[data-render-overlay]');
+  const renderTextEl = root.querySelector('[data-render-text]');
   const helpOverlay = root.querySelector('[data-help-overlay]');
   const helpBodyEl = root.querySelector('[data-help-body]');
 
@@ -1077,6 +1153,8 @@ export function mount(el, payload) {
     // Only BufferEngine fires this; RealtimeEngine has nothing to wait for.
     e.addEventListener('rendering', (event) => {
       renderStage = event.detail.stage;
+      renderSpeedPct = event.detail.speedPct;
+      renderSemitones = event.detail.semitones;
       renderGuitarToggle();
     });
     e.addEventListener('error', (err) => console.error('practice.js: engine error', err.detail?.error));
