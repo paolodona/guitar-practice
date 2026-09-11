@@ -160,6 +160,17 @@ function ensureStyle() {
     .ws-practice .render-bar { position:absolute;top:0;bottom:0;width:35%;border-radius:3px;
       background:var(--accent,#E0913F);animation:ws-indeterminate 1.3s ease-in-out infinite }
     @keyframes ws-indeterminate { 0% { left:-35% } 100% { left:100% } }
+    /* #6: a flat bar pinned to the bottom of the screen, ALWAYS in the DOM
+       (never display:none -- that cannot animate) and moved on/off screen
+       with a transform under a transition, the same convention this
+       codebase's own artifact-authoring guidance already prefers over a
+       hard display toggle for anything that needs to animate in and out. */
+    .ws-practice .status-bar { position:absolute;left:0;right:0;bottom:0;
+      display:flex;align-items:center;justify-content:center;gap:16px;
+      padding:16px 24px;background:var(--surface,#131B19);
+      border-top:1px solid var(--hairline,#1C2523);
+      transform:translateY(100%);transition:transform .28s ease;
+      pointer-events:none }
   `;
   document.head.appendChild(style);
 }
@@ -271,6 +282,54 @@ export { computeSeekPosition };
 // at whatever speedPct actually was.
 function clampSpeed(v) { return Math.min(110, Math.max(40, v)); }
 function clampShift(v) { return Math.min(6, Math.max(-6, Math.round(v))); }
+
+/**
+ * #6: the ONE status bar's text, precedence made explicit rather than left
+ * to whichever handler last wrote a shared string -- the issue's own
+ * request. Exported, pure, and free of mount()'s closures for the same
+ * reason restartTargetS/computeSeekPosition are: real branching logic
+ * worth testing directly, without a DOM.
+ *
+ * Consolidates what used to be two independent indicators (the render/
+ * separation-wait popover, commit 3cb403c, and guitarStatusEl's own corner
+ * caption next to the "Guitar only" toggle). Most urgent first:
+ *
+ *   1. An active render/separation wait -- names what is actually
+ *      building. The most specific, most actionable fact: it explains
+ *      exactly why the audio doesn't yet match the screen (the OLD render
+ *      keeps playing audibly while the new one builds). Outranks
+ *      everything below.
+ *   2. Demucs not installed -- a persistent capability notice. Ranked
+ *      above guitarBusy exactly as the pre-#6 corner caption always did
+ *      (the two are mutually exclusive in practice: toggleGuitarOnly()
+ *      early-returns when demucs is unavailable, so guitarBusy can never
+ *      become true then anyway).
+ *   3. guitarBusy -- a guitar/mix source swap in flight that did NOT need
+ *      a build (a warm cache), so no 'rendering' event ever fired for it.
+ *   4. The realtime-engine fallback notice -- purely informational
+ *      (docs/03-audio-engine.md: a real-time stretcher is a real
+ *      fallback, not a failure), so it ranks last.
+ *
+ * `data-midi-status` (the foot-pedal connectivity caption) stays OUT of
+ * this entirely -- Paolo's own call, resolving #6's open question: ambient
+ * connectivity state is a different kind of thing from a transient
+ * operation notice.
+ * @param {{renderStage: string|null, detail: string, guitarBusy: boolean,
+ *           demucsAvailable: boolean, engineKind: string}} state
+ * @returns {{text: string, showProgress: boolean}} showProgress is true
+ *   only for an active render/separation wait -- the indeterminate bar
+ *   never showed for the other three cases, even before #6.
+ */
+export function statusBarState({ renderStage, detail, guitarBusy, demucsAvailable, engineKind }) {
+  const rendering = renderStage === 'separating' ? `Isolating the guitar…${detail} (first time only)`
+    : renderStage === 'rendering' ? `Rendering${detail}…`
+    : '';
+  const text = rendering
+    || (!demucsAvailable ? 'install demucs: uv sync --extra separate' : '')
+    || (guitarBusy ? 'separating…' : '')
+    || (engineKind === 'realtime' ? 'live stretch — no render cache' : '');
+  return { text, showProgress: !!rendering };
+}
 
 const RING_R = 136;
 const RING_CIRC = 854; // 2*pi*136 rounded, per the design system's own arithmetic
@@ -466,70 +525,60 @@ export function mount(el, payload) {
     guitarToggleEl.textContent = guitarBusy ? '…' : (guitarOnly ? 'On' : 'Off');
     guitarToggleEl.disabled = guitarBusy || !demucsAvailable;
     guitarToggleEl.style.color = pressed ? 'var(--accent,#E0913F)' : '';
-    if (guitarStatusEl) {
-      guitarStatusEl.textContent = !demucsAvailable
-        ? 'install demucs: uv sync --extra separate'
-        : guitarBusy ? 'separating…' : engineStatusText();
-    }
-    renderRenderOverlay();
+    renderStatusBar();
   }
 
   /** "at 75% speed, +2 shift" -- the (speedPct, semitones) a render/
-   *  separation wait is actually FOR, shared between the popover and (were
-   *  it ever needed again) anything else naming a wait. Mirrors the
-   *  shift-sign formatting already inlined at the tuning caption and the
-   *  shift stepper's own display, below. Empty string with nothing to
-   *  report (renderSpeedPct/renderSemitones start null, before any
-   *  'rendering' event has ever fired). */
+   *  separation wait is actually FOR. Mirrors the shift-sign formatting
+   *  already inlined at the tuning caption and the shift stepper's own
+   *  display, below. Empty string with nothing to report (renderSpeedPct/
+   *  renderSemitones start null, before any 'rendering' event has ever
+   *  fired). */
   function renderDetailSuffix() {
     if (renderSpeedPct == null || renderSemitones == null) return '';
     const shiftText = `${renderSemitones > 0 ? '+' : ''}${renderSemitones}`;
     return ` at ${renderSpeedPct}% speed, ${shiftText} shift`;
   }
 
-  /**
-   * FOUND LIVE 2026-09-10, Paolo: the only place a render/separation wait
-   * used to say anything was `guitarStatusEl` -- a small corner caption
-   * next to the "Guitar only" toggle, easy to miss entirely. Missing it is
-   * not cosmetic: the OLD render keeps playing audibly while the new one
-   * builds (`_changeRender`'s own doc -- "keep playing what is already
-   * loaded"), and the cosmetic ring/playhead estimate (module doc, decision
-   * 3) keeps moving throughout, so a speed press that hasn't landed yet
-   * reads as "it changed speed" when it has not -- Paolo pressed Faster and
-   * kept hearing the old speed with no visible explanation. This popover
-   * is the loud replacement for that corner caption (removed from
-   * `engineStatusText()` below, same day, once this existed -- one wait,
-   * one place saying so): centred, boxed, impossible to miss, names the
-   * (speed, shift) it is actually rendering rather than just "this speed"
-   * (a second press before the first lands must not read as if the first
-   * one is what's building), and gone the instant `_announceRenderDone`
-   * fires (renderStage back to null). Not a modal (no backdrop,
-   * `pointer-events:none`), because the old render is still audibly
-   * playing underneath it and every control (including Restart) still
-   * works while it shows. The progress bar is deliberately indeterminate,
-   * not a percentage -- `_render()`'s own doc is explicit that a real
-   * progress readout does not exist (Demucs has none, and `maxPolls` is a
-   * generous give-up ceiling, not an ETA); a bar computed from `polls` would
-   * be exactly the fabricated measurement that doc already refuses.
-   */
-  function renderRenderOverlay() {
-    if (!renderOverlay) return;
-    const detail = renderDetailSuffix();
-    const text = renderStage === 'separating' ? `Isolating the guitar…${detail} (first time only)`
-      : renderStage === 'rendering' ? `Rendering${detail}…`
-      : '';
-    renderOverlay.style.display = text ? 'flex' : 'none';
-    if (renderTextEl) renderTextEl.textContent = text;
-  }
-
   /** What the small status line says when it has nothing more urgent: which
    *  engine is actually making the sound. Empty for the buffer engine --
-   *  that is the expected case and does not need announcing. A render/
-   *  separation wait used to be reported here too (see renderRenderOverlay's
-   *  own doc) -- removed live 2026-09-10, now that the popover is the one
-   *  place that says so, rather than the same fact in two places at once. */
+   *  that is the expected case and does not need announcing. */
   function engineStatusText() {
     return engineKind === 'realtime' ? 'live stretch — no render cache' : '';
+  }
+
+  /**
+   * FOUND LIVE 2026-09-10, Paolo: the only place a render/separation wait
+   * used to say anything was a small corner caption next to the "Guitar
+   * only" toggle, easy to miss entirely. Missing it is not cosmetic: the
+   * OLD render keeps playing audibly while the new one builds
+   * (`_changeRender`'s own doc -- "keep playing what is already loaded"),
+   * and the cosmetic ring/playhead estimate (module doc, decision 3) keeps
+   * moving throughout, so a speed press that hasn't landed yet reads as
+   * "it changed speed" when it has not -- Paolo pressed Faster and kept
+   * hearing the old speed with no visible explanation.
+   *
+   * #6: that gap was first closed with a centred popover (commit 3cb403c),
+   * then reverted for THIS -- a flat bar pinned to the bottom of the
+   * screen, sliding up/down via `transform` (never `display:none`, which
+   * cannot animate) and consolidating every status source this screen has
+   * into the one place (statusBarState's own doc has the full precedence).
+   * Not a modal (`pointer-events:none`), because the old render is still
+   * audibly playing underneath it and every control still works while it
+   * shows. The progress bar is deliberately indeterminate, not a
+   * percentage -- `_render()`'s own doc is explicit that a real progress
+   * readout does not exist (Demucs has none, and `maxPolls` is a generous
+   * give-up ceiling, not an ETA); a bar computed from `polls` would be
+   * exactly the fabricated measurement that doc already refuses.
+   */
+  function renderStatusBar() {
+    if (!statusBarEl) return;
+    const { text, showProgress } = statusBarState({
+      renderStage, detail: renderDetailSuffix(), guitarBusy, demucsAvailable, engineKind,
+    });
+    if (statusTextEl) statusTextEl.textContent = text;
+    if (statusTrackEl) statusTrackEl.style.display = showProgress ? 'block' : 'none';
+    statusBarEl.style.transform = text ? 'translateY(0)' : 'translateY(100%)';
   }
 
   function renderEngineKind() {
@@ -662,7 +711,6 @@ export function mount(el, payload) {
                   <button class="stepper-btn" data-guitar-toggle aria-pressed="false" style="min-width:44px"></button>
                 </div>
               </div>
-              <div class="mono" style="font-size:12px;color:var(--ink-3,#6A7873);letter-spacing:.03em;min-height:1.2em" data-guitar-status></div>
             </div>
             <div style="display:flex;gap:12px;align-items:center">
               <div class="lbl" style="font-size:12px">Shift</div>
@@ -722,13 +770,9 @@ export function mount(el, payload) {
       <div class="mono" data-midi-status style="font-size:12px;color:var(--ink-3,#6A7873);letter-spacing:.03em;padding-top:8px;text-align:right"></div>
     </div>
 
-    <div data-render-overlay style="position:absolute;inset:0;display:none;align-items:center;justify-content:center;pointer-events:none">
-      <div style="display:flex;flex-direction:column;align-items:center;gap:14px;background:var(--surface,#131B19);
-                  border:1px solid var(--accent-dim,#8A5C29);border-radius:12px;padding:26px 34px;
-                  min-width:280px;box-shadow:0 16px 50px rgba(0,0,0,.5)">
-        <div class="mono" data-render-text style="font-size:17px;color:var(--ink,#E8EEEB);letter-spacing:.03em;text-align:center"></div>
-        <div class="render-track"><div class="render-bar"></div></div>
-      </div>
+    <div class="status-bar" data-status-bar>
+      <div class="mono" data-status-text style="font-size:15px;color:var(--ink,#E8EEEB);letter-spacing:.03em"></div>
+      <div class="render-track" data-status-track style="display:none"><div class="render-bar"></div></div>
     </div>
 
     <div data-help-overlay style="position:absolute;inset:0;display:none;align-items:center;justify-content:center;
@@ -749,7 +793,6 @@ export function mount(el, payload) {
   const shiftValEl = root.querySelector('[data-shift-val]');
   const tuningCaptionEl = root.querySelector('[data-tuning-caption]');
   const guitarToggleEl = root.querySelector('[data-guitar-toggle]');
-  const guitarStatusEl = root.querySelector('[data-guitar-status]');
   const speedCellEl = root.querySelector('[data-speed-cell]');
   const speedSubEl = root.querySelector('[data-speed-sub]');
   const repsValEl = root.querySelector('[data-reps-val]');
@@ -767,8 +810,9 @@ export function mount(el, payload) {
   const playheadCapEl = root.querySelector('[data-playhead-cap]');
   const footEl = root.querySelector('[data-foot]');
   const midiStatusEl = root.querySelector('[data-midi-status]');
-  const renderOverlay = root.querySelector('[data-render-overlay]');
-  const renderTextEl = root.querySelector('[data-render-text]');
+  const statusBarEl = root.querySelector('[data-status-bar]');
+  const statusTextEl = root.querySelector('[data-status-text]');
+  const statusTrackEl = root.querySelector('[data-status-track]');
   const helpOverlay = root.querySelector('[data-help-overlay]');
   const helpBodyEl = root.querySelector('[data-help-body]');
 
