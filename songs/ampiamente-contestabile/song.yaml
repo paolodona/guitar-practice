@@ -1,18 +1,17 @@
-slug: can-t-stop
-title: Can't stop
-artist: Red Hot Chili Peppers
+slug: ampiamente-contestabile
+title: Ampiamente Contestabile
+artist: Ramba SS
 recording:
-  file: audio/can-t-stop.flac
-  sha256: 1b5afc3079a1f5c3eff5c438194646957a347adb3ad5288c5ac10171a88374aa
-  duration_s: 267.1399546485261
-  tuning: E standard
-  source: capture
+  file: audio/04 Ampiamente Contestabile.wav
+  sha256: d3c8dda8641d3decb030bd1f7d1cc043b2b9d1b84d182e098e06401b1cb39541
+  duration_s: 454.68734693877553
+  tuning: Eb standard
 tempo:
-  bpm: 182.66
+  bpm: 84.24
   source: refined
-  grid_offset_s: 0.016
+  grid_offset_s: 0.212
   time_signature: 4/4
-  confidence: 0.347
+  confidence: 0.119
 practice:
   start_speed: 50.0
   ladder_step: 5.0
@@ -25,15 +24,15 @@ sections:
 - id: whole-song
   name: Whole song
   start_s: 0.0
-  end_s: 267.1399546485261
+  end_s: 454.68734693877553
   snapped: free
   target_speed: 100.0
   counts_toward_readiness: true
   full_song: true
-- id: 21870fe8
-  name: Main riff
-  start_s: 20.0
-  end_s: 75.0
+- id: da729dc7
+  name: New section
+  start_s: 222.74777710545138
+  end_s: 227.0372803784587
   snapped: free
   target_speed: 100.0
   counts_toward_readiness: true

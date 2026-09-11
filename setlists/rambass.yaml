@@ -3,9 +3,11 @@ tuning: Eb standard
 venue: ''
 songs:
 - slug: tutti-in-fila
-  shift: -1
-- slug: no-farts-in-the-car
   shift: 0
+- slug: no-farts-in-the-car
+  shift: -1
 - slug: i-poohffi
   shift: 0
 - slug: manlio
+- slug: ampiamente-contestabile
+  shift: 0

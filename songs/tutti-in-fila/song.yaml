@@ -18,17 +18,9 @@ practice:
   reps_to_advance: 3
   pre_roll_beats: 4.0
   pre_roll_every_pass: false
-  click: 'lead-in'
+  click: lead-in
   loop_crossfade_ms: 10.0
 sections:
-- id: tapping
-  name: Tapping
-  start_s: 201.5093816078167
-  end_s: 216.9381741671159
-  snapped: free
-  target_speed: 100.0
-  counts_toward_readiness: true
-  full_song: false
 - id: whole-song
   name: Whole song
   start_s: 0.0
@@ -42,6 +34,14 @@ sections:
   start_s: 150.0
   end_s: 262.38120587658227
   snapped: beat
+  target_speed: 100.0
+  counts_toward_readiness: true
+  full_song: false
+- id: tapping
+  name: Tapping
+  start_s: 201.5093816078167
+  end_s: 216.9381741671159
+  snapped: free
   target_speed: 100.0
   counts_toward_readiness: true
   full_song: false

@@ -18,13 +18,13 @@ practice:
   reps_to_advance: 3
   pre_roll_beats: 4.0
   pre_roll_every_pass: false
-  click: 'lead-in'
+  click: lead-in
   loop_crossfade_ms: 10.0
 sections:
 - id: cba6288b
   name: New section
-  start_s: 41.678869558951966
-  end_s: 71.44949067248909
+  start_s: 0.0
+  end_s: 194.784921
   snapped: free
   target_speed: 100.0
   counts_toward_readiness: true
