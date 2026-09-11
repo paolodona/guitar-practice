@@ -80,13 +80,12 @@
  *    Neither path ever re-derives "was this a pass": player.js owns that
  *    exclusively and this screen never counts a rep from its own timer.
  *
- * 4. Twelve of the seventeen actions are wired here (play_pause, next_section,
+ * 4. Eleven of the seventeen actions are wired here (play_pause, next_section,
  *    prev_section, speed_up, speed_down, retract_rep, confirm_clean,
- *    restart_section, transpose_up, transpose_down, help, cancel_lead_in) —
- *    the ten the brief names as "at least", plus help (added live
- *    2026-09-06: a shortcut reference overlay, built from ACTIONS + keys.js's
- *    KEY_MAP directly so it can't drift from what actually fires) and
- *    cancel_lead_in (added live 2026-09-06: Esc exits the lead-in overlay).
+ *    restart_section, transpose_up, transpose_down, help) — the ten the
+ *    brief names as "at least", plus help (added live 2026-09-06: a
+ *    shortcut reference overlay, built from ACTIONS + keys.js's KEY_MAP
+ *    directly so it can't drift from what actually fires).
  *    The foot strip itself grew past the artboard's fixed six live
  *    2026-09-10: restart_section is now a seventh chip (Paolo: back to the
  *    section's start, keeps playing if playing, stays paused if paused —
@@ -97,29 +96,17 @@
  *    restart_section has no CC, so "resist a seventh" still holds for the
  *    hardware; it only ever holds for the on-screen strip too. help stays
  *    the one exception hidden until invoked, so it doesn't compete with the
- *    hero for attention while playing. loop_toggle/metronome/fullscreen/
- *    nudge_start/nudge_end still have no represented control on this
- *    artboard and are left unsubscribed rather than given invented
- *    behaviour (nudge_start/nudge_end DO have a control now, but it lives
- *    on song.js's inspector — this screen has no section-boundary editing
- *    at all, see the design's own division of labour between the two
- *    screens).
+ *    hero for attention while playing. loop_toggle/fullscreen/nudge_start/
+ *    nudge_end still have no represented control on this artboard and are
+ *    left unsubscribed rather than given invented behaviour (nudge_start/
+ *    nudge_end DO have a control now, but it lives on song.js's inspector —
+ *    this screen has no section-boundary editing at all, see the design's
+ *    own division of labour between the two screens).
  *
  * 5. Phase 1, G1: the wave-host's grid lines are real
  *    (`timeline.computeGrid`), replacing the fixed-pixel CSS gradient
  *    Phase 0 copied from the artboard's own static mockup — same as
  *    song.js's decision 4, which has the fuller explanation.
- *
- * 6. Phase 1, G2: the click is audible now, through its OWN AudioContext
- *    and GainNode (never the engine's — RealtimeEngine has no public
- *    getter for its own context, and "gain independent of the music" is
- *    render_click's own documented requirement). Sync between the two
- *    independent contexts is PERCEPTUAL only — good enough to judge the
- *    downbeat by ear (the manual gate this exists for), not a sample-
- *    locked guarantee. `pre_roll_every_pass` is honoured on the click's
- *    own loop points too, so an "always" click never drifts out of step
- *    with whether the music itself replays its lead-in each pass. See
- *    playClick()'s doc for the rest.
  *
  * FOUND LIVE 2026-09-07, fixed in this unit: a second, orphaned copy of
  * the eager engine-load-at-mount-time bug `ensureEngine()` was already
@@ -617,56 +604,6 @@ export function mount(el, payload) {
     }
   }
 
-  function stopClick() {
-    if (!clickSource) return;
-    try { clickSource.stop(); } catch { /* already stopped, or never started */ }
-    clickSource.disconnect();
-    clickSource = null;
-  }
-
-  /** (Re)fetch and (re)start the click for the CURRENT speedPct/section,
-   * per payload.practice.click ('off' | 'lead-in' | 'always'). Server-side
-   * mixing (server.py's `_click` -- render_click's own docstring assigns
-   * "gain independent of the music" to G2, satisfied here by a dedicated
-   * GainNode this function owns entirely, never shared with the engine's
-   * own gain). Fire-and-forget: a failed fetch/decode leaves practice
-   * silent, not broken -- the click is a rehearsal aid, not the pass-
-   * counting path. */
-  async function playClick() {
-    stopClick();
-    if (payload.practice.click === 'off') return;
-    const always = payload.practice.click === 'always';
-    const mode = always ? 'full' : 'lead_in';
-    const url = `/api/click/${encodeURIComponent(payload.slug)}/${encodeURIComponent(section.id)}` +
-      `?speed=${encodeURIComponent(speedPct / 100)}&mode=${mode}`;
-    try {
-      if (!clickCtx) clickCtx = new (window.AudioContext || window.webkitAudioContext)();
-      if (clickCtx.state === 'suspended') await clickCtx.resume();
-      const res = await fetch(url);
-      if (!res.ok) return;
-      const decoded = await clickCtx.decodeAudioData(await res.arrayBuffer());
-      const source = clickCtx.createBufferSource();
-      source.buffer = decoded;
-      if (always) {
-        // Match the MUSIC engine's own pre_roll_every_pass: loop the whole
-        // buffer from 0 if the lead-in repeats every pass, else skip past
-        // it on every wrap after the first -- an unconditional loopStart:0
-        // here would replay the lead-in every lap even when the music
-        // itself does not, an audible desync between the two.
-        source.loop = true;
-        source.loopStart = payload.practice.pre_roll_every_pass ? 0 : preRollPlaybackSeconds();
-        source.loopEnd = decoded.duration;
-      }
-      const gain = clickCtx.createGain();
-      gain.gain.value = 0.85;
-      source.connect(gain).connect(clickCtx.destination);
-      source.start();
-      clickSource = source;
-    } catch (err) {
-      console.warn(`practice.js: click unavailable (${err && err.message})`);
-    }
-  }
-
   function loopDurationPlayback() {
     return (section.end_s - section.start_s) / (speedPct / 100);
   }
@@ -785,13 +722,6 @@ export function mount(el, payload) {
       <div class="mono" data-midi-status style="font-size:12px;color:var(--ink-3,#6A7873);letter-spacing:.03em;padding-top:8px;text-align:right"></div>
     </div>
 
-    <div data-leadin-overlay style="position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:6px">
-      <div class="lbl" style="font-size:18px;color:var(--accent-dim,#8A5C29);letter-spacing:.34em">Lead-in</div>
-      <div class="num" data-leadin-count style="font-size:520px;color:var(--accent,#E0913F);line-height:.9"></div>
-      <div data-leadin-pills style="display:flex;gap:14px;align-items:center;margin-top:14px"></div>
-      <div class="mono" data-leadin-caption style="font-size:20px;color:var(--ink-3,#6A7873);letter-spacing:.06em;margin-top:22px"></div>
-    </div>
-
     <div data-render-overlay style="position:absolute;inset:0;display:none;align-items:center;justify-content:center;pointer-events:none">
       <div style="display:flex;flex-direction:column;align-items:center;gap:14px;background:var(--surface,#131B19);
                   border:1px solid var(--accent-dim,#8A5C29);border-radius:12px;padding:26px 34px;
@@ -814,7 +744,6 @@ export function mount(el, payload) {
     </div>
   `;
 
-  const mainEl = root.querySelector('[data-main]');
   const eyebrowEl = root.querySelector('[data-eyebrow]');
   const breadcrumbEl = root.querySelector('[data-breadcrumb]');
   const shiftValEl = root.querySelector('[data-shift-val]');
@@ -838,10 +767,6 @@ export function mount(el, payload) {
   const playheadCapEl = root.querySelector('[data-playhead-cap]');
   const footEl = root.querySelector('[data-foot]');
   const midiStatusEl = root.querySelector('[data-midi-status]');
-  const leadInOverlay = root.querySelector('[data-leadin-overlay]');
-  const leadInCountEl = root.querySelector('[data-leadin-count]');
-  const leadInPillsEl = root.querySelector('[data-leadin-pills]');
-  const leadInCaptionEl = root.querySelector('[data-leadin-caption]');
   const renderOverlay = root.querySelector('[data-render-overlay]');
   const renderTextEl = root.querySelector('[data-render-text]');
   const helpOverlay = root.querySelector('[data-help-overlay]');
@@ -930,14 +855,6 @@ export function mount(el, payload) {
   root.querySelector('[data-shift-minus]').addEventListener('click', () => dispatch('transpose_down', 'ui'));
   root.querySelector('[data-shift-plus]').addEventListener('click', () => dispatch('transpose_up', 'ui'));
 
-  // A click anywhere on the lead-in overlay starts the count-in, same
-  // action as Space (play_pause via keys.js's KEY_MAP) or the play_pause
-  // foot chip -- CLAUDE.md's "one action table", not a private shortcut:
-  // this dispatches the SAME action, it does not touch `playing`/`elapsed`
-  // directly. Found live 2026-09-06: Paolo expected the lead-in page
-  // itself to be clickable, not just Space.
-  leadInOverlay.addEventListener('click', () => dispatch('play_pause', 'ui'));
-
   // ---- "Guitar only" toggle (Phase 1.5, S3) ----
   if (guitarToggleEl) guitarToggleEl.addEventListener('click', toggleGuitarOnly);
   renderGuitarToggle();
@@ -982,8 +899,8 @@ export function mount(el, payload) {
     drawWave(waveSvg, windowed, v, currentP(), PRACTICE_WAVE_OPTS);
   }
 
-  /** Cheap, every-frame updates: ring, playhead, lead-in overlay. No DOM
-   *  rebuild — direct attribute/style writes only. */
+  /** Cheap, every-frame updates: ring, playhead. No DOM rebuild — direct
+   *  attribute/style writes only. */
   function renderCheap() {
     const p = currentP();
     ringArcEl.setAttribute('stroke-dashoffset', String(RING_CIRC * (1 - p)));
@@ -992,30 +909,13 @@ export function mount(el, payload) {
     playheadCapEl.style.left = `${p * 100}%`;
 
     // Eyebrow text tracks `elapsed`'s sign continuously (it flips the
-    // instant lead-in ends, mid-frame) so it belongs here, not in the
+    // instant the pre-roll ends, mid-frame) so it belongs here, not in the
     // discrete-event render below, even though it is otherwise a "static
-    // until something happens" label.
+    // until something happens" label. #5 removed the count-in overlay, not
+    // the pre-roll audio itself (the render still plays it) or this label
+    // -- "Lead-in" is still the honest word for what is currently audible.
     eyebrowEl.textContent = advancing ? 'Ladder advanced' : (elapsed < 0 ? 'Lead-in' : 'Practising');
     eyebrowEl.style.color = advancing ? 'var(--good,#5FA88F)' : 'var(--accent,#E0913F)';
-
-    const inLeadIn = !advancing && elapsed < 0;
-    mainEl.style.opacity = inLeadIn ? '.2' : '1';
-    leadInOverlay.style.display = inLeadIn ? 'flex' : 'none';
-    if (inLeadIn) {
-      const totalSteps = Math.max(1, Math.round(payload.practice.pre_roll_beats));
-      const perStep = cosmeticPreRoll / totalSteps;
-      const remaining = Math.max(1, Math.min(totalSteps, Math.ceil(-elapsed / Math.max(perStep, 1e-6))));
-      leadInCountEl.textContent = String(remaining);
-      const doneSteps = totalSteps - remaining;
-      leadInPillsEl.innerHTML = '';
-      for (let i = 0; i < totalSteps; i++) {
-        const pill = document.createElement('div');
-        pill.className = 'pill';
-        pill.style.background = i < doneSteps ? 'var(--accent-dim,#8A5C29)' : i === doneSteps ? 'var(--accent,#E0913F)' : 'var(--hairline,#1C2523)';
-        leadInPillsEl.appendChild(pill);
-      }
-      leadInCaptionEl.textContent = `${totalSteps} beat${totalSteps === 1 ? '' : 's'}, then bar ${barBeatLabel(section.start_s, payload.tempo)}`;
-    }
   }
 
   /** Everything that changes only on a discrete event (speed/shift/rep/
@@ -1117,15 +1017,6 @@ export function mount(el, payload) {
   let engine = null;
   let engineReady = false;
   let engineInitPromise = null;
-  // ---- click (Phase 1, G2) -- a SEPARATE AudioContext from the engine's,
-  // since RealtimeEngine has no public getter for its own. Perceptual sync
-  // only ("starts within a few ms of the lead-in", not sample-locked
-  // across the two contexts) -- good enough for the manual gate this
-  // exists for ("check the bar ruler lands on the downbeat by ear with
-  // the click on"), not a guarantee this file claims further.
-  let clickCtx = null;
-  let clickSource = null;
-
   /**
    * Create the RealtimeEngine and load this section -- but only once, and
    * only ever called from inside a user-gesture handler (play_pause,
@@ -1195,7 +1086,6 @@ export function mount(el, payload) {
         }
         engineReady = true;
         renderEngineKind();
-        playClick();
       })().catch((err) => {
         // Neither engine could load -- the browser may refuse AudioWorklet
         // outright, or the audio may not be bound. Degrade to local-only
@@ -1245,14 +1135,6 @@ export function mount(el, payload) {
     // possibly just bumped by the ladder advance above) -- freeze the
     // cosmetic estimate for it. See beginLap()'s doc.
     beginLap();
-    // click === 'always' is already a native loop (playClick set it up once
-    // and it repeats on its own); click === 'lead-in' is single-shot and
-    // only needs re-triggering here when the music ALSO replays its
-    // lead-in every pass -- otherwise the lead-in click already finished
-    // and stayed silent for the rest of the lap, correctly.
-    if (payload.practice.click === 'lead-in' && payload.practice.pre_roll_every_pass) {
-      playClick();
-    }
     renderDiscrete();
   }
 
@@ -1378,12 +1260,9 @@ export function mount(el, payload) {
     // far more often than before. `playing` is passed to engine.
     // restartSection() explicitly because RealtimeEngine has no playing
     // state of its own to read it back from (see that method's own doc,
-    // FOUND LIVE 2026-09-10); the click is gated the same way rather than
-    // always (re)triggered, so a restart while paused stays silent on BOTH
-    // audio paths, not just the music.
+    // FOUND LIVE 2026-09-10).
     restart_section() {
       if (engineReady) engine.restartSection(playing);
-      if (playing) playClick(); else stopClick();
       beginLap();
       elapsed = -cosmeticPreRoll;
       advancing = false;
@@ -1403,26 +1282,6 @@ export function mount(el, payload) {
       renderDiscrete();
     },
     help() { toggleHelp(); },
-    // Found live 2026-09-06, Paolo: Esc, on the lead-in overlay, exits it
-    // back to the plain practice screen. A no-op once past lead-in
-    // (elapsed >= 0) -- nothing to cancel. Mirrors restart_section's own
-    // reset shape but lands at the SECTION START (elapsed 0, `inLeadIn`
-    // false) rather than back at the top of a fresh lead-in, and stops
-    // playback rather than keeping it running -- "back out", not "again".
-    cancel_lead_in() {
-      if (elapsed >= 0) return;
-      if (engineReady) {
-        engine.pause();
-        try { engine.seek(section.start_s); } catch { /* no node yet -- nothing to seek */ }
-      }
-      playing = false;
-      elapsed = 0;
-      advancing = false;
-      clearTimeout(advanceTimer);
-      renderCheap();
-      renderDiscrete();
-      renderFootIcon();
-    },
   };
   for (const name of Object.keys(handlers)) bind(name, handlers[name]);
 
@@ -1458,10 +1317,6 @@ export function mount(el, payload) {
     for (const unsub of unsubs) unsub();
     if (engine) {
       try { engine.destroy(); } catch (err) { /* already torn down or never finished loading */ }
-    }
-    stopClick();
-    if (clickCtx) {
-      clickCtx.close().catch(() => { /* already closed */ });
     }
   };
 }

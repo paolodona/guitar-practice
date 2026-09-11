@@ -46,7 +46,6 @@ practice:
   reps_to_advance: 3
   pre_roll_beats: 4
   pre_roll_every_pass: false
-  click: lead-in                  # off | lead-in | always
   loop_crossfade_ms: 10
 
 sections:
@@ -196,8 +195,8 @@ section records *how* its boundary was placed (`snapped: beat`) so that
 re-detecting the tempo can offer to re-snap. But seconds are what is stored, and
 `grid_offset_s` + `bpm` is what turns them into bars for display.
 
-If `tempo.bpm` is 0 or absent, the app still works: no grid, no click, no bar
-ruler, free-dragged boundaries. Degrade, do not refuse.
+If `tempo.bpm` is 0 or absent, the app still works: no grid, no bar ruler,
+free-dragged boundaries. Degrade, do not refuse.
 
 ### `sha256`, and why it is not fussy bookkeeping
 

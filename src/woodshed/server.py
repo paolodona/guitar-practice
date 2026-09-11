@@ -33,8 +33,6 @@ C2's pass, so those were placeholders (0 / omitted) until now:
     GET  /api/stem/<slug>/<section>     -> the isolated guitar clip,
                                            RANGE-SERVED, isolating (blocking)
                                            on a miss (Phase 1.5, S3)         (S3)
-    GET  /api/click/<slug>/<section>?speed=&mode=lead_in|full
-                                        -> a generated click WAV, own gain (G2)
     GET  /api/render/<slug>/<section>?speed=&semitones=&source=mix|guitar
                                         -> the cache file, RANGE-SERVED;
                                            202 + {"rendering": true,
@@ -97,7 +95,6 @@ lock (not needed here -- this unit renders nothing) dropped.
 from __future__ import annotations
 
 import importlib.util
-import io
 import json
 import math
 import mimetypes
@@ -135,7 +132,6 @@ from woodshed.capture_session import (
     split_segment,
 )
 from woodshed.cli import bind_song_file
-from woodshed.click import render_click
 from woodshed.clock import pre_roll_seconds
 from woodshed.config import load_config
 from woodshed.errors import WoodshedError
@@ -400,8 +396,6 @@ class WoodshedHandler(BaseHTTPRequestHandler):
                 self._audio(path.removeprefix("/api/audio/"))
             elif path.startswith("/api/stem/"):
                 self._stem(path.removeprefix("/api/stem/"))
-            elif path.startswith("/api/click/"):
-                self._click(path.removeprefix("/api/click/"), parsed.query)
             elif path == "/api/library":
                 self._library()
             elif path.startswith("/api/progress/"):
@@ -1052,81 +1046,6 @@ class WoodshedHandler(BaseHTTPRequestHandler):
         clip_path = isolate_guitar(self.repo, song, section, pre_roll_s=pre_roll_s)
         self._send_file(clip_path, "audio/flac")
 
-    def _click(self, rest: str, query: str) -> None:
-        """A generated click WAV, in PLAYBACK seconds at the requested
-        *speed* -- `click.render_click`'s own docstring assigns "mixing it
-        in" to this unit (G2); this is that mixing.
-
-        `mode=lead_in` (the default) covers just the lead-in
-        (`effective_pre_roll_beats` converted to seconds via
-        `clock.pre_roll_seconds`, then divided by *speed* the same way
-        every other playback-seconds quantity is -- CLAUDE.md invariant 3).
-        `mode=full` covers the lead-in PLUS one full loop, meant to be
-        played with `loop=true` for the practice.click:"always" setting --
-        a plain click buffer looped natively is already the sample-exact
-        loop invariant 9 asks for, unlike the stretched music itself.
-
-        Generated FRESH at `bpm * speed` with `grid_offset_s=0` (beat 1 at
-        the window's own t=0), not sliced from a whole-song click -- this
-        assumes the section's own boundary already lands on a downbeat
-        (a grid-snapped section, G1). A `snapped: 'free'` section's click
-        will not agree with the music's actual beats; that is an inherent
-        limit of generating the click relative to the window rather than
-        the whole song's `grid_offset_s`, named here rather than silently
-        wrong.
-
-        `bpm <= 0` (no tempo yet) answers a near-silent single-sample WAV
-        rather than 404ing -- CLAUDE.md's degrade rule: no tempo means no
-        click, not an error the caller has to special-case.
-        """
-        raw_slug, _, raw_section = rest.partition("/")
-        slug = self._resolve_slug(raw_slug)
-        if slug is None:
-            self._error(404, f"no such song: {raw_slug!r}")
-            return
-        song = load_song(self.repo.song_dir(slug) / "song.yaml")
-        section = next((s for s in song.sections if s.id == raw_section), None)
-        if section is None:
-            self._error(404, f"no such section: {raw_section!r}")
-            return
-
-        params = parse_qs(query)
-        try:
-            speed = float(params.get("speed", ["1.0"])[0])
-        except ValueError:
-            speed = 1.0
-        speed = max(0.1, speed)
-        mode = params.get("mode", ["lead_in"])[0]
-
-        bpm = song.tempo.bpm
-        if bpm <= 0:
-            self._send(200, self._encode_wav_mono(np.zeros(1, dtype=np.float32)), "audio/wav")
-            return
-
-        pre_roll_s = pre_roll_seconds(effective_pre_roll_beats(song, section), bpm) / speed
-        if mode == "full":
-            duration_s = pre_roll_s + (section.end_s - section.start_s) / speed
-        else:
-            duration_s = pre_roll_s
-
-        pcm = render_click(bpm * speed, 0.0, song.tempo.time_signature, duration_s)
-        self._send(200, self._encode_wav_mono(pcm), "audio/wav")
-
-    @staticmethod
-    def _encode_wav_mono(pcm: np.ndarray, sample_rate: int = 48000) -> bytes:
-        """*pcm* (float32, [-1, 1]) as a 16-bit mono PCM WAV, stdlib only --
-        no soundfile/scipy, matching CLAUDE.md's "numpy and nothing else"
-        for this call site."""
-        clamped = np.clip(pcm, -1.0, 1.0)
-        pcm16 = (clamped * 32767.0).astype("<i2")
-        buffer = io.BytesIO()
-        with wave_module.open(buffer, "wb") as writer:
-            writer.setnchannels(1)
-            writer.setsampwidth(2)
-            writer.setframerate(sample_rate)
-            writer.writeframes(pcm16.tobytes())
-        return buffer.getvalue()
-
     def _render(self, rest: str, query: str) -> None:
         """`GET /api/render/<slug>/<section>?speed=&semitones=&source=` --
         the cache file, RANGE-SERVED, or 202 `{"rendering": true}` if it is
@@ -1739,10 +1658,9 @@ class WoodshedHandler(BaseHTTPRequestHandler):
 
     @staticmethod
     def _read_wav_mono(path: Path) -> tuple[np.ndarray, int]:
-        """The inverse of `_encode_wav_mono` below -- a mono 16-bit PCM WAV
-        (what `capture.py`'s `_write_wav_mono_16bit` always writes for a
-        raw capture recording) back to float32 samples in [-1, 1] plus its
-        sample rate, stdlib + numpy only."""
+        """A mono 16-bit PCM WAV (what `capture.py`'s `_write_wav_mono_16bit`
+        always writes for a raw capture recording) back to float32 samples
+        in [-1, 1] plus its sample rate, stdlib + numpy only."""
         with wave_module.open(str(path), "rb") as reader:
             sample_rate = reader.getframerate()
             raw = reader.readframes(reader.getnframes())

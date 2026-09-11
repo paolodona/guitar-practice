@@ -44,10 +44,8 @@ export const ACTIONS = {
   transpose_up:    { label: 'Transpose up',    cc: null },
   transpose_down:  { label: 'Transpose down',  cc: null },
   loop_toggle:     { label: 'Loop',            cc: null },
-  metronome:       { label: 'Metronome',       cc: null },
   fullscreen:      { label: 'Fullscreen',      cc: null },
   help:            { label: 'Help',            cc: null },
-  cancel_lead_in:  { label: 'Cancel lead-in',  cc: null },
 };
 
 /** @typedef {"midi" | "keyboard" | "ui"} ActionSource */

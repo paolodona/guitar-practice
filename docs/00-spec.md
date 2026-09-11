@@ -112,7 +112,7 @@ paid for in `rambass-live/docs/review-ui.md`; do not re-learn it.
 
 ### 3. Practice view — the actual product
 
-Full screen. Legible from two metres with a guitar on. Six things on it, and
+Full screen. Legible from two metres with a guitar on. Five things on it, and
 nothing else:
 
 | element | why |
@@ -121,7 +121,6 @@ nothing else:
 | **Speed, huge** — `55%` with the resulting BPM under it (`50 bpm`) | the number that is the goal |
 | **Rep counter, huge** — `12` with `of 3 to advance` under it | the number that is the progress |
 | **A progress ring** filling once per loop pass | peripheral vision only; you never *look* at it |
-| **A lead-in countdown** — `3 · 2 · 1` filling the pre-roll | so you arrive playing |
 | **A one-line hint of what is next** — `→ 60% after 1 more` | so the ladder is never a surprise |
 
 Under those, a thin waveform of *just the section* with a playhead, and a foot
@@ -214,8 +213,6 @@ bad one is three.
   on the downbeat rather than starting cold on it. On the first pass only, or on
   every pass — a setting, defaulting to first-pass-only, because hearing the
   same bar 30 times is not the point.
-* An optional **click** on the lead-in (and, if wanted, throughout), generated
-  from the tempo grid. `rambass-live/src/rambass/click.py` already does this.
 * A **crossfade at the loop point** (default 10 ms) so the seam is not a tick.
 
 ### Choosing what is next
@@ -253,7 +250,6 @@ work done for the covers gig still counts for the band's.
 | `l` | loop on/off |
 | `c` | confirm the last pass as clean |
 | `x` | retract the last rep |
-| `m` | metronome on/off |
 | `f` | full-screen practice view |
 | `?` | the shortcut list itself |
 

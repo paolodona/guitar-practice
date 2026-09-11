@@ -15,7 +15,7 @@ of it is time-limited.**
   cross-repo path references to the siblings here, 18 of them carrying a line
   number (13 in source files)
   (`src/woodshed/cli.py:69`, `server.py:134`, `library.py:28,48`,
-  `tempofit.py:10`, `click.py:104`, ...). Every one is careful, reasoned and
+  `tempofit.py:10`, ...). Every one is careful, reasoned and
   correctly attributed. None of them can tell you when the original moves, and
   no test spans the boundary.
 

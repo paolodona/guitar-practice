@@ -38,7 +38,7 @@ to the same product but not like the same screen:
 
 * **Setup mode** — sitting at the desk, mouse in hand. Dense, informative,
   ordinary desktop-app density is fine. Dashboard, song page, library.
-* **Practice mode** — standing, guitar on, two metres away. Almost empty. Six
+* **Practice mode** — standing, guitar on, two metres away. Almost empty. Five
   elements. Enormous type. This is the screen that makes or breaks the product.
 
 ### Artboards to produce
@@ -98,9 +98,9 @@ The workbench, used sitting down before practice.
   and lanes must read as exact — that is the whole credibility of the screen, and
   a nested span must obviously start and end *inside* its parent.
   Show at least one nested pair and one bare stretch of song with no section on it.
-* **Transport bar**: play/pause, loop toggle, a speed control, a transpose
+* **Transport bar**: play/pause, loop toggle, a speed control, and a transpose
   readout (a *tuning name*, not a number: "E♭ standard", with "−1 semitone"
-  small beneath), and a metronome toggle.
+  small beneath).
 * **Selected-section inspector** (a right rail or a bottom sheet): name, start
   and end (as `bar.beat` and as seconds), target speed, ladder step, lead-in
   bars, free-text notes, its containment ("inside Full solo"), and a "Practise
@@ -110,7 +110,7 @@ Show one **section chip in a selected state** and one being dragged.
 
 ### 3 · Practice mode — the hero screen
 
-Full screen, no browser chrome, no navigation, no sidebar. Six elements:
+Full screen, no browser chrome, no navigation, no sidebar. Five elements:
 
 1. **Section name** — top, medium-large, with the song title smaller above it
    and, where the section sits inside another, a quiet line beneath saying so:
@@ -121,9 +121,7 @@ Full screen, no browser chrome, no navigation, no sidebar. Six elements:
 3. **The rep counter** — the second largest. `12`, with `of 3 to advance` beneath.
 4. **A progress ring or arc** that fills once per loop pass. It exists for
    peripheral vision — he never looks *at* it. Large, thin, low contrast.
-5. **A lead-in countdown** — `3 · 2 · 1` during the pre-roll bars, big, then
-   gone. This is the moment he needs to arrive playing.
-6. **A one-line preview of the ladder**: `→ 60 % after 1 more clean rep`.
+5. **A one-line preview of the ladder**: `→ 60 % after 1 more clean rep`.
 
 Beneath those, small and quiet: a **thin waveform of just this section** with a
 playhead, and a **foot-pedal legend** — six labelled icons showing what each
@@ -131,11 +129,10 @@ footswitch does right now (play/pause, prev, next, slower, faster, "that one was
 bad"). The legend is how he learns the pedals in week one and ignores them from
 week two, so it must be present and must not compete.
 
-**Show three states of this screen:**
+**Show two states of this screen:**
 
 * **A — looping.** Mid-pass, ring part-filled, rep count 12.
-* **B — lead-in.** The countdown at "2", everything else dimmed back.
-* **C — the ladder advancing.** The moment the speed goes 55 → 60: show how that
+* **B — the ladder advancing.** The moment the speed goes 55 → 60: show how that
   is celebrated. It should feel *earned and quiet* — a brief emphasis, not
   confetti. This is the emotional payoff of the whole product and it happens
   maybe six times an hour.

@@ -476,7 +476,7 @@ def _finish_capture(
 
 def _write_wav_mono_16bit(path: Path, samples: np.ndarray, sample_rate: int) -> None:
     """*samples* (float32, [-1, 1]) as a 16-bit mono PCM WAV -- stdlib
-    only. Same encoding server.py's `_encode_wav_mono` uses for the click;
+    only, matching `server.py`'s own `_read_wav_mono` convention (int16),
     duplicated rather than imported, since `server.py` sits above this
     module and importing it here would be backwards."""
     import wave as wave_module

@@ -203,17 +203,10 @@ Woodshed has the same two-clock hazard in a different costume:
 
 * **source time** — seconds in the original file. What `song.yaml` stores.
 * **playback time** — seconds in the rendered, stretched section, where the
-  pre-roll occupies the head. What the waveform, the playhead and the click use.
+  pre-roll occupies the head. What the waveform and the playhead use.
 
 Write them as two functions with two names and convert at the boundary. Anything
 that takes a bare `float` called `t` will eventually take the wrong one.
-
-## The click
-
-Generated, never sampled from the recording: a short sine burst (accent higher)
-at each grid position, summed at the playback clock. `rambass-live/src/rambass/
-click.py` already does exactly this and can be lifted. Independent gain from the
-music, because a click you cannot hear over a loud chorus is a click that is off.
 
 ## Decoding and formats
 

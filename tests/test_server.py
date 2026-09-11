@@ -605,49 +605,15 @@ def test_song_payload_reports_demucs_availability(served, monkeypatch):
     assert data["demucs_available"] is False
 
 
-# ── GET /api/click/<slug>/<section> ─────────────────────────────────────────
+# ── #5: GET /api/click/<slug>/<section> is gone ─────────────────────────────
 
 
-def _wav_duration_s(body: bytes) -> float:
-    with wave_module.open(io.BytesIO(body), "rb") as reader:
-        return reader.getnframes() / reader.getframerate()
-
-
-def test_click_lead_in_covers_the_pre_roll(served):
-    # _make_song's tempo is 120bpm; PracticeDefaults.pre_roll_beats
-    # defaults to 4.0 -- 4 beats at 120bpm is 2.0s at speed 1.0.
-    base, _, slug = served
-    status, body = _get(base, f"/api/click/{slug}/solo-full")
-    assert status == 200
-    assert _wav_duration_s(body) == pytest.approx(2.0, abs=0.05)
-
-
-def test_click_speed_scales_the_duration(served):
-    base, _, slug = served
-    status, body = _get(base, f"/api/click/{slug}/solo-full?speed=0.5")
-    assert status == 200
-    assert _wav_duration_s(body) == pytest.approx(4.0, abs=0.05)  # half speed, twice as long
-
-
-def test_click_full_mode_covers_lead_in_plus_the_whole_loop(served):
-    base, _, slug = served
-    status, body = _get(base, f"/api/click/{slug}/solo-full?mode=full")
-    assert status == 200
-    # solo-full is 0.0-60.0s -- 2.0s lead-in + 60.0s loop at speed 1.0.
-    assert _wav_duration_s(body) == pytest.approx(62.0, abs=0.05)
-
-
-def test_click_unknown_section_is_404(served):
+def test_click_endpoint_no_longer_exists(served):
+    # #5: the lead-in/metronome-click feature was removed entirely --
+    # this route must 404 like any other unrecognised path, not answer.
     base, _, slug = served
     with pytest.raises(urllib.error.HTTPError) as caught:
-        _get(base, f"/api/click/{slug}/no-such-section")
-    assert caught.value.code == 404
-
-
-def test_click_unknown_song_is_404(served):
-    base, _, _ = served
-    with pytest.raises(urllib.error.HTTPError) as caught:
-        _get(base, "/api/click/no-such-song/solo-full")
+        _get(base, f"/api/click/{slug}/solo-full")
     assert caught.value.code == 404
 
 
@@ -1374,7 +1340,6 @@ def test_server_writes_nothing_else(served, monkeypatch):
     # every GET this unit implements -- harmless, but exercised so a stray
     # write in a read path would be caught too
     _get(base, "/api/setlist/gig")
-    _get(base, f"/api/click/{slug}/solo-full")
     _get(base, "/")
     _get(base, "/web/app.js")
     _get(base, "/api/config")

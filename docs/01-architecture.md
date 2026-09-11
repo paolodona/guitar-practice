@@ -142,7 +142,6 @@ Concrete, in rough order of value:
 |---|---|---|
 | `rambass-live/src/rambass/console.py` | `parse_byte_range` + the `ThreadingHTTPServer` handler | range-served audio, already correct and tested |
 | `rambass-live/src/rambass/analyze.py` | `refine_tempo` (comb/DFT fit) and `pulse_wander` | pure numpy, and it exists precisely because librosa returns a **tempogram bin centre, not a measurement** — near 117 BPM the only values it can return are ~112.4, 117.5, 123.1. Your grid depends on the real number |
-| `rambass-live/src/rambass/click.py` | click generation from a tempo map | the lead-in metronome |
 | `rambass-live/src/rambass/audio.py` | `locate_tool` (override → PATH → discovery, in that order) and `require_module` | so `ffmpeg`/`rubberband` are found or *explained*, never silently missing |
 | `rambass-live/src/rambass/console.html` | the waveform/ruler/playhead stack: one gutter, one `mark.frac * width` mapping, one playhead across all lanes | four alignment bugs are already documented and fixed there. Read that section before drawing a single pixel |
 | `rambass-live/src/rambass/project.py` | `slugify` (folds accents) and `parse_position` | Italian titles, and `bar.beat` notation |

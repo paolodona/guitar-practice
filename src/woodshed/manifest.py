@@ -86,11 +86,11 @@ class Tempo(BaseModel):
     Every field defaults, so a song no analysis has ever touched -- a
     hand-authored song.yaml, a future library-scan import -- parses to the
     degrade state docs/02-data-model.md documents explicitly: "if tempo.bpm
-    is 0 or absent, the app still works: no grid, no click, no bar ruler,
-    free-dragged boundaries." ``bpm <= 0`` is what every grid consumer
-    (`analyze.beat_grid`, eventually `click.py`, the front end's bar ruler)
-    checks -- 0 and "the key was never there" collapse to the same value
-    here rather than needing two separate checks everywhere else.
+    is 0 or absent, the app still works: no grid, no bar ruler, free-dragged
+    boundaries." ``bpm <= 0`` is what every grid consumer (`analyze.
+    beat_grid`, the front end's bar ruler) checks -- 0 and "the key was
+    never there" collapse to the same value here rather than needing two
+    separate checks everywhere else.
     """
 
     model_config = ConfigDict(extra="allow")
@@ -113,13 +113,6 @@ class PracticeDefaults(BaseModel):
     reps_to_advance: int = 3
     pre_roll_beats: float = 4.0
     pre_roll_every_pass: bool = False
-    # Default 'lead-in', not 'off': with no audible click, the lead-in
-    # overlay's 3-2-1 count-in sits over the section's own real pre-roll
-    # audio (docs/00-spec.md's "pre_roll_beats ... plays the audio *before*
-    # the section so you enter playing") with nothing to explain why the
-    # recording is already audible under a "counting in" overlay -- Paolo,
-    # live 2026-09-06, reading it as the music starting unannounced.
-    click: Literal["off", "lead-in", "always"] = "lead-in"
     loop_crossfade_ms: float = 10.0
 
 

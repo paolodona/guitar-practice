@@ -85,7 +85,6 @@ def test_docs_song_yaml_parses(song_yaml_text: str, tmp_path: Path) -> None:
     assert song.recording.file == "audio/cant-stop.flac"
     assert song.recording.tuning == "E standard"
     assert song.tempo.source == "refined"
-    assert song.practice.click == "lead-in"
     assert len(song.sections) == 5
     assert [s.id for s in song.sections] == [
         "intro", "solo-full", "solo-tapping", "solo-run", "whole-song",
@@ -105,6 +104,27 @@ def test_docs_song_yaml_parses(song_yaml_text: str, tmp_path: Path) -> None:
     assert solo_full.ladder_step is None
     # counts_toward_readiness defaults True when absent from the file
     assert all(s.counts_toward_readiness for s in song.sections)
+
+
+def test_a_leftover_click_key_from_before_it_was_removed_still_parses(
+    song_yaml_text: str, tmp_path: Path
+) -> None:
+    """#5: the lead-in click feature is gone, but every song.yaml committed
+    before this change still has `practice.click: lead-in` written on disk
+    -- dropping the field from PracticeDefaults must be a read-side no-op,
+    not a parse error (CLAUDE.md: "a song.yaml written before a field
+    existed still loads"; the same grace has to run in reverse for a field
+    that stops existing). `PracticeDefaults`' own `extra="allow"` already
+    guarantees this -- an unknown key is accepted, not rejected -- so this
+    pins that guarantee down rather than leaving it implicit.
+    """
+    data = yaml.safe_load(song_yaml_text)
+    data["practice"]["click"] = "lead-in"
+    path = tmp_path / "song.yaml"
+    path.write_text(yaml.safe_dump(data), encoding="utf-8")
+    song = load_song(path)  # must not raise
+    assert song.practice.start_speed == 50.0  # the rest of the file still loads normally
+    assert "click" not in PracticeDefaults.model_fields  # gone as a declared field, not just unused
 
 
 def test_docs_setlist_yaml_parses(setlist_yaml_text: str, tmp_path: Path) -> None:
@@ -239,9 +259,8 @@ def test_song_load_refuses_bad_section(tmp_path: Path, song_yaml_text: str) -> N
 
 # --- the degrade path: tempo.bpm 0 or absent is not an error ---------------
 # docs/02-data-model.md:160 -- "if tempo.bpm is 0 or absent, the app still
-# works: no grid, no click, no bar ruler, free-dragged boundaries." Every
-# grid consumer has to tolerate this and none of them will unless a test
-# says so.
+# works: no grid, no bar ruler, free-dragged boundaries." Every grid
+# consumer has to tolerate this and none of them will unless a test says so.
 
 
 def test_song_with_no_tempo_key_at_all_still_loads(tmp_path: Path, song_yaml_text: str) -> None:

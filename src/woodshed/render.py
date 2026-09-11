@@ -169,8 +169,7 @@ def _read_wav(path: Path) -> tuple[np.ndarray, int]:
     """*(samples, sample_rate)* -- `samples` is float32 in [-1, 1], shape
     `(n_frames, channels)`. Stdlib `wave` + numpy only, matching
     CLAUDE.md's Layering for every module below the heavy-dependency line
-    except this one -- no soundfile/scipy, same restriction
-    `server.py`'s own `_encode_wav_mono` already keeps for the click.
+    except this one -- no soundfile/scipy.
     Handles 8/16/24/32-bit PCM since rubberband's own output width is not
     contractually fixed -- see the module's "Before starting" note."""
     with wave_module.open(str(path), "rb") as reader:
@@ -201,11 +200,10 @@ def _read_wav(path: Path) -> tuple[np.ndarray, int]:
 
 
 def _write_wav(path: Path, samples: np.ndarray, sample_rate: int) -> None:
-    """16-bit PCM, *samples* shape `(n_frames, channels)` in [-1, 1] --
-    matches `server.py`'s own `_encode_wav_mono` convention (int16, the
+    """16-bit PCM, *samples* shape `(n_frames, channels)` in [-1, 1] -- the
     only width this module ever WRITES; it reads wider ones, never writes
     them -- the final `ffmpeg` transcode to FLAC is what actually persists,
-    so 16-bit here is an intermediate, not the cache's own bit depth)."""
+    so 16-bit here is an intermediate, not the cache's own bit depth."""
     channels = samples.shape[1]
     clamped = np.clip(samples, -1.0, 1.0)
     pcm16 = (clamped * 32767.0).astype("<i2")

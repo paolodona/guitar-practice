@@ -118,8 +118,8 @@ def beat_grid(tempo: Tempo | None, duration_s: float) -> list[float]:
 
     Pure -- no audio, no librosa, safe to call from anything. Degrades to an
     empty grid when there is nothing to derive one from (CLAUDE.md: "if
-    tempo.bpm is 0 or absent, ... no grid, no click, no bar ruler"), rather
-    than dividing by zero.
+    tempo.bpm is 0 or absent, ... no grid, no bar ruler"), rather than
+    dividing by zero.
     """
     if tempo is None or tempo.bpm <= 0 or duration_s <= 0:
         return []
