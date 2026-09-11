@@ -43,6 +43,7 @@ from woodshed.errors import WoodshedError
 from woodshed.ledger import read as read_ledger
 from woodshed.library import Repo
 from woodshed.manifest import (
+    PatchChange,
     Recording,
     Section,
     Setlist,
@@ -2084,41 +2085,31 @@ def test_library_import_without_credentials_says_how_to_connect(served, tmp_path
     assert "connect" in body["error"].lower()
 
 
-# ── the gx100 cross-reference in the song payload (Phase 3, N1) ───────────
+# ── the GX-100 patch-change timeline in the song payload (#3, N2) ─────────
 
 
-def test_song_payload_resolves_a_section_patch_against_the_gx100_repo(served, tmp_path):
-    base, repo, slug = served
-    sibling = tmp_path / "gx100"
-    gx_song = sibling / "songs" / slug / "song.yaml"
-    gx_song.parent.mkdir(parents=True)
-    gx_song.write_text("patches:\n  - {id: lead, profile: solo-boost, slot: U02-3}\n",
-                       encoding="utf-8")
-    repo.config_path.write_text(
-        f"gx100:\n  path: {sibling.as_posix()}\n", encoding="utf-8"
-    )
-    song_path = repo.song_dir(slug) / "song.yaml"
-    song = load_song(song_path)
-    song.sections[0].patch = "lead"
-    save_song(song, song_path)
-
-    _status, data = _get_json(base, f"/api/song/{slug}")
-    row = next(s for s in data["sections"] if s["id"] == song.sections[0].id)
-    assert row["patch_ref"] == {"id": "lead", "profile": "solo-boost", "slot": "U02-3"}
-
-
-def test_song_payload_with_no_gx100_repo_shows_no_patch_rather_than_failing(served):
-    """The sibling repo is absent on every machine but Paolo's own. That has
-    to be a quiet 'not shown', not a 500 on the song page."""
+def test_song_payload_carries_the_patch_changes_timeline(served):
     base, repo, slug = served
     song_path = repo.song_dir(slug) / "song.yaml"
     song = load_song(song_path)
-    song.sections[0].patch = "lead"
+    song.patch_changes = [
+        PatchChange(at_s=0.0, patch="U01-1"),
+        PatchChange(at_s=88.0, patch="U02-3"),
+    ]
     save_song(song, song_path)
 
     status, data = _get_json(base, f"/api/song/{slug}")
     assert status == 200
-    assert all(s["patch_ref"] is None for s in data["sections"])
+    assert data["patch_changes"] == [
+        {"at_s": 0.0, "patch": "U01-1"},
+        {"at_s": 88.0, "patch": "U02-3"},
+    ]
+
+
+def test_song_payload_patch_changes_is_empty_for_a_song_with_none(served):
+    base, _repo, slug = served
+    _status, data = _get_json(base, f"/api/song/{slug}")
+    assert data["patch_changes"] == []
 
 
 # ── clean_at_speed: progress WITHIN the current rung, across sittings ─────
@@ -2174,24 +2165,67 @@ def test_a_full_song_section_reports_no_rung_progress(served):
     assert row["clean_at_speed"] == 0
 
 
-def test_song_payload_lists_every_gx100_patch_for_the_suggest_field(served, tmp_path):
-    base, repo, slug = served
-    sibling = tmp_path / "gx100"
-    gx_song = sibling / "songs" / slug / "song.yaml"
-    gx_song.parent.mkdir(parents=True)
-    gx_song.write_text(
-        "patches:\n  - {id: lead, slot: U02-3}\n  - {id: clean, slot: U01-1}\n",
+def test_gx100_patches_endpoint_reads_the_local_config_file(served):
+    base, repo, _slug = served
+    config_dir = repo.gx100_config_path.parent
+    config_dir.mkdir(parents=True, exist_ok=True)
+    repo.gx100_config_path.write_text(
+        "channel: 2\npatches:\n  - {memory: U01-1, name: Clean}\n  - {memory: U01-2, name: Lead}\n",
         encoding="utf-8",
     )
-    repo.config_path.write_text(f"gx100:\n  path: {sibling.as_posix()}\n", encoding="utf-8")
-    _status, data = _get_json(base, f"/api/song/{slug}")
-    assert [p["id"] for p in data["gx100_patches"]] == ["clean", "lead"]
+    _status, data = _get_json(base, "/api/gx100/patches")
+    assert data["channel"] == 2
+    assert [p["memory"] for p in data["patches"]] == ["U01-1", "U01-2"]
+    assert [p["name"] for p in data["patches"]] == ["Clean", "Lead"]
 
 
-def test_song_payload_lists_no_patches_when_there_is_no_sibling_repo(served):
+def test_gx100_patches_endpoint_degrades_when_the_file_does_not_exist(served):
+    base, _repo, _slug = served
+    _status, data = _get_json(base, "/api/gx100/patches")
+    assert data == {"channel": 1, "patches": []}
+
+
+def test_post_patch_change_upserts_by_at_s(served):
+    base, repo, slug = served
+    _post(base, "/api/patch-change", {"song": slug, "at_s": 0.0, "patch": "U01-1"})
+    status, data = _post(base, "/api/patch-change", {"song": slug, "at_s": 88.0, "patch": "U02-3"})
+    assert status == 200
+    assert data["patch_changes"] == [
+        {"at_s": 0.0, "patch": "U01-1"},
+        {"at_s": 88.0, "patch": "U02-3"},
+    ]
+    song = load_song(repo.song_dir(slug) / "song.yaml")
+    assert [(c.at_s, c.patch) for c in song.patch_changes] == [(0.0, "U01-1"), (88.0, "U02-3")]
+
+
+def test_post_patch_change_replaces_the_entry_at_the_same_at_s(served):
     base, _repo, slug = served
-    _status, data = _get_json(base, f"/api/song/{slug}")
-    assert data["gx100_patches"] == []
+    _post(base, "/api/patch-change", {"song": slug, "at_s": 10.0, "patch": "U01-1"})
+    _status, data = _post(base, "/api/patch-change", {"song": slug, "at_s": 10.0, "patch": "U02-1"})
+    assert data["patch_changes"] == [{"at_s": 10.0, "patch": "U02-1"}]
+
+
+def test_post_patch_change_refuses_a_memory_a_bare_program_change_cannot_reach(served):
+    base, _repo, slug = served
+    with pytest.raises(urllib.error.HTTPError) as excinfo:
+        _post(base, "/api/patch-change", {"song": slug, "at_s": 0.0, "patch": "P01-1"})
+    assert excinfo.value.code == 400
+
+
+def test_post_patch_change_delete_removes_the_entry_at_that_at_s(served):
+    base, _repo, slug = served
+    _post(base, "/api/patch-change", {"song": slug, "at_s": 10.0, "patch": "U01-1"})
+    _status, data = _post(
+        base, "/api/patch-change", {"song": slug, "action": "delete", "at_s": 10.0},
+    )
+    assert data["patch_changes"] == []
+
+
+def test_post_patch_change_delete_unknown_at_s_is_an_error(served):
+    base, _repo, slug = served
+    with pytest.raises(urllib.error.HTTPError) as excinfo:
+        _post(base, "/api/patch-change", {"song": slug, "action": "delete", "at_s": 999.0})
+    assert excinfo.value.code == 400
 
 
 def test_song_payload_names_the_setlist_it_was_opened_from(served):

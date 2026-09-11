@@ -21,6 +21,7 @@ import yaml
 
 from woodshed.errors import WoodshedError
 from woodshed.manifest import (
+    PatchChange,
     PracticeDefaults,
     Recording,
     Section,
@@ -96,14 +97,14 @@ def test_docs_song_yaml_parses(song_yaml_text: str, tmp_path: Path) -> None:
     assert tapping.start_speed == 45.0
     assert tapping.ladder_step == 2.5
     assert tapping.notes is not None and "12th" in tapping.notes
-    intro = next(s for s in song.sections if s.id == "intro")
-    assert intro.patch == "rhythm"
     solo_full = next(s for s in song.sections if s.id == "solo-full")
-    assert solo_full.patch is None
     assert solo_full.start_speed is None
     assert solo_full.ladder_step is None
     # counts_toward_readiness defaults True when absent from the file
     assert all(s.counts_toward_readiness for s in song.sections)
+    # #3: the song-level patch-change timeline, replacing the old
+    # per-section patch: field entirely.
+    assert [(c.at_s, c.patch) for c in song.patch_changes] == [(0.0, "U01-1"), (88.0, "U02-3")]
 
 
 def test_a_leftover_click_key_from_before_it_was_removed_still_parses(
@@ -405,7 +406,6 @@ def _minimal_song() -> Song:
                 snapped="beat",
                 target_speed=100,
                 notes="16ths, muted.",
-                patch="rhythm",
             ),
             Section(
                 id="solo-full",
@@ -417,6 +417,26 @@ def _minimal_song() -> Song:
             ),
         ],
     )
+
+
+def test_patch_changes_round_trip_through_song_yaml(tmp_path: Path) -> None:
+    song = _minimal_song()
+    song.patch_changes = [
+        PatchChange(at_s=0.0, patch="U01-1"), PatchChange(at_s=88.0, patch="U02-3"),
+    ]
+    path = tmp_path / "song.yaml"
+    save_song(song, path)
+    reloaded = load_song(path)
+    assert [(c.at_s, c.patch) for c in reloaded.patch_changes] == [(0.0, "U01-1"), (88.0, "U02-3")]
+    # #3: a song-level field, declared after `sections` on the model --
+    # save_song's yaml.safe_dump preserves field order, and the doc example
+    # (docs/02-data-model.md) shows it there too.
+    text = path.read_text(encoding="utf-8")
+    top_level_keys = [
+        line.split(":")[0] for line in text.splitlines()
+        if line and not line.startswith((" ", "-")) and ":" in line
+    ]
+    assert top_level_keys.index("sections") < top_level_keys.index("patch_changes")
 
 
 def test_save_song_round_trip_is_byte_stable(tmp_path: Path) -> None:

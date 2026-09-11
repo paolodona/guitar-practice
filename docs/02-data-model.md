@@ -56,7 +56,6 @@ sections:
     snapped: beat                 # beat | bar | free — how the boundary was placed
     target_speed: 100
     notes: "16ths, muted. The right hand never stops."
-    patch: rhythm                 # optional: a patch id in gx100 songs/<slug>/song.yaml
 
   # Sections may overlap and nest. These three describe the same music
   # at three grains, and all three are real practice targets.
@@ -88,6 +87,17 @@ sections:
     snapped: free
     target_speed: 100
     full_song: true                 # reps count; excluded from next/prev and readiness
+
+# #3: one song-level timeline of program changes, replacing a per-section
+# `patch:` field entirely. `patch` names a GX-100 memory reachable by a
+# bare Program Change (U01-1..U32-4 -- docs/05-foot-control.md); resolving
+# "the patch for section [X, Y)" is the last entry with at_s <= X, falling
+# back to U01-1 when the list is empty or nothing qualifies.
+patch_changes:
+  - at_s: 0.0
+    patch: U01-1
+  - at_s: 88.0
+    patch: U02-3
 ```
 
 **The comments in that example are documentation, not data.** The app writes

@@ -108,6 +108,15 @@ class Repo:
         return self.root / "config.yaml"
 
     @property
+    def gx100_config_path(self) -> Path:
+        # #3: the local, human-maintained patch-name list -- a SEPARATE
+        # small file, not config.yaml itself, matching rambass-live's own
+        # config/gx100.yaml convention (a per-concern file, not one giant
+        # settings blob). Absence degrades to no suggestions
+        # (gx100.load_patch_names's own doc), never an error.
+        return self.root / "config" / "gx100.yaml"
+
+    @property
     def web_dir(self) -> Path:
         return self.root / "web"
 

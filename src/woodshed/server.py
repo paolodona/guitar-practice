@@ -42,8 +42,15 @@ C2's pass, so those were placeholders (0 / omitted) until now:
                                            forward into this phase, see
                                            render.py's own module doc;
                                            ?source= is Group S2)      (I3, S2)
+    GET  /api/gx100/patches              -> the local, human-maintained
+                                            patch-name list (config/
+                                            gx100.yaml) -- field defaults
+                                            when it does not exist yet (N2)
     POST /api/rep                       -> appends ONE ledger line        (C2)
     POST /api/section                   -> create/update/delete a span    (C2)
+    POST /api/patch-change               -> create/update/delete one entry
+                                            in song.yaml's patch_changes
+                                            timeline, keyed by at_s (N2)
     POST /api/shift                     -> writes setlist.songs[].shift   (F1)
     POST /api/setlist                   -> create a new setlist       (post-Phase-1)
     POST /api/setlist/<slug>/songs      -> add a song to a setlist    (post-Phase-1)
@@ -138,7 +145,14 @@ from woodshed.errors import WoodshedError
 from woodshed.ladder import LadderConfig, LadderState, starting_speed
 from woodshed.ledger import Rep
 from woodshed.library import Repo, slugify
-from woodshed.manifest import Section, Setlist, effective_pre_roll_beats, load_song, save_song
+from woodshed.manifest import (
+    PatchChange,
+    Section,
+    Setlist,
+    effective_pre_roll_beats,
+    load_song,
+    save_song,
+)
 from woodshed.render_runner import RenderRunner
 from woodshed.setlist import add_song, effective_shift, reorder, set_shift
 from woodshed.setlist import create as create_setlist
@@ -384,6 +398,8 @@ class WoodshedHandler(BaseHTTPRequestHandler):
                 self._web_static(path.removeprefix("/web/"))
             elif path == "/api/config":
                 self._json(load_config(self.repo).model_dump(mode="json"))
+            elif path == "/api/gx100/patches":
+                self._gx100_patches()
             elif path == "/api/setlists":
                 self._setlists()
             elif path.startswith("/api/setlist/"):
@@ -536,13 +552,6 @@ class WoodshedHandler(BaseHTTPRequestHandler):
         reps = list(ledger.read(self.repo))
         readiness = practice.song_readiness(song, reps, song.practice)
 
-        # Phase 3, N1: a section's `patch:` resolved against the sibling
-        # gx100 repo, read by path and never imported. Absent repo, absent
-        # song, absent patch and a malformed sibling file all answer None,
-        # which the UI shows as nothing at all -- see gx100.py's own doc.
-        gx100_root = gx100.repo_path(load_config(self.repo))
-        patches = gx100.load_patches(gx100_root, slug)
-
         from woodshed.separate import demucs_available
 
         self._json({
@@ -562,17 +571,13 @@ class WoodshedHandler(BaseHTTPRequestHandler):
             # demucs check already reports -- never a hard failure just
             # because the optional isolation dependency is missing.
             "demucs_available": demucs_available(),
-            # Every patch the sibling gx100 repo knows for THIS song, so the
-            # song screen's patch field can suggest real ids instead of
-            # asking someone to remember them (Paolo asked for a dropdown;
-            # it is a datalist, not a hard select -- naming a patch before
-            # you have designed it in gx100 has to stay possible, and the
-            # inspector already says out loud when an id does not resolve).
-            # Empty list for every kind of absence, same as patch_ref.
-            "gx100_patches": [
-                {"id": p.id, "profile": p.profile, "slot": p.slot}
-                for p in sorted(patches.values(), key=lambda p: p.id)
-            ],
+            # #3: the song-level patch-change timeline (replacing the old
+            # per-section patch: field entirely) -- resolution ("which
+            # patch applies at source-second T") happens client-side
+            # (web/gx100.js's resolvePatchAt, mirroring gx100.py's own
+            # arithmetic) since that is also where the actual MIDI send
+            # decides what to send, not here.
+            "patch_changes": [c.model_dump(mode="json") for c in song.patch_changes],
             "readiness": {
                 "ratio": readiness.ratio,
                 "intervals": [
@@ -592,14 +597,6 @@ class WoodshedHandler(BaseHTTPRequestHandler):
                     "ancestors": [a.id for a in sections.ancestors(spans, section.id)],
                     "starting_speed_pct": self._section_starting_speed(reps, song, section),
                     "clean_at_speed": self._section_clean_at_speed(reps, song, section),
-                    "patch_ref": (
-                        None if section.patch is None or section.patch not in patches
-                        else {
-                            "id": patches[section.patch].id,
-                            "profile": patches[section.patch].profile,
-                            "slot": patches[section.patch].slot,
-                        }
-                    ),
                 }
                 for section in song.sections
             ],
@@ -839,6 +836,15 @@ class WoodshedHandler(BaseHTTPRequestHandler):
             "already_present": result.already_present,
             "setlist": result.setlist,
         })
+
+    def _gx100_patches(self) -> None:
+        """GET /api/gx100/patches -> the local, human-maintained patch-name
+        list (config/gx100.yaml), for the song screen's patch-lane popup
+        (#3). Field defaults (channel 1, no patches) when the file does
+        not exist yet -- gx100.load_patch_names's own degrade, never an
+        error over a file nobody has created yet."""
+        names = gx100.load_patch_names(self.repo.gx100_config_path)
+        self._json(names.model_dump(mode="json"))
 
     def _setlists(self) -> None:
         result = []
@@ -1176,6 +1182,8 @@ class WoodshedHandler(BaseHTTPRequestHandler):
                 self._post_rep(body)
             elif path == "/api/section":
                 self._post_section(body)
+            elif path == "/api/patch-change":
+                self._post_patch_change(body)
             elif path == "/api/song/delete":
                 self._post_song_delete(body)
             elif path == "/api/shift":
@@ -1305,7 +1313,6 @@ class WoodshedHandler(BaseHTTPRequestHandler):
                 "ladder_step": body.get("ladder_step"),
                 "reps_to_advance": body.get("reps_to_advance"),
                 "notes": body.get("notes"),
-                "patch": body.get("patch"),
                 "counts_toward_readiness": bool(body.get("counts_toward_readiness", True)),
                 # FOUND while wiring full_song through: lead_in_beats (G2)
                 # was added to the model but never reached this explicit
@@ -1335,6 +1342,47 @@ class WoodshedHandler(BaseHTTPRequestHandler):
                 for s in song.sections
             ]
         })
+
+    def _post_patch_change(self, body: dict) -> None:
+        """Create/update or delete one entry in song.yaml's patch_changes
+        timeline (#3). Keyed by `at_s` exactly -- only one program change
+        can apply at a given instant, so a second upsert at the same at_s
+        simply replaces it, and the lane's own popup never offers dragging
+        one (only the section boundaries drag; this issue never asked for
+        that here), only creating or deleting at a clicked position.
+
+        `patch` is validated with `gx100.memory_to_index` before it is
+        ever stored -- refusing here, loudly, is what keeps a typo or an
+        unreachable memory (a P-bank preset, anything past U32-4) from
+        silently reaching the timeline and being sent as a Program Change
+        later with no one having checked it was reachable at all.
+        """
+        raw_slug = str(body.get("song", ""))
+        slug = self._resolve_slug(raw_slug)
+        if slug is None:
+            self._error(404, f"no such song: {raw_slug!r}")
+            return
+        song_path = self.repo.song_dir(slug) / "song.yaml"
+        song = load_song(song_path)
+
+        at_s = float(body["at_s"])
+        action = str(body.get("action", "upsert"))
+        if action == "delete":
+            remaining = [c for c in song.patch_changes if c.at_s != at_s]
+            if len(remaining) == len(song.patch_changes):
+                raise WoodshedError(f"no patch change at {at_s}s")
+            song.patch_changes = remaining
+        else:
+            patch = str(body.get("patch", ""))
+            gx100.memory_to_index(patch)  # raises WoodshedError for anything unreachable
+            song.patch_changes = (
+                [c for c in song.patch_changes if c.at_s != at_s]
+                + [PatchChange(at_s=at_s, patch=patch)]
+            )
+        song.patch_changes.sort(key=lambda c: c.at_s)
+
+        save_song(song, song_path)
+        self._json({"patch_changes": [c.model_dump(mode="json") for c in song.patch_changes]})
 
     def _post_song_delete(self, body: dict) -> None:
         """`POST /api/song/delete`, body `{song: <slug>}` -- irreversibly

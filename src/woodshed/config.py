@@ -50,21 +50,25 @@ class Spotify(BaseModel):
 
 
 class Gx100(BaseModel):
-    """Where the sibling `gx100` checkout is, if there is one.
+    """Auto-applying a GX-100 patch change on section/song load (#3, N2).
 
-    A PATH, never an import: docs/01-architecture.md:150 and
-    `gx100.py`'s own module doc. Absent (the default, and the ordinary case
-    on any machine but Paolo's) means a section's `patch:` is simply not
-    shown -- never an error.
+    `path` (the sibling `gx100` repo cross-reference, Phase 3 N1) is gone:
+    that mechanism resolved a section's now-removed `patch:` field, and
+    "one song-level timeline of program changes replaces N-per-section
+    free text" retired the whole thing. The local, human-maintained patch
+    list now lives at `config/gx100.yaml` (`library.Repo.gx100_config_path`,
+    `gx100.load_patch_names`) instead.
     """
 
-    path: str | None = None
     #: Sending Program Changes alters the pedal you are about to play a gig
     #: on, so it is off unless explicitly turned on -- CLAUDE.md's own
-    #: "Don't" and the same instinct as gx100's edit-buffer-only rule. Not
-    #: yet read by anything: the sending half (plan N2) is unbuilt, and this
-    #: field exists so the default is the safe one before it is.
+    #: "Don't" and the same instinct as gx100's edit-buffer-only rule.
     send_program_changes: bool = False
+    #: Case-insensitive substring against a Web MIDI output port's own
+    #: `name` -- same convention as `Midi.input` above. Empty matches the
+    #: first available output port, the ordinary case with one pedal
+    #: attached.
+    midi_output: str = ""
 
 
 class RenderConfig(BaseModel):

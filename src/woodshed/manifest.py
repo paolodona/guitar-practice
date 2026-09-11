@@ -142,7 +142,6 @@ class Section(BaseModel):
     ladder_step: float | None = None  # per-section override of the song default
     reps_to_advance: int | None = None
     notes: str | None = None
-    patch: str | None = None  # optional: a patch id in gx100 songs/<slug>/song.yaml
     counts_toward_readiness: bool = True
     # Phase 1, G2: docs/00-spec.md:98 lists this as a per-section field; an
     # earlier draft of the model omitted it. None means "use the song's
@@ -204,6 +203,29 @@ def whole_song_section(duration_s: float) -> Section:
     )
 
 
+class PatchChange(BaseModel):
+    """One program change on the song's own timeline (#3) -- a position in
+    the immutable recording (`at_s`, CLAUDE.md's seconds-not-bars
+    invariant, same exception `practice/align.yaml`/`lyrics.srt` already
+    get), not a per-section field. Replaces the old per-section `patch:`
+    string entirely: "one song-level timeline of program changes replaces
+    N-per-section free text."
+
+    `patch` names a GX-100 memory (e.g. `"U01-1"`). Format and reachability
+    (a bare Program Change only reaches U01-1..U32-4, never a P-bank preset
+    -- docs/05-foot-control.md) are validated at the point of use
+    (server.py's write handler, via `gx100.memory_to_index`), not here: a
+    schema-level check would make this the wrong layer to change if the
+    hardware picture ever changes again, and a song.yaml should never be
+    refused to load over a field this repo cannot fix by itself.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    at_s: float
+    patch: str
+
+
 class Song(BaseModel):
     """The whole of `songs/<slug>/song.yaml`."""
 
@@ -217,6 +239,7 @@ class Song(BaseModel):
     tempo: Tempo = Field(default_factory=Tempo)
     practice: PracticeDefaults = Field(default_factory=PracticeDefaults)
     sections: list[Section] = Field(default_factory=list)
+    patch_changes: list[PatchChange] = Field(default_factory=list)
 
 
 class SetlistEntry(BaseModel):

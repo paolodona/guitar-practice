@@ -1,137 +1,103 @@
-"""Tests for woodshed.gx100 -- the cross-reference (Phase 3, N1).
+"""Tests for woodshed.gx100 -- the GX-100 patch-change lane's server half
+(#3 / Group N2), replacing Phase 3's N1 entirely.
 
-The sibling repo is **not** present on the machine this was built on, and
-these tests never require it to be: every case below builds a
-`gx100/songs/<slug>/song.yaml`-shaped tree in `tmp_path`, which is also
-exactly what the "absent repo degrades to not-shown" rule needs in order to
-be tested at all. Nothing here imports anything from `gx100` -- CLAUDE.md's
-rule for all three repos is cross-reference by slug, never by copying
-content, and reading a file by a configured path is the version of that
-which does not create a dependency.
+N1 resolved a section's free-text `patch:` id against the SIBLING gx100
+repo's own song.yaml, deliberately carrying no slot->Program Change
+arithmetic at all -- correct at the time, because docs/08-unification.md's
+finding was CONTESTED (rambass-live's inference from a 2023 gig project said
+a PC names a slot resolved through the pedal's PROGRAM MAP; gx100's own
+hands-on unit test said otherwise). That contest is now RESOLVED
+(docs/05-foot-control.md): a bare Program Change selects a memory directly,
+0-127, and Bank Select must never be sent to this pedal. `Section.patch` and
+the whole per-section mechanism are gone (#3's own ask -- "one song-level
+timeline replaces N-per-section free text"), so this module now owns the
+arithmetic that was correctly missing before, and the local patch-name list
+that replaces the sibling-repo cross-reference.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from woodshed import gx100
+from woodshed.errors import WoodshedError
+
+# ---- memory_to_index / index_to_memory ------------------------------------
 
 
-def _gx100_song(root: Path, slug: str, body: str) -> Path:
-    path = root / "songs" / slug / "song.yaml"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(body, encoding="utf-8")
-    return path
+@pytest.mark.parametrize(
+    "memory,index",
+    [
+        ("U01-1", 0),
+        ("U01-2", 1),
+        ("U01-4", 3),
+        ("U02-1", 4),
+        ("U32-4", 127),
+        ("u01-1", 0),  # case-insensitive, matches the pedal's own printed labels
+        (" U01-1 ", 0),  # whitespace-tolerant, same as a hand-typed config entry
+    ],
+)
+def test_memory_to_index_matches_the_hardware_verified_table(memory: str, index: int) -> None:
+    # docs/05-foot-control.md's table: PC n loads memory n directly, and a
+    # bare Program Change is 7-bit -- U01-1..U32-4 is the whole reachable
+    # range, nothing past it.
+    assert gx100.memory_to_index(memory) == index
 
 
-def test_patches_are_read_by_path_from_the_sibling_repo(tmp_path: Path) -> None:
-    _gx100_song(tmp_path, "cant-stop", """
-title: Can't Stop
-patches:
-  - id: rhythm
-    profile: funk-clean
-    slot: U01-1
-  - id: lead
-    profile: solo-boost
-    slot: U02-3
-""")
-    patches = gx100.load_patches(tmp_path, "cant-stop")
-    assert set(patches) == {"rhythm", "lead"}
-    assert patches["lead"].profile == "solo-boost"
-    assert patches["lead"].slot == "U02-3"
+def test_index_to_memory_is_the_exact_inverse() -> None:
+    for index in range(gx100.MAX_PC + 1):
+        memory = gx100.index_to_memory(index)
+        assert gx100.memory_to_index(memory) == index
 
 
-def test_a_patches_mapping_is_read_as_well_as_a_list(tmp_path: Path) -> None:
-    """The sibling's own file is not this repo's to fix, and both shapes are
-    plausible YAML for the same idea -- accept either rather than making a
-    cross-repo read depend on which one it happens to use today."""
-    _gx100_song(tmp_path, "manlio", """
-patches:
-  rhythm: {profile: clean, slot: U01-2}
-""")
-    patches = gx100.load_patches(tmp_path, "manlio")
-    assert patches["rhythm"].slot == "U01-2"
+@pytest.mark.parametrize("bad", ["U33-1", "U50-4", "P01-1", "not-a-memory", "U01-5", "U00-1", ""])
+def test_memory_to_index_refuses_anything_a_bare_program_change_cannot_reach(bad: str) -> None:
+    # U33-1 onward and every P-bank preset need Bank Select or SysEx to
+    # reach -- and this repo must never send Bank Select to this pedal
+    # (docs/05-foot-control.md). Refusing here, loudly, is what keeps that
+    # true: there is no code path that could silently clamp or wrap into
+    # the unsafe range.
+    with pytest.raises(WoodshedError):
+        gx100.memory_to_index(bad)
 
 
-def test_an_absent_repo_is_not_shown_rather_than_an_error(tmp_path: Path) -> None:
-    assert gx100.load_patches(tmp_path / "no-such-repo", "cant-stop") == {}
-    assert gx100.load_patches(None, "cant-stop") == {}
+@pytest.mark.parametrize("bad", [-1, 128, 300])
+def test_index_to_memory_refuses_outside_0_127(bad: int) -> None:
+    with pytest.raises(WoodshedError):
+        gx100.index_to_memory(bad)
 
 
-def test_a_song_the_sibling_does_not_have_is_empty_not_an_error(tmp_path: Path) -> None:
-    _gx100_song(tmp_path, "other-song", "patches: []\n")
-    assert gx100.load_patches(tmp_path, "cant-stop") == {}
+# ---- the local patch-name list (config/gx100.yaml) ------------------------
 
 
-def test_a_malformed_sibling_file_degrades_instead_of_taking_the_page_down(
-    tmp_path: Path,
-) -> None:
-    """A file in ANOTHER repo can be mid-edit, broken, or a shape this one
-    has never seen. It may not be able to 500 a practice screen."""
-    _gx100_song(tmp_path, "cant-stop", "patches: [this: is, : broken\n")
-    assert gx100.load_patches(tmp_path, "cant-stop") == {}
-    _gx100_song(tmp_path, "cant-stop", "patches: 12\n")
-    assert gx100.load_patches(tmp_path, "cant-stop") == {}
-
-
-def test_patch_entries_missing_a_field_still_resolve_what_they_do_have(
-    tmp_path: Path,
-) -> None:
-    _gx100_song(tmp_path, "cant-stop", "patches:\n  - id: rhythm\n")
-    patch = gx100.load_patches(tmp_path, "cant-stop")["rhythm"]
-    assert patch.profile is None
-    assert patch.slot is None
-
-
-def test_resolve_looks_a_section_patch_up_and_answers_none_when_unknown(
-    tmp_path: Path,
-) -> None:
-    _gx100_song(tmp_path, "cant-stop", "patches:\n  - {id: lead, slot: U02-3}\n")
-    assert gx100.resolve(tmp_path, "cant-stop", "lead").slot == "U02-3"
-    assert gx100.resolve(tmp_path, "cant-stop", "no-such-patch") is None
-    assert gx100.resolve(tmp_path, "cant-stop", None) is None
-
-
-def test_repo_path_comes_from_config_and_expands_a_user_path(tmp_path, monkeypatch) -> None:
-    from woodshed.config import Config
-
-    # Path.expanduser() resolves "~" from HOME on posix but from USERPROFILE
-    # on Windows (ntpath.expanduser ignores HOME even when it is set) -- both
-    # are set so this test pins gx100.repo_path's behaviour on either platform
-    # rather than only the one whatever container last ran it happened to be.
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setenv("USERPROFILE", str(tmp_path))
-    (tmp_path / "gx100").mkdir()
-    config = Config.model_validate({"gx100": {"path": "~/gx100"}})
-    assert gx100.repo_path(config) == tmp_path / "gx100"
-
-    # Unconfigured, or configured at somewhere that isn't there: None, and
-    # the caller shows nothing. Never an error -- the sibling repo being
-    # absent is the ordinary case on any machine but Paolo's own.
-    assert gx100.repo_path(Config()) is None
-    assert gx100.repo_path(Config.model_validate({"gx100": {"path": "/nope"}})) is None
-
-
-def test_slot_is_never_turned_into_a_program_change_number() -> None:
-    """docs/05-foot-control.md's gotcha, made structural: a PC number names
-    a SLOT, and the pedal's own PROGRAM MAP decides which of the 300
-    memories that slot points at. The mapping lives in `rambass-live`'s
-    config/gx100.yaml and must not be assumed -- so this module carries no
-    slot->PC arithmetic at all, and there is nothing here to get wrong.
-    """
-    assert not any(
-        name for name in dir(gx100)
-        if "program" in name.lower() or name.lower().startswith("send")
+def test_load_patch_names_reads_the_local_file(tmp_path: Path) -> None:
+    path = tmp_path / "gx100.yaml"
+    path.write_text(
+        "channel: 2\n"
+        "patches:\n"
+        "  - {memory: U01-1, name: Clean}\n"
+        "  - {memory: U01-2, name: Lead crunch}\n",
+        encoding="utf-8",
     )
+    names = gx100.load_patch_names(path)
+    assert names.channel == 2
+    assert [p.memory for p in names.patches] == ["U01-1", "U01-2"]
+    assert [p.name for p in names.patches] == ["Clean", "Lead crunch"]
 
 
-def test_a_sibling_file_that_is_not_utf8_degrades_too(tmp_path: Path) -> None:
-    """FOUND BY REVIEW 2026-09-07: only OSError and YAMLError were caught,
-    so a latin-1 `song.yaml` in the sibling repo raised UnicodeDecodeError
-    and 500'd the whole song and practice screens -- against this module's
-    one contract, that absence degrades and never errors. A file in ANOTHER
-    repo can be in any encoding it likes."""
-    path = tmp_path / "songs" / "cant-stop" / "song.yaml"
-    path.parent.mkdir(parents=True)
-    path.write_bytes(b"patches:\n  - {id: caf\xe9, slot: U01-1}\n")
-    assert gx100.load_patches(tmp_path, "cant-stop") == {}
+def test_load_patch_names_degrades_to_empty_when_the_file_does_not_exist(tmp_path: Path) -> None:
+    # CLAUDE.md's degrade rule: a song with no local patch-name file yet
+    # simply has nothing to suggest, never an error -- the ordinary case on
+    # any machine before someone has typed their real patches in.
+    names = gx100.load_patch_names(tmp_path / "does-not-exist.yaml")
+    assert names.channel == 1
+    assert names.patches == []
+
+
+def test_load_patch_names_degrades_on_an_empty_file_too(tmp_path: Path) -> None:
+    path = tmp_path / "gx100.yaml"
+    path.write_text("", encoding="utf-8")
+    names = gx100.load_patch_names(path)
+    assert names.patches == []

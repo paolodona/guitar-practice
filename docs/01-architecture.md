@@ -146,7 +146,7 @@ Concrete, in rough order of value:
 | `rambass-live/src/rambass/console.html` | the waveform/ruler/playhead stack: one gutter, one `mark.frac * width` mapping, one playhead across all lanes | four alignment bugs are already documented and fixed there. Read that section before drawing a single pixel |
 | `rambass-live/src/rambass/project.py` | `slugify` (folds accents) and `parse_position` | Italian titles, and `bar.beat` notation |
 | `gx100/src/gx100lab/data/workflow.yaml` | the pattern of *sequencing as data, not code* | if this tool ever grows a guided flow |
-| `gx100` `songs/<slug>/song.yaml` | `patches:` and `structure:` blocks | a Woodshed section can name a `gx100` patch and show it |
+| `gx100/docs/protocol/*.md` (2026-09-06 hardware tests) | the hardware-verified MIDI protocol: a bare Program Change (0-127) selects a memory directly, Bank Select is never safe | `src/woodshed/gx100.py`'s own memory<->index arithmetic and docs/05-foot-control.md — superseded a per-section `gx100` cross-reference (Phase 3, N1) entirely |
 
 ## Where it lives on disk
 

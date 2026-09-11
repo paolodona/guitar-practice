@@ -1,132 +1,134 @@
-"""The `gx100` cross-reference: a section names a patch, and this resolves it
-(plan Phase 3, N1; docs/01-architecture.md:150, docs/05-foot-control.md).
+"""The GX-100 patch-change lane's server half (#3, Group N2).
 
-`gx100` is the sibling repo where the patches are designed. A Woodshed
-section may carry `patch: lead`, and the thing that says what "lead" IS --
-its profile and which memory slot it lives in -- is
-`gx100/songs/<slug>/song.yaml`'s own `patches:` block.
+Replaces Phase 3's N1 entirely -- that module resolved a section's
+free-text `patch:` id against the SIBLING gx100 repo's own song.yaml,
+carrying no slot->Program Change arithmetic at all, because
+docs/08-unification.md's finding was CONTESTED: rambass-live's model (a PC
+number names a *slot*, resolved through the pedal's own PROGRAM MAP) versus
+the gx100 repo's own hands-on unit test. That contest is now RESOLVED --
+see docs/05-foot-control.md for the full story -- and the per-section
+`patch:` field is gone (#3's own ask: "one song-level timeline of program
+changes replaces N-per-section free text").
 
-Three rules, all of them load-bearing:
+**The hardware-verified protocol this module assumes throughout**: a bare
+Program Change (`0xC0`, no Bank Select) selects a memory *directly* --
+`PC n` loads memory `n`, the identity, confirmed on the physical unit
+2026-09-06. Two consequences:
 
-**Read by path from config, never imported.** CLAUDE.md's rule across all
-three repos is cross-reference by slug, never by copying content. A path
-read honours that without creating a dependency: nothing here imports
-`gx100`, nothing here vendors its data, and the sibling can be at any
-version or absent entirely.
+- **Bank Select must never be sent.** `CC#0`/`CC#32` left the unit
+  unresponsive to SysEx until its power was pulled. There is no bank
+  arithmetic anywhere in this module, on purpose -- nothing here could
+  construct that pair even by accident.
+- **Only memories 0-127 (`U01-1`..`U32-4`) are reachable this way.**
+  `U33-1` onward and every `P`-bank preset need SysEx, which this module
+  does not send (`web/midi.js` deliberately has no SysEx access today).
+  `memory_to_index` refuses anything outside that range, loudly, rather
+  than silently clamping or wrapping into a value nobody asked for.
 
-**Absent degrades to "not shown", never to an error.** The sibling repo is
-missing on any machine but Paolo's own, its file may be mid-edit, and the
-`patches:` block may be a shape this module has never seen. None of that may
-take down a practice screen, so every failure here answers "no patches".
-
-**No slot -> Program Change arithmetic lives here, deliberately.**
-docs/05-foot-control.md and `rambass-live/docs/gx100.md` say a PC number does
-not name a memory but a SLOT, resolved through the pedal's own PROGRAM MAP;
-`docs/08-unification.md` reports that `gx100` tested it on the unit and found
-`PC n` to be a plain identity instead. **This module is correct either way, and
-that is the point of it**: whichever reading holds, the mapping is not this
-repo's to invent, so there is no arithmetic here to be wrong -- and a test
-asserts there is none. Showing `U02-3` because the sibling said `U02-3` is a
-quotation; computing it would be a guess in the first reading and unnecessary
-in the second.
+The actual MIDI send lives client-side (`web/gx100.js`, the mirror of the
+arithmetic below) -- the pedal is attached to the same machine the browser
+runs on, so Web MIDI reaches it directly and no server-side MIDI library is
+needed. This module's own job is the arithmetic (shared, so a server-side
+write can validate a patch name before it is ever stored) and reading the
+local, human-maintained patch-name list.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
+from pydantic import BaseModel, ConfigDict, Field
 
-__all__ = ["Patch", "repo_path", "load_patches", "resolve"]
+from woodshed.errors import WoodshedError
+
+__all__ = [
+    "MAX_PC",
+    "DEFAULT_MEMORY",
+    "memory_to_index",
+    "index_to_memory",
+    "PatchName",
+    "PatchNames",
+    "load_patch_names",
+]
+
+#: A bare Program Change is 7-bit, and this pedal never receives Bank
+#: Select (see the module doc) -- 0-127 is the whole reachable range.
+MAX_PC = 127
+
+#: What a section plays through when its song has no patch_changes entry
+#: covering it yet -- U01-1, the pedal's own bank-0/slot-0 default.
+DEFAULT_MEMORY = "U01-1"
 
 
-@dataclass(frozen=True)
-class Patch:
-    """One patch as the `gx100` repo describes it. Quoted, never derived."""
+def memory_to_index(memory: str) -> int:
+    """``"U01-1"`` -> 0 ... ``"U32-4"`` -> 127 -- the Program Change number
+    that selects *memory* directly (see the module doc: no PROGRAM MAP
+    indirection, no Bank Select). Case- and whitespace-tolerant, matching
+    how the pedal itself prints these labels.
 
-    id: str
-    profile: str | None = None
-    #: The memory slot as the sibling writes it, e.g. "U02-3". A STRING,
-    #: on purpose -- see the module docstring.
-    slot: str | None = None
-
-
-def repo_path(config) -> Path | None:
-    """Where the `gx100` checkout is, per `config.gx100.path` -- or `None`.
-
-    `None` covers both "not configured" and "configured at somewhere that is
-    not there", because the caller does the same thing in both cases: show
-    nothing.
+    Raises :class:`WoodshedError`, naming the reachable range, for a
+    P-bank preset or a U-bank memory past U32-4: a bare Program Change
+    cannot reach either, and reaching them needs SysEx (out of scope here)
+    or Bank Select (unsafe on this unit -- never sent).
     """
-    raw = getattr(getattr(config, "gx100", None), "path", None)
-    if not raw:
-        return None
-    path = Path(raw).expanduser()
-    return path if path.is_dir() else None
+    text = memory.strip().upper()
+    if len(text) < 4 or text[0] != "U" or "-" not in text:
+        raise WoodshedError(
+            f"not a reachable GX-100 memory: {memory!r} -- expected U01-1..U32-4 "
+            "(a bare Program Change cannot reach a P-bank preset, or SysEx would be needed)"
+        )
+    bank_text, _, slot_text = text[1:].partition("-")
+    if not bank_text.isdigit() or not slot_text.isdigit():
+        raise WoodshedError(f"not a GX-100 memory name: {memory!r} -- expected e.g. U03-2")
+    bank, slot = int(bank_text), int(slot_text)
+    if not 1 <= bank <= 32 or not 1 <= slot <= 4:
+        raise WoodshedError(
+            f"{memory!r} is outside the range a bare Program Change can reach (U01-1..U32-4) -- "
+            "anything past it needs Bank Select, which this pedal does not survive "
+            "(docs/05-foot-control.md)"
+        )
+    return (bank - 1) * 4 + (slot - 1)
 
 
-def load_patches(gx100_root: Path | str | None, slug: str) -> dict[str, Patch]:
-    """`{patch_id: Patch}` from `<gx100_root>/songs/<slug>/song.yaml`.
-
-    `{}` for every kind of absence: no root, no such song, no `patches:`
-    block, a malformed file, or a shape this module does not recognise.
-    """
-    if gx100_root is None:
-        return {}
-    path = Path(gx100_root) / "songs" / slug / "song.yaml"
-    try:
-        data = yaml.safe_load(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, yaml.YAMLError):
-        # UnicodeDecodeError belongs here for the same reason as the other
-        # two: a file in ANOTHER repo can be in any encoding it likes, and
-        # this module's one contract is that absence degrades rather than
-        # taking a practice screen down (found by review 2026-09-07).
-        return {}
-    if not isinstance(data, dict):
-        return {}
-    return _parse_patches(data.get("patches"))
+def index_to_memory(index: int) -> str:
+    """Inverse of :func:`memory_to_index`."""
+    if not 0 <= index <= MAX_PC:
+        raise WoodshedError(f"program change {index} outside 0-{MAX_PC}")
+    return f"U{index // 4 + 1:02d}-{index % 4 + 1}"
 
 
-def _parse_patches(raw) -> dict[str, Patch]:
-    """Accept both plausible YAML shapes for the same idea.
+class PatchName(BaseModel):
+    """One row of ``config/gx100.yaml``'s own ``patches:`` list -- a
+    human-typed label for a memory, checked against the pedal by hand
+    (the same discipline rambass-live's own config/gx100.yaml asks for:
+    "confirm against the pedal before relying on it")."""
 
-    The sibling's file is not this repo's to fix, and a list of entries with
-    an `id` and a mapping keyed by id are both reasonable ways to write it.
-    Reading either costs six lines; depending on which one it happens to use
-    today would cost a broken cross-reference the first time it changed.
-    """
-    patches: dict[str, Patch] = {}
-    if isinstance(raw, list):
-        for entry in raw:
-            if not isinstance(entry, dict):
-                continue
-            patch_id = entry.get("id")
-            if not patch_id:
-                continue
-            patches[str(patch_id)] = Patch(
-                id=str(patch_id),
-                profile=_str_or_none(entry.get("profile")),
-                slot=_str_or_none(entry.get("slot")),
-            )
-    elif isinstance(raw, dict):
-        for patch_id, entry in raw.items():
-            entry = entry if isinstance(entry, dict) else {}
-            patches[str(patch_id)] = Patch(
-                id=str(patch_id),
-                profile=_str_or_none(entry.get("profile")),
-                slot=_str_or_none(entry.get("slot")),
-            )
-    return patches
+    model_config = ConfigDict(extra="allow")
+
+    memory: str
+    name: str
 
 
-def _str_or_none(value) -> str | None:
-    return None if value is None else str(value)
+class PatchNames(BaseModel):
+    """``config/gx100.yaml`` in full: the MIDI channel Woodshed sends
+    Program Changes on (must match the pedal's own RX CHANNEL,
+    docs/05-foot-control.md), and the local patch list the song screen's
+    patch-lane popup offers as suggestions."""
+
+    model_config = ConfigDict(extra="allow")
+
+    channel: int = 1
+    patches: list[PatchName] = Field(default_factory=list)
 
 
-def resolve(gx100_root: Path | str | None, slug: str, patch_id: str | None) -> Patch | None:
-    """The `Patch` a section's `patch:` names, or `None` when it cannot be
-    resolved -- including when the section names no patch at all."""
-    if not patch_id:
-        return None
-    return load_patches(gx100_root, slug).get(patch_id)
+def load_patch_names(path: Path) -> PatchNames:
+    """``config/gx100.yaml``, or field defaults when it does not exist yet
+    -- degrade, don't refuse (CLAUDE.md): before anyone has typed their
+    real patches in, the popup simply has nothing to suggest beyond typing
+    a raw memory name by hand."""
+    if not path.is_file():
+        return PatchNames()
+    with path.open("r", encoding="utf-8") as f:
+        data = yaml.safe_load(f) or {}
+    return PatchNames.model_validate(data)
