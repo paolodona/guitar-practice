@@ -1302,6 +1302,35 @@ export function mount(el, payload) {
 
   renderAll();
 
+  // #8: start playing automatically on entering the practice screen.
+  // Reuses the exact play_pause() path a real press takes (module doc's
+  // "one action table" rule) rather than a parallel autoplay-only code
+  // path -- behaviourally identical to "the first press happened for you".
+  //
+  // A freshly-created AudioContext refuses to resume outside a real user
+  // gesture -- ensureEngine()'s own "FOUND LIVE 2026-09-06" doc above names
+  // this exact hazard -- and navigating here is NOT a gesture by the time
+  // this line runs: app.js's route() is async, reached via a `hashchange`
+  // event, and both end any pending user activation well before mount()
+  // is ever called. Whether the resume lands anyway depends entirely on
+  // the browser's own autoplay heuristics for THIS origin (Chrome allows
+  // it once a site has enough Media Engagement history -- exactly what a
+  // personal, daily-used tool accumulates), so this is tried, not
+  // guaranteed, and VERIFIED rather than assumed: once ensureEngine()
+  // settles, an AudioContext still stuck 'suspended' rolls `playing` back
+  // to false rather than leaving the screen showing "playing" with no
+  // sound behind it -- precisely the failure mode ensureEngine()'s own doc
+  // already names once, for the eager-load case this guards a new one of.
+  handlers.play_pause();
+  ensureEngine().then(() => {
+    if (playing && (!engine || !engine.ctx || engine.ctx.state !== 'running')) {
+      playing = false;
+      if (engineReady) { try { engine.pause(); } catch { /* never got a node */ } }
+      renderCheap();
+      renderFootIcon();
+    }
+  });
+
   get(payload.peaks_url).then((data) => { peaks = data; renderWave(); }).catch(() => { peaks = null; renderWave(); });
 
   const resizeObserver = new ResizeObserver(() => renderWave());
