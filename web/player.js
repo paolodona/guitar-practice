@@ -795,11 +795,43 @@ export class BufferEngine extends EventTarget {
     this._startTimer();
   }
 
-  /** Pause. Per the pass-detection contract, this disqualifies the lap in
-   *  flight — it will resume mid-section, not at the section's beginning. */
+  /**
+   * Pause. Per the pass-detection contract, this disqualifies the lap in
+   * flight — it will resume mid-section, not at the section's beginning.
+   *
+   * A swap that was scheduled but has not reached its seam yet must not be
+   * silently discarded here: `_stopEverything()` below cancels it via
+   * `_cancelPendingSwap()`, and nothing else ever writes `_speedPct`/
+   * `_semitones` except `_adoptSwap()` at a seam — a seam a paused engine's
+   * audio thread will now never reach. Left alone, the readout (driven by
+   * these fields) would say the requested rung forever while play() resumed
+   * the stale one. #4. Since pausing already tears the graph down, there is
+   * no audio thread state to preserve either: adopt the swap's target
+   * immediately instead.
+   */
   pause() {
     if (!this._playing || !this._active) return;
-    this._position = playbackPositionAt(this._active.anchor, this.ctx.currentTime);
+    const activeClock = this._active.anchor.clock;
+    const playbackPos = playbackPositionAt(this._active.anchor, this.ctx.currentTime);
+    const swap = this._pendingSwap;
+    if (swap) {
+      // `playbackPos` is PLAYBACK seconds under the OLD clock, and playback
+      // seconds are not comparable across a speed change — two clocks,
+      // mixing them up is silent (docs/03-audio-engine.md). Convert through
+      // SOURCE seconds, the same boundary crossing seek() already makes, so
+      // resuming lands on the same instant in the recording rather than on
+      // the same raw number re-read against a different clock.
+      const sourceS = playbackPos * activeClock.speed
+        + (this._section.startS - activeClock.preRollS);
+      this._speedPct = swap.speedPct;
+      this._semitones = swap.semitones;
+      this._buffer = swap.buffer;
+      const newClock = this._clock();
+      const playback = (sourceS - (this._section.startS - newClock.preRollS)) / newClock.speed;
+      this._position = Math.min(newClock.loopEnd, Math.max(0, playback));
+    } else {
+      this._position = playbackPos;
+    }
     this._stopEverything();
     this._playing = false;
     this._qualified = false;

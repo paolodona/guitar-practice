@@ -533,6 +533,39 @@ await test('the outgoing node survives its own crossfade', async () => {
   assert.ok(!outgoing.disconnected, 'but the outgoing node is still connected');
 });
 
+await test('pause adopts a pending swap instead of discarding it (#4)', async () => {
+  // A Faster/Slower/shift press mid-loop schedules a swap for the next
+  // seam (correctly -- CLAUDE.md invariant 9), but pause() tore the graph
+  // down through _stopEverything(), which cancels ANY pending swap
+  // unconditionally and never touched _speedPct/_semitones (only
+  // _adoptSwap, at a seam that a paused engine will now never reach, does
+  // that). Resuming rebuilt from the stale values, so the readout said 75%
+  // forever while the audio stayed at 50% until the section was reloaded
+  // from scratch.
+  const fetch = fetchStub([{ status: 200 }]);
+  const { ctx, engine } = await mounted({ fetch, speedPct: 50 });
+  engine.play();
+  ctx.currentTime = 10;
+  await engine.setSpeedPct(55);
+  assert.ok(engine._pendingSwap, 'a swap is scheduled, not yet at its seam');
+
+  engine.pause();
+  assert.equal(engine._pendingSwap, null, 'pause resolves the pending swap one way or another');
+  assert.equal(engine.speedPct, 55, 'the readout and the engine must agree once paused');
+
+  engine.play();
+  const clock55 = renderClock(makeSection(), 55);
+  assert.equal(ctx.sources[ctx.sources.length - 1].loopStart, clock55.loopStart);
+  // The paused position was PLAYBACK seconds under the OLD (50%) clock --
+  // 10s in, i.e. source second 63 (10*0.5 + 58). Resuming at the NEW (55%)
+  // speed must land on that SAME source second -- playback seconds are not
+  // comparable across a speed change (docs/03-audio-engine.md's two-clock
+  // rule) -- not on "playback second 10" re-read against a different clock.
+  const expectedPlayback = (63 - (60 - clock55.preRollS)) / clock55.speed;
+  assert.ok(Math.abs(engine.position() - expectedPlayback) < 1e-9);
+  assert.ok(Math.abs(engine.sourcePosition() - 63) < 1e-9);
+});
+
 await test('sourcePosition answers 0 before anything is loaded', async () => {
   // FOUND BY REVIEW: the guard was after the dereference, so this threw.
   const engine = new BufferEngine(new FakeContext());
