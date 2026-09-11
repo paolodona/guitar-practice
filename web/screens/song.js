@@ -124,6 +124,7 @@ import { createEngine } from '../player.js';
 // practice.js's foot strip already uses for the identical concept there
 // ("back to the top of THIS section, without touching play/pause").
 import { FOOT_ICONS } from './practice.js';
+import { DEFAULT_MEMORY, resolvePatchAt, sendProgramChange } from '../gx100.js';
 
 /**
  * #2's target: the currently selected section's own start, or 0 when
@@ -235,59 +236,18 @@ function selectOptions(presets, current, fmt = (v) => String(v)) {
  * @param {any} payload - GET /api/song/<slug> body + {params:{slug}}
  * @returns {() => void} unmount
  */
-/**
- * What the sibling `gx100` repo says this section's `patch:` actually is
- * (Phase 3, N1). `patch_ref` is resolved server-side by PATH from
- * `config.gx100.path` -- never imported, never vendored -- and is null for
- * every kind of absence: no configured repo, no such song there, no such
- * patch id, or a sibling file mid-edit.
- *
- * Three states worth telling apart, because they mean different things to
- * whoever typed the id:
- *   - nothing typed        -> say nothing
- *   - typed and resolved   -> quote the profile and the slot
- *   - typed and unresolved -> say it did not resolve, and do NOT guess
- *
- * The slot is QUOTED exactly as the sibling wrote it. Nothing here turns it
- * into a Program Change number: a PC names a slot, not a memory, and that
- * mapping lives in rambass-live's config/gx100.yaml (docs/05-foot-control.md).
- */
-/**
- * The sibling repo's own patch ids, as `<datalist>` suggestions (Paolo
- * asked for a dropdown of his actual patches rather than remembering ids).
- *
- * A datalist and not a `<select>`, deliberately: naming a patch before it
- * exists in `gx100` has to stay possible — that is a normal order of work,
- * design the part then build the sound — and `patchRefHtml` below already
- * says out loud when an id does not resolve. A hard dropdown would turn a
- * "not yet" into a "not allowed". With no sibling repo configured the list
- * is simply empty and the field is exactly the free-text box it was.
- */
-function patchOptionsHtml(payload) {
-  return (payload.gx100_patches ?? []).map((p) => {
-    const label = [p.profile, p.slot].filter(Boolean).join(' · ');
-    return `<option value="${escapeHtml(p.id)}"${label ? ` label="${escapeHtml(label)}"` : ''}></option>`;
-  }).join('');
-}
-
-function patchRefHtml(sec) {
-  if (!sec.patch) return '';
-  const ref = sec.patch_ref;
-  if (!ref) {
-    return `<div class="mono" style="font-size:11.5px;color:var(--ink-4,#5B6A64);margin-top:6px">
-      not found in the gx100 repo (or none configured)</div>`;
-  }
-  const parts = [ref.profile, ref.slot].filter(Boolean).map(escapeHtml);
-  return `<div class="mono" style="font-size:11.5px;color:var(--good,#5FA88F);margin-top:6px">
-    ${parts.join(' &middot; ') || 'found'}</div>`;
-}
-
 export function mount(el, payload) {
   ensureStyle();
   const slug = payload.params.slug;
   let sections = orderSections(payload.sections);
   let selectedId = sections.length ? sections[0].id : null;
   let peaks = null;
+  // #3: the song-level GX-100 patch-change timeline. Sorted by at_s, same
+  // ordering server.py's own POST /api/patch-change response already
+  // guarantees -- kept that way here too so resolvePatchAt (which does
+  // NOT assume a sorted list, but every other reader in this file may as
+  // well see one) and the lane's own dot order agree.
+  let patchChanges = [...(payload.patch_changes || [])].sort((a, b) => a.at_s - b.at_s);
 
   function closestRung(target) {
     return RUNGS.reduce((a, b) => (Math.abs(b - target) < Math.abs(a - target) ? b : a), RUNGS[0]);
@@ -392,6 +352,13 @@ export function mount(el, payload) {
       preRollS: 0,
       loop: !!sec,
     });
+    // #3: auto-apply the patch that applies AT the section's own start --
+    // never at startFrom, a possible mid-section scrub resume position;
+    // "which patch is this section" is a fact about start_s, not about
+    // wherever playback happens to pick back up. sendProgramChange's own
+    // doc covers the toggle/degrade -- fire-and-forget, never blocks audio
+    // on a MIDI round trip.
+    sendProgramChange(resolvePatchAt(patchChanges, startS));
     if (!transportPlaying) return; // paused again while loadSection was in flight
     engine.setSpeedPct(previewSpeed);
     engine.setSemitones(shift);
@@ -462,6 +429,9 @@ export function mount(el, payload) {
           <div data-playhead style="position:absolute;top:0;bottom:0;left:0;width:2px;display:none;
                       background:var(--good,#5FA88F);pointer-events:none"></div>
         </div>
+
+        <div data-patch-lane title="Click to add a GX-100 patch change; click a dot to edit or delete it"
+             style="position:relative;height:18px;cursor:pointer"></div>
 
         <div data-lane-root style="position:relative;height:88px"></div>
 
@@ -942,7 +912,7 @@ export function mount(el, payload) {
       song: slug, id: current.id, name: current.name, start_s: current.start_s,
       end_s: current.end_s, snapped: current.snapped, target_speed: current.target_speed,
       start_speed: current.start_speed, ladder_step: current.ladder_step, reps_to_advance: current.reps_to_advance,
-      notes: current.notes, patch: current.patch,
+      notes: current.notes,
       counts_toward_readiness: current.counts_toward_readiness,
       lead_in_beats: current.lead_in_beats, full_song: current.full_song,
       ...partial,
@@ -1028,14 +998,6 @@ export function mount(el, payload) {
         <div class="flbl">Notes</div>
         <textarea class="fld" data-f="notes" style="height:94px">${escapeHtml(sec.notes ?? '')}</textarea>
       </div>
-      <div>
-        <div class="flbl">GX-100 patch</div>
-        <input class="fld" data-f="patch" list="ws-gx100-patches"
-               value="${escapeHtml(sec.patch ?? '')}" style="font-size:14px"
-               placeholder="${payload.gx100_patches?.length ? 'start typing…' : 'free text'}">
-        <datalist id="ws-gx100-patches">${patchOptionsHtml(payload)}</datalist>
-        ${patchRefHtml(sec)}
-      </div>
       <div style="margin-top:auto;display:flex;flex-direction:column;gap:12px">
         <button class="practise-btn" data-practise>Practice this</button>
         <button class="practise-btn" data-delete style="background:var(--warn-tint,#2A1D17);color:var(--warn,#C9805E)">Delete section</button>
@@ -1055,7 +1017,6 @@ export function mount(el, payload) {
     numField('ladder_step', parseFloat);
     numField('reps_to_advance', (v) => parseInt(v, 10));
     inspector.querySelector('[data-f="notes"]').addEventListener('change', (e) => patchSection(sec.id, { notes: e.target.value }));
-    inspector.querySelector('[data-f="patch"]').addEventListener('change', (e) => patchSection(sec.id, { patch: e.target.value || null }));
     inspector.querySelector('[data-practise]').addEventListener('click', () => {
       location.hash = `#/practice/${encodeURIComponent(slug)}/${encodeURIComponent(sec.id)}`;
     });
@@ -1080,6 +1041,129 @@ export function mount(el, payload) {
     redrawAll();
   }
 
+  // ---- #3: the GX-100 patch-change lane ------------------------------
+  // A per-SONG timeline (unlike sections, which are per-target spans):
+  // clicking an empty spot drops a program change at that source second;
+  // clicking an existing dot opens the same popup pre-filled, with a
+  // delete option. Dots are positioned through the same view() every
+  // other wave-aligned element uses, so they stay correct under zoom/pan
+  // (#1) with no separate coordinate system.
+  const patchLaneEl = root.querySelector('[data-patch-lane]');
+  patchLaneEl.style.position = 'relative';
+
+  /** The local patch-name list (config/gx100.yaml), fetched once and
+   *  cached -- "refresh" (below) re-fetches it explicitly rather than a
+   *  network round trip happening on every popup open. */
+  let patchNames = null;
+  async function ensurePatchNames(forceRefresh = false) {
+    if (patchNames && !forceRefresh) return patchNames;
+    try {
+      patchNames = await get('/api/gx100/patches');
+    } catch {
+      patchNames = { channel: 1, patches: [] };
+    }
+    return patchNames;
+  }
+
+  function patchOptionsHtml(names, selected) {
+    const known = names.patches ?? [];
+    // The currently selected memory is always an option, even if it is
+    // not (or no longer) in the local list -- editing an existing dot
+    // must never silently show a DIFFERENT memory than the one actually
+    // stored just because config/gx100.yaml doesn't mention it.
+    const memories = known.some((p) => p.memory === selected)
+      ? known
+      : [{ memory: selected, name: '' }, ...known];
+    return memories.map((p) => {
+      const label = p.name ? `${p.memory} — ${p.name}` : p.memory;
+      return `<option value="${escapeHtml(p.memory)}"${p.memory === selected ? ' selected' : ''}>${escapeHtml(label)}</option>`;
+    }).join('');
+  }
+
+  let popupEl = null;
+  function closePatchPopup() {
+    popupEl?.remove();
+    popupEl = null;
+  }
+
+  /**
+   * Open the create/edit popup at *atS* (source seconds). *existing* is
+   * the patch_changes entry a dot click landed on, or null for a click on
+   * empty lane space (in which case a memory is not committed until one
+   * is actually chosen from the select -- there is nothing to create yet
+   * from an empty click alone).
+   */
+  async function openPatchPopup(atS, existing) {
+    closePatchPopup();
+    const names = await ensurePatchNames();
+    const x = viewX(atS, view());
+
+    popupEl = document.createElement('div');
+    popupEl.style.cssText = 'position:absolute;top:100%;margin-top:4px;z-index:20;'
+      + 'background:var(--surface,#131B19);border:1px solid var(--line,#26302E);border-radius:6px;'
+      + 'padding:8px;display:flex;gap:6px;align-items:center;box-shadow:0 8px 24px rgba(0,0,0,.4)';
+    popupEl.style.left = `${Math.max(0, x - 60)}px`;
+    popupEl.innerHTML = `
+      <select class="fld mono" data-patch-select style="font-size:13px;min-width:140px">
+        ${patchOptionsHtml(names, existing?.patch ?? DEFAULT_MEMORY)}
+      </select>
+      <button data-patch-refresh title="Re-read config/gx100.yaml" class="stepper-btn" style="width:28px;height:28px;font-size:14px">&#8635;</button>
+      ${existing ? '<button data-patch-delete title="Delete this program change" class="stepper-btn" style="width:28px;height:28px;font-size:14px;color:var(--warn,#C9805E)">&times;</button>' : ''}
+    `;
+    patchLaneEl.appendChild(popupEl);
+
+    popupEl.querySelector('[data-patch-select]').addEventListener('change', async (e) => {
+      const { patch_changes: updated } = await post('/api/patch-change', {
+        song: slug, action: 'upsert', at_s: atS, patch: e.target.value,
+      });
+      patchChanges = updated;
+      closePatchPopup();
+      renderPatchLane();
+    });
+    popupEl.querySelector('[data-patch-refresh]').addEventListener('click', async () => {
+      await ensurePatchNames(true);
+      openPatchPopup(atS, existing); // rebuild with the fresh list, same position
+    });
+    popupEl.querySelector('[data-patch-delete]')?.addEventListener('click', async () => {
+      const { patch_changes: updated } = await post('/api/patch-change', {
+        song: slug, action: 'delete', at_s: atS,
+      });
+      patchChanges = updated;
+      closePatchPopup();
+      renderPatchLane();
+    });
+    // Stop a click inside the popup from bubbling to the document-level
+    // "click elsewhere closes it" listener wired once, below.
+    popupEl.addEventListener('pointerdown', (e) => e.stopPropagation());
+  }
+
+  patchLaneEl.addEventListener('pointerdown', (e) => {
+    e.stopPropagation();
+    const dotAtS = e.target.dataset.atS;
+    if (dotAtS !== undefined) {
+      openPatchPopup(Number(dotAtS), patchChanges.find((c) => c.at_s === Number(dotAtS)));
+      return;
+    }
+    const rect = patchLaneEl.getBoundingClientRect();
+    const { sourceS } = computeSeekPosition(e.clientX, rect, view());
+    openPatchPopup(sourceS, null);
+  });
+  // A click anywhere else on the page closes an open popup -- the same
+  // "click elsewhere dismisses it" convention a native <select> itself
+  // already uses for its own dropdown.
+  document.addEventListener('pointerdown', closePatchPopup);
+
+  function renderPatchLane() {
+    const v = view();
+    patchLaneEl.innerHTML = patchChanges.map((c) => {
+      const x = viewX(c.at_s, v);
+      if (x < -6 || x > v.widthPx + 6) return ''; // off-screen at this zoom -- skip, don't clamp (timeline.js's own viewX trap)
+      return `<div data-at-s="${c.at_s}" title="${escapeHtml(c.patch)} at ${c.at_s.toFixed(2)}s" style="position:absolute;left:${x}px;top:2px;
+        width:10px;height:10px;border-radius:50%;background:var(--accent,#E0913F);cursor:pointer;transform:translateX(-50%)"></div>`;
+    }).join('');
+    if (popupEl) patchLaneEl.appendChild(popupEl); // survives the innerHTML rebuild above
+  }
+
   // Everything that depends on `view()` (so, everything a zoom/pan change
   // or a section-boundary commit needs redrawn) except the inspector,
   // which shows a section's FIELD values and depends on none of it --
@@ -1092,6 +1176,7 @@ export function mount(el, payload) {
     renderSelectionHighlight();
     renderWaveDrag();
     renderPlayhead();
+    renderPatchLane();
   }
 
   function redrawAll() {
@@ -1121,6 +1206,7 @@ export function mount(el, payload) {
     if (playheadRafId !== null) cancelAnimationFrame(playheadRafId);
     for (const unsub of unsubs) unsub();
     detachCreateHandler?.();
+    document.removeEventListener('pointerdown', closePatchPopup);
     if (engine) {
       try { engine.destroy(); } catch { /* already torn down, or never finished loading */ }
     }

@@ -122,6 +122,7 @@ import { Ladder, nextRung } from '../ladder.js';
 import { ACTIONS, on, dispatch } from '../actions.js';
 import { KEY_MAP } from '../keys.js';
 import { onConnectionChange } from '../midi.js';
+import { resolvePatchAt, sendProgramChange } from '../gx100.js';
 
 // Human-readable form of the KeyboardEvent.key values KEY_MAP uses — for
 // the help overlay only; keys.js itself never needs a display label.
@@ -1130,6 +1131,13 @@ export function mount(el, payload) {
         }
         engineReady = true;
         renderEngineKind();
+        // #3: auto-apply the patch that applies at THIS section's own
+        // start -- resolved once, here, since a section never changes
+        // mid-mount (a different one is a fresh navigation, gotoSibling's
+        // own hash change, which remounts this screen entirely).
+        // sendProgramChange's own doc covers the toggle/degrade --
+        // fire-and-forget, never blocks audio on a MIDI round trip.
+        sendProgramChange(resolvePatchAt(payload.patch_changes, section.start_s));
       })().catch((err) => {
         // Neither engine could load -- the browser may refuse AudioWorklet
         // outright, or the audio may not be bound. Degrade to local-only

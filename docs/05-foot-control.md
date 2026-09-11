@@ -83,15 +83,16 @@ the same named actions (`play_pause`, `next_section`, …). Never let the MIDI p
 grow its own logic — the moment "speed up" means something slightly different
 from a pedal than from the `↑` key, both are wrong.
 
-## Two things that follow, and are worth building
+## Two things that follow
 
-### Reading the patch changes
+### Reading the patch changes — not yet built
 
 `MEMORY MIDI` makes the pedal transmit a Program Change **when you switch
 memories**. So Woodshed can watch that and:
 
-* show which patch you are on, next to the section's declared `patch:` — the one
-  from `gx100/songs/<slug>/song.yaml` — and say when they disagree;
+* show which patch you are on, next to what the song's own `patch_changes`
+  timeline (#3) says should be active at this position, and say when they
+  disagree;
 * optionally **follow** it: switching to your lead patch jumps to the solo
   section. Off by default, because it is delightful once and infuriating if you
   ever switch patches for any other reason.
@@ -125,18 +126,41 @@ itself. It turned out wrong for this hardware.
 > what this section builds. Keep every gig patch this feature will switch to
 > inside the first 128 memories, or extend to SysEx later.
 
-### Sending them
+### Sending them — built (#3, Group N2)
 
-The reverse is just as useful and cheaper to build: Woodshed can **send** a
-bare Program Change when you enter a section, so the sound changes with the
-part. Group N2's send path sends `0xC0` alone — never a Bank Select pair —
-range-checked to 0–127 before anything goes out.
+Woodshed **sends** a bare Program Change when you enter a section, so the
+sound changes with the part.
+
+* **`song.yaml`'s `patch_changes:`** is a song-level timeline — `at_s` (a
+  position in the immutable recording, CLAUDE.md's seconds-not-bars
+  invariant) plus `patch` (a memory name, `U01-1`..`U32-4`). "The patch for
+  section `[X, Y)`" resolves to the last entry with `at_s <= X`, falling
+  back to `U01-1` when the list is empty or nothing qualifies
+  (`web/gx100.js`'s `resolvePatchAt`, mirrored by `src/woodshed/gx100.py`'s
+  `memory_to_index`/`index_to_memory` — see docs/02-data-model.md for the
+  exact shape). Set from the song screen's own patch-change lane (a thin
+  strip under the waveform: click empty space to drop one, click an
+  existing dot to change or delete it), committed through
+  `POST /api/patch-change`.
+* **`config/gx100.yaml`** is the local, human-maintained patch-name list
+  the lane's popup offers as suggestions (`memory`/`name` pairs, plus the
+  MIDI `channel` Woodshed sends on — must match the pedal's own RX
+  CHANNEL) — read by `GET /api/gx100/patches`, and re-read on demand by the
+  popup's own refresh icon. Replaces the sibling-repo cross-reference
+  (Phase 3, N1) entirely: "one song-level timeline of program changes
+  replaces N-per-section free text."
+* Both the song screen's preview and the practice screen's section load
+  resolve the applicable patch and send it, gated on
+  `config.gx100.send_program_changes` (default `false`) — checked inside
+  `sendProgramChange` itself, the one place that calls `output.send()`, so
+  no future call site can bypass it. A bare `0xC0`, never a Bank Select
+  pair, range-checked to 0–127 before anything goes out.
 
 This is where the three repos finally close the loop: `gx100` designs the
-patch and confirms what the wire protocol actually is, `rambass-live` shows
-the shape of the problem (and got the wire protocol wrong, harmlessly, since
-nothing here ever sent its CC pair), and `woodshed` puts a plain PC under your
-foot while you learn the part.
+patch and confirms what the wire protocol actually is, `rambass-live` showed
+the shape of the problem first (and got the wire protocol wrong, harmlessly,
+since nothing here ever sent its CC pair), and `woodshed` puts a plain PC
+under your foot while you learn the part.
 
 **Off by default, and behind an explicit toggle.** Sending program changes
 alters your pedal's state. That is the same instinct as `gx100`'s
