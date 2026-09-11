@@ -3026,8 +3026,8 @@ instead.
   the ladder advance to 60% and confirm the change happens at a loop boundary with no gap.
   This cannot be automated and the plan says so rather than pretending otherwise.
 
-**Phase 2 gate status, 2026-09-06 (unattended run): automated half GREEN, manual
-half OPEN. The gate is NOT closed.**
+**Phase 2 gate status, 2026-09-10: automated half GREEN, manual half PASSED.
+The gate is CLOSED.**
 - Automated, all re-run after every unit: `uv run pytest` **1088 passed**, 0 failed
   (992 at the start of this run); `uv run ruff check .` clean; `node --check` on
   every touched `web/*.js`; the no-extras gate 1085 passed, 3 deselected. The
@@ -3037,18 +3037,18 @@ half OPEN. The gate is NOT closed.**
   This container installed `ffmpeg`, `rubberband-cli` and `librosa` for itself, so
   those counts include the `needs_rubberband`/`needs_librosa` integration tests
   rather than skipping them.
-- **Manual: not attempted, and it could not be.** "Loop a real solo at 55% for
-  twenty passes and listen for a tick at the seam" needs a room, a record, speakers
-  and a human ear; this run had a headless container. Every number the seam depends
-  on is asserted from both sides (`clock.Render`'s loop points in Python,
-  `renderClock`'s in JS, the seam arithmetic, the equal-power crossfade, the
-  boundary swap's exact schedule time) — but *whether it is inaudible* is a
-  listening judgement, and per this plan's own prime directive the tool does not get
-  to make it. **Paolo still has to run this gate.** When he does, the thing to watch
-  for besides the seam: the practice screen falls back to the real-time stretcher if
-  a render will not build, and says so in the status line beside the guitar toggle —
-  if that line reads "live stretch — no render cache", the tick being listened for
-  is the fallback engine's, not the cache's.
+- **Manual: PASSED, 2026-09-10.** Paolo looped `tutti-in-fila`'s `tapping` section
+  (nested inside `full-solo`) at 55%, with the section's `reps_to_advance`
+  temporarily raised from 3 to **5** for the run and restored afterward. **Five
+  passes, not the twenty the gate text names** — Paolo's call, logged here rather
+  than silently overwritten: an intermittent seam artifact that only surfaces once
+  every several loops has less chance to show up in five than in twenty, so this is
+  a real (if plainly stated) reduction in confidence versus the gate as written, not
+  an equivalent run. No tick at the seam across the five passes, and the 55→60%
+  ladder advance on the fifth clean pass landed exactly at a loop boundary with no
+  gap. (Not separately confirmed here whether the status line read "live stretch —
+  no render cache" during the run — worth checking if this is ever re-run, since
+  that fallback would mean the cache's own seam was never actually exercised.)
 
 ---
 

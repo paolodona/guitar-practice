@@ -46,12 +46,14 @@ and a decision nobody can find gets re-litigated.
       both (see `docs/08-unification.md`) and this repo's own docs still say the
       opposite. Whichever way it falls, one of the two documents is wrong and
       should stop saying so.
-- [ ] **[Plan 001]** **Phase 2's manual gate is still open**: loop a real solo at
-      55% for twenty passes and listen for a tick at the seam, then let the ladder
-      advance to 60% and confirm the change lands at a loop boundary. Everything
-      the seam depends on is asserted from both sides; whether it is *inaudible*
-      is a listening judgement the tool does not get to make for itself. Phase 3's
-      "ten minutes hands-free" is open for the same reason.
+- [x] **[Plan 001]** ~~Phase 2's manual gate is still open~~ **PASSED, 2026-09-10.**
+      Paolo looped `tutti-in-fila`'s `tapping` section at 55% for 5 passes (not the
+      20 the gate names — a deliberate reduction, logged in the plan's Phase 2 gate
+      status, not an equivalent run) with no tick at the seam, then confirmed the
+      55→60% ladder advance landed at a loop boundary with no gap.
+- [ ] **[Plan 001]** **Phase 3's manual gate is still open**: practise ten minutes
+      hands-free (pedal only, no keyboard or mouse). Whether it holds up is a
+      judgement the tool does not get to make for itself.
 - [ ] **[Plan 001]** The device half of `capture.py`
       (`list_devices`/`default_device`/`capture`) has still never run against real
       WASAPI loopback hardware in an automated test, and cannot from here. Monitor
