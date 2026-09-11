@@ -113,8 +113,11 @@
  */
 import { currentSetlist, get, post } from '../app.js';
 import { drawWave, SONG_WAVE_OPTS } from '../wave.js';
-import { renderSections, attachCreateHandler } from '../sections.js';
-import { computeGrid, drawGrid, sizeCanvas, viewX, computeSeekPosition } from '../timeline.js';
+import { renderSections, attachCreateHandler, attachDragHandlers } from '../sections.js';
+import {
+  computeGrid, drawGrid, sizeCanvas, viewX, computeSeekPosition, slicePeaksToWindow,
+  FIT_ZOOM_PAN, zoomBy, panBy, followTo, zoomPanView, ZOOM_STEP, PAN_STEP,
+} from '../timeline.js';
 import { on } from '../actions.js';
 import { createEngine } from '../player.js';
 // Reused rather than redrawn (#2): the same Material "replay" glyph
@@ -456,7 +459,7 @@ export function mount(el, payload) {
           <svg data-wave-svg preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:132px"></svg>
           <div data-selection-box style="position:absolute;top:0;bottom:0;display:none;
                       background:rgba(224,145,63,.10);border-left:1px solid var(--accent,#E0913F);border-right:1px solid var(--accent,#E0913F)"></div>
-          <div data-playhead style="position:absolute;top:0;bottom:0;width:2px;display:none;
+          <div data-playhead style="position:absolute;top:0;bottom:0;left:0;width:2px;display:none;
                       background:var(--good,#5FA88F);pointer-events:none"></div>
         </div>
 
@@ -604,8 +607,37 @@ export function mount(el, payload) {
     });
   });
 
+  // #1: Reaper-style zoom/pan, session-only view state -- never persisted,
+  // recomputed (well, consulted) on every render exactly like `view()`
+  // itself always was. See timeline.js's own module doc for the full
+  // reasoning and attribution (lifted from rambass-live's console.html).
+  let viewWindow = FIT_ZOOM_PAN;
+
   function view() {
-    return { startS: 0, endS: durationS, widthPx: waveHost.clientWidth || 1 };
+    return zoomPanView(viewWindow, durationS, waveHost.clientWidth || 1);
+  }
+
+  // Wheel to zoom about the pointer; alt+wheel OR shift+wheel to pan --
+  // Reaper's own gestures (console.html's onWheel, lifted). preventDefault
+  // because the alternative is the page scrolling out from under the
+  // pointer while the wave-host zooms.
+  waveHost.addEventListener('wheel', onWaveWheel, { passive: false });
+  function onWaveWheel(event) {
+    event.preventDefault();
+    const rect = waveHost.getBoundingClientRect();
+    // Both sides of this ratio are viewport pixels (clientX, rect.left,
+    // rect.width all come from the same getBoundingClientRect()), so unlike
+    // computeSeekPosition this needs no separate rescale for the practice/
+    // song screens' own CSS `transform: scale(...)` stage wrapper -- the
+    // scale cancels out of a ratio of two viewport measurements.
+    const anchorFrac = rect.width ? (event.clientX - rect.left) / rect.width : 0.5;
+    const notches = event.deltaY > 0 ? 1 : -1;
+    const next = (event.altKey || event.shiftKey)
+      ? panBy(viewWindow, notches * PAN_STEP)
+      : zoomBy(viewWindow, notches > 0 ? 1 / ZOOM_STEP : ZOOM_STEP, anchorFrac);
+    if (next === viewWindow) return; // already at a limit -- nothing moved
+    viewWindow = next;
+    repaintView();
   }
 
   // Roughly this many bar-number labels across the ruler, matching
@@ -620,9 +652,18 @@ export function mount(el, payload) {
     barRuler.innerHTML = '';
     if (!grid.bars.length) return; // no tempo yet -- no ruler, per CLAUDE.md's degrade rule
     const v = view();
-    const step = Math.max(1, Math.round(grid.bars.length / RULER_MARK_COUNT));
-    for (let i = 0; i < grid.bars.length; i += step) {
-      const t = grid.bars[i];
+    // #1: picked from bars actually IN the current (possibly zoomed) view,
+    // not a fixed whole-song stride -- otherwise a zoomed-in view, exactly
+    // the case #1 exists to make legible, would show zero bar numbers most
+    // of the time (a stride computed for ~7 marks across the WHOLE song
+    // lands almost none of them inside a narrow window). Falls back to the
+    // whole-song set when the view happens to contain none (an edge case
+    // at very low bar density), matching the pre-#1 behaviour there.
+    const visible = grid.bars.filter((t) => t >= v.startS && t <= v.endS);
+    const source = visible.length ? visible : grid.bars;
+    const step = Math.max(1, Math.round(source.length / RULER_MARK_COUNT));
+    for (let i = 0; i < source.length; i += step) {
+      const t = source[i];
       const x = viewX(t, v);
       if (x < 0 || x > v.widthPx) continue;
       const d = document.createElement('div');
@@ -640,7 +681,13 @@ export function mount(el, payload) {
       ctx.clearRect(0, 0, gridCanvas.clientWidth, gridCanvas.clientHeight);
       drawGrid(ctx, v, grid);
     }
-    drawWave(waveSvg, peaks, v, 0, SONG_WAVE_OPTS);
+    // #1: peaks.peaks always spans the WHOLE recording (wave.js's own
+    // module doc) -- a zoomed view must window it down first, or drawWave
+    // stretches the entire song's peaks across whatever narrow slice of
+    // pixels the zoom left it, which looks like a waveform but is the
+    // wrong one.
+    const windowed = slicePeaksToWindow(peaks, v.startS, v.endS, durationS);
+    drawWave(waveSvg, windowed, v, 0, SONG_WAVE_OPTS);
   }
 
   function renderSelectionHighlight() {
@@ -652,6 +699,29 @@ export function mount(el, payload) {
     selectionBox.style.display = 'block';
     selectionBox.style.left = `${(leftPx / v.widthPx) * 100}%`;
     selectionBox.style.width = `${((rightPx - leftPx) / v.widthPx) * 100}%`;
+  }
+
+  // #1: the current section's start/end as two draggable vertical bars
+  // drawn directly on the waveform, against the (possibly zoomed) pixel
+  // space -- reusing sections.js's own attachDragHandlers on
+  // `selectionBox` itself rather than a second drag implementation.
+  // selectionBox is already exactly the shape attachDragHandlers expects
+  // (an absolutely-positioned child of the "track" it drags against,
+  // percentage left/width -- `pct()`'s own math matches
+  // renderSelectionHighlight's above exactly), so this gets the same
+  // bronze `sect__handle` grips the lane tiles use for free. Committed
+  // through the same patchSection path as every other boundary edit
+  // (inspector fields, snap, nudge, the lane's own drag handles) --
+  // patchSection's own reload-if-playing note applies here unchanged.
+  let detachWaveDrag = null;
+  function renderWaveDrag() {
+    detachWaveDrag?.();
+    detachWaveDrag = null;
+    const sec = sections.find((s) => s.id === selectedId);
+    if (!sec) return; // selectionBox is already hidden -- nothing to attach handles to
+    detachWaveDrag = attachDragHandlers(selectionBox, sec, view(), grid, {
+      onDragCommit: (patch) => { patchSection(patch.id, patch); },
+    });
   }
 
   // ---- the playhead (Phase 1.5, found live 2026-09-06) ----
@@ -677,12 +747,41 @@ export function mount(el, payload) {
   // show two different numbers. 3 decimals, matching the inspector's own
   // Start/End fields exactly (see fmtPreciseS): read this while listening,
   // type it straight into Start or End.
+  // Re-entrancy guard for the nested repaintView() call below -- console.
+  // html's own updatePlayhead has the identical guard (`this._following`),
+  // for the identical reason: repaintView() calls renderPlayhead() again,
+  // which must find the playhead already on screen and stop, not follow a
+  // second time.
+  let followingRepaint = false;
+
   function renderPlayhead() {
+    // #1: page the zoomed window along while ACTUALLY PLAYING, before
+    // drawing anything at the (about to be stale) view -- console.html's
+    // own "Keep the playhead on screen while it is running". Never while
+    // paused: a scrub or a nudge (seekToClientX, restartToSectionStart) is
+    // a deliberate look somewhere, and paging the view out from under a
+    // click is how a zoomed screen becomes unusable.
+    if (transportPlaying && !followingRepaint && playheadSourceS !== null && durationS > 0) {
+      const next = followTo(viewWindow, playheadSourceS / durationS);
+      if (next !== viewWindow) {
+        viewWindow = next;
+        followingRepaint = true;
+        repaintView();
+        followingRepaint = false;
+        return; // repaintView() already re-rendered the playhead against the new window
+      }
+    }
     const v = view();
     transportClockEl.textContent = `${fmtPreciseS(playheadSourceS ?? 0)} / ${fmtPreciseS(durationS)}`;
     if (playheadSourceS === null || !v.widthPx) { playheadEl.style.display = 'none'; return; }
     playheadEl.style.display = 'block';
-    playheadEl.style.left = `${(viewX(playheadSourceS, v) / v.widthPx) * 100}%`;
+    // transform, not a redrawn %-left -- console.html's own `.playhead` CSS
+    // convention (position:absolute, moved via transform), lifted because
+    // this now runs every animation frame AND potentially pages the whole
+    // view along with it; a transform is a compositor-only move, no layout.
+    // waveHost's own `overflow:hidden` clips it for free once it strays
+    // outside [0, widthPx] -- no separate visibility toggle needed for that.
+    playheadEl.style.transform = `translateX(${viewX(playheadSourceS, v).toFixed(2)}px)`;
   }
 
   function playheadTick(ts) {
@@ -810,7 +909,7 @@ export function mount(el, payload) {
       // it back in is what keeps the tile you are editing selected across
       // the redraw a committed inspector field triggers.
       selectedId,
-      onSelect: (id) => { selectedId = id; renderSelectionHighlight(); renderInspector(); },
+      onSelect: (id) => { selectedId = id; renderSelectionHighlight(); renderWaveDrag(); renderInspector(); },
       onDragCommit: (patch) => { patchSection(patch.id, patch); },
     });
     // Detach the PREVIOUS call's listeners before attaching fresh ones --
@@ -981,12 +1080,22 @@ export function mount(el, payload) {
     redrawAll();
   }
 
-  function redrawAll() {
+  // Everything that depends on `view()` (so, everything a zoom/pan change
+  // or a section-boundary commit needs redrawn) except the inspector,
+  // which shows a section's FIELD values and depends on none of it --
+  // re-running it on every wheel notch would be wasted work and would blow
+  // away in-progress focus/typing in one of its inputs for no reason.
+  function repaintView() {
     renderBarRuler();
     renderWave();
     renderLanes();
     renderSelectionHighlight();
+    renderWaveDrag();
     renderPlayhead();
+  }
+
+  function redrawAll() {
+    repaintView();
     renderInspector();
   }
 

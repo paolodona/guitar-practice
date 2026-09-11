@@ -334,3 +334,145 @@ export function snapToGrid(t, marks, mode, toleranceS = 0.12) {
   }
   return nearestDist <= toleranceS ? nearest : t;
 }
+
+/**
+ * Slice a whole-song peaks payload down to [startS, endS] over durationS —
+ * wave.js's own module doc is explicit that this is the CALLER's job, not
+ * its: `peaks.peaks` always spans a whole file end to end (the endpoint has
+ * no start/end query params), and drawWave draws whatever array it is
+ * handed as if it exactly covered `view.startS..endS`. Originally
+ * screens/practice.js's own (that screen's view() has always windowed to
+ * one section); moved here 2026-09-11 when screens/song.js's #1 (zoom/pan)
+ * gave IT a view that can be narrower than the whole recording too — same
+ * "one home for a shared conversion" reasoning as computeSeekPosition's
+ * own move.
+ * @param {{level: number, peaks: [number, number][]} | null} peaksPayload
+ * @param {number} startS
+ * @param {number} endS
+ * @param {number} durationS
+ * @returns {{level: number, peaks: [number, number][]} | null}
+ */
+export function slicePeaksToWindow(peaksPayload, startS, endS, durationS) {
+  if (!peaksPayload || !Array.isArray(peaksPayload.peaks) || !peaksPayload.peaks.length || !durationS) return null;
+  const n = peaksPayload.peaks.length;
+  const i0 = Math.max(0, Math.min(n, Math.floor((startS / durationS) * n)));
+  const i1 = Math.max(i0, Math.min(n, Math.ceil((endS / durationS) * n)));
+  return { level: peaksPayload.level, peaks: peaksPayload.peaks.slice(i0, i1) };
+}
+
+/**
+ * Reaper-style zoom/pan over a waveform (#1), lifted from rambass-live's
+ * console.html (ReviewApp: `zoom`/`left`/`span`/`setLeft`/`zoomBy`/
+ * `panBy`/`followTo`) — re-derived rather than imported (a different repo;
+ * CLAUDE.md's cross-reference rule is lift-with-attribution, never a
+ * runtime dependency) and re-expressed two ways:
+ *
+ *   - as pure functions over an explicit `{zoom, left}` pair (a `ZoomPan`)
+ *     instead of console.html's mutate-this.zoom/this.left methods, so the
+ *     arithmetic is testable without a DOM, the same reason
+ *     computeSeekPosition/viewX above are pure.
+ *   - `left`/`zoom` are fractions of the WHOLE RECORDING. console.html's
+ *     own unit is fractions of the one section currently under review;
+ *     this repo's "section" is a span of the whole file rather than a
+ *     separate normalized unit, so the recording plays the role
+ *     console.html's section does. `zoomPanView` below is the one place
+ *     that fraction turns into actual source seconds.
+ *
+ * A caller does `viewWindow = zoomBy(viewWindow, factor, anchor)` and skips
+ * the repaint when the RESULT is the same object back (`=== `) — every
+ * function below returns its own input, by reference, when nothing
+ * actually moved (already at a limit), the same "did this change" signal
+ * console.html's own boolean return gave, without a second return channel.
+ * @typedef {Object} ZoomPan
+ * @property {number} zoom - >= 1; 1 is the whole recording (no zoom)
+ * @property {number} left - 0..(1 - 1/zoom); duration-fraction at the view's own left edge
+ */
+
+/** Console.html's own ceiling — past this a single sample would be wider
+ *  than the window, which draws nothing useful. */
+export const MAX_ZOOM = 64;
+/** Console.html's own per-notch zoom factor (`ZOOM_STEP`) and pan fraction
+ *  (`panBy`'s call site: `notches * 0.15`) — named here so song.js's wheel
+ *  handler doesn't retype either magic number. */
+export const ZOOM_STEP = 1.35;
+export const PAN_STEP = 0.15;
+
+/** The whole recording, unzoomed — zoom's own identity element, and what
+ *  song.js's view() always was before #1. */
+export const FIT_ZOOM_PAN = Object.freeze({ zoom: 1, left: 0 });
+
+/** The duration-fraction spanned by *zoomPan*'s current window. */
+export function zoomSpan(zoomPan) { return 1 / zoomPan.zoom; }
+
+function clampLeft(zoom, left) {
+  return Math.min(1 - 1 / zoom, Math.max(0, left));
+}
+
+/**
+ * Zoom by *factor* about *anchorFrac* — Reaper's own convention: the point
+ * under the pointer stays exactly where it is, so the gesture doesn't hunt.
+ * *anchorFrac* is 0..1 across the WAVE-HOST'S OWN width, not the recording
+ * (the caller derives it from a wheel event's clientX, same as
+ * console.html's onWheel does against its canvas).
+ * @param {ZoomPan} zoomPan
+ * @param {number} factor - >1 zooms in, <1 zooms out
+ * @param {number} anchorFrac - 0..1
+ * @returns {ZoomPan} the same object back, unchanged, if already at MAX_ZOOM/1x
+ */
+export function zoomBy(zoomPan, factor, anchorFrac) {
+  const at = Math.min(1, Math.max(0, anchorFrac));
+  const held = zoomPan.left + at * zoomSpan(zoomPan); // duration-fraction under the pointer
+  const zoom = Math.min(MAX_ZOOM, Math.max(1, zoomPan.zoom * factor));
+  if (zoom === zoomPan.zoom) return zoomPan;
+  const left = clampLeft(zoom, held - at / zoom);
+  return { zoom, left };
+}
+
+/** Pan by *windows* widths of the CURRENT view — the same gesture at any
+ *  zoom, since it is expressed in windows-full rather than a fixed
+ *  duration-fraction. */
+export function panBy(zoomPan, windows) {
+  const left = clampLeft(zoomPan.zoom, zoomPan.left + windows * zoomSpan(zoomPan));
+  if (left === zoomPan.left) return zoomPan;
+  return { zoom: zoomPan.zoom, left };
+}
+
+/**
+ * Keep *fraction* (typically the playhead, 0..1 of the recording) on
+ * screen while it runs, console.html's own "Keep the playhead on screen
+ * while it is running" — lifted verbatim, 5%/95%/15%-of-a-span numbers
+ * included. Pages the window (jumps once the fraction nears an edge)
+ * rather than following every frame: a window sliding under a fixed
+ * playhead is a redraw of the whole stack every frame, for a screen whose
+ * point is that it is drawn once per real change. A caller only pages
+ * while ACTUALLY PLAYING — a paused scrub/seek is a deliberate look
+ * somewhere, and must never be paged out from under itself; that decision
+ * lives at the call site, not in here.
+ * @param {ZoomPan} zoomPan
+ * @param {number} fraction - 0..1
+ * @returns {ZoomPan} the same object back if the window need not move
+ */
+export function followTo(zoomPan, fraction) {
+  const span = zoomSpan(zoomPan);
+  if (span >= 1) return zoomPan; // fully zoomed out -- nowhere to page to
+  if (fraction >= zoomPan.left + span * 0.05 && fraction <= zoomPan.left + span * 0.95) return zoomPan;
+  return { zoom: zoomPan.zoom, left: clampLeft(zoomPan.zoom, fraction - span * 0.15) };
+}
+
+/**
+ * A ZoomPan (session view-window state, duration-fractions) plus a
+ * recording's duration and the canvas's own CSS width -> the concrete
+ * {@link View} every other function in this file already consumes. The
+ * one place a duration-fraction becomes actual source seconds.
+ * @param {ZoomPan} zoomPan
+ * @param {number} durationS
+ * @param {number} widthPx
+ * @returns {View}
+ */
+export function zoomPanView(zoomPan, durationS, widthPx) {
+  return {
+    startS: zoomPan.left * durationS,
+    endS: (zoomPan.left + zoomSpan(zoomPan)) * durationS,
+    widthPx,
+  };
+}

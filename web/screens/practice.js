@@ -129,7 +129,7 @@
  */
 import { currentSetlist, get, post } from '../app.js';
 import { drawWave, PRACTICE_WAVE_OPTS } from '../wave.js';
-import { computeGrid, drawGrid, sizeCanvas, computeSeekPosition } from '../timeline.js';
+import { computeGrid, drawGrid, sizeCanvas, computeSeekPosition, slicePeaksToWindow } from '../timeline.js';
 import { createEngine } from '../player.js';
 import { Ladder, nextRung } from '../ladder.js';
 import { ACTIONS, on, dispatch } from '../actions.js';
@@ -269,16 +269,6 @@ export const FOOT_ICONS = {
 // left `seekToClientX` throwing `ReferenceError: computeSeekPosition is not
 // defined` at every click, caught live 2026-09-06.
 export { computeSeekPosition };
-
-/** Slice a whole-song peaks payload down to [startS, endS] — wave.js's own
- *  doc is explicit that this is the caller's job, not its. */
-function slicePeaksToWindow(peaksPayload, startS, endS, durationS) {
-  if (!peaksPayload || !Array.isArray(peaksPayload.peaks) || !peaksPayload.peaks.length || !durationS) return null;
-  const n = peaksPayload.peaks.length;
-  const i0 = Math.max(0, Math.min(n, Math.floor((startS / durationS) * n)));
-  const i1 = Math.max(i0, Math.min(n, Math.ceil((endS / durationS) * n)));
-  return { level: peaksPayload.level, peaks: peaksPayload.peaks.slice(i0, i1) };
-}
 
 // Phase 2, K1: the client-side ladder mirror that used to live here (a
 // local rungs()/nextRung() pair) has moved to web/ladder.js, which owns
