@@ -423,11 +423,25 @@ export class RealtimeEngine extends EventTarget {
     this._qualified = false;
   }
 
-  /** Seek to the section's pre-roll start and begin a fresh pass-detection
-   *  window (equivalent to a seek, for pass-detection purposes). */
-  restartSection() {
+  /**
+   * Seek to the section's pre-roll start and begin a fresh pass-detection
+   * window (equivalent to a seek, for pass-detection purposes).
+   *
+   * FOUND LIVE 2026-09-10, fixed here: this engine keeps no local playing
+   * flag of its own (module doc, decision 3 -- playback state lives only in
+   * the worklet and, cosmetically, in screens/practice.js's own `playing`).
+   * The worklet's 'restart' handler used to hardcode `playing = true`, so a
+   * restart pressed while paused made the room audibly play regardless --
+   * the foot-strip icon still said "paused", but sound came out. There is
+   * nothing on THIS side to read "was it playing" from, so the caller (the
+   * one place that already tracks it) must say so explicitly.
+   * @param {boolean} [playing] - whether playback should be running after
+   *   the restart; defaults to true only for a caller that doesn't say
+   *   (matches this method's behaviour before *playing* existed).
+   */
+  restartSection(playing) {
     this._requireNode('restartSection');
-    this._node.port.postMessage({ type: 'restart' });
+    this._node.port.postMessage({ type: 'restart', playing: playing !== false });
     this._qualified = true; // back at the true beginning -- a fresh window starts now
   }
 
@@ -791,8 +805,13 @@ export class BufferEngine extends EventTarget {
     this._qualified = false;
   }
 
-  /** Back to sample 0 of the buffer (the lead-in included) and a fresh
-   *  pass-detection window. */
+  /**
+   * Back to sample 0 of the buffer (the lead-in included) and a fresh
+   * pass-detection window. Keeps playing if it was playing, stays paused if
+   * it was paused -- read off `this._playing`, which this engine already
+   * tracks itself, so unlike RealtimeEngine.restartSection() the caller
+   * does not need to pass it in (an argument here would just be ignored).
+   */
   restartSection() {
     this._require('restartSection');
     const wasPlaying = this._playing;

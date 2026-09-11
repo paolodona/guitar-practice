@@ -16,21 +16,29 @@
  *   design/Main.dc.html, or a keyboard-shortcut legend)
  * @property {number | null} cc - MIDI CC number for the six-action foot
  *   vocabulary design/Main.dc.html fixes (CC 80-85, verified against the
- *   artboard on disk); null for the other ten actions. Phase 3 may assign
- *   CCs to some of those — not decided here, and resisting a seventh foot
- *   action is a design rule, not an oversight (plan, "The front end").
+ *   artboard on disk); null for the other actions. docs/05-foot-control.md's
+ *   "resist a seventh" is about THIS vocabulary — the fixed physical pedal
+ *   CCs — and stays true: nothing below is ever assigned a CC other than
+ *   those six.
+ * @property {boolean} [chip] - true if screens/practice.js's foot strip
+ *   shows this action as a clickable chip. Was simply `cc != null` until
+ *   restart_section joined live 2026-09-10 (Paolo: a chip that returns to
+ *   the section's start, mouse/keyboard only — it has no pedal CC, so
+ *   `chip` and `cc` are no longer the same question) — this field is now
+ *   the one place "is this a foot-strip chip" gets decided, checked by
+ *   web/tests/test_foot_icons.mjs the same way `cc` already was.
  */
 
 /** @type {Record<string, ActionSpec>} */
 export const ACTIONS = {
-  play_pause:      { label: 'Play / pause',    cc: 80 },
-  next_section:    { label: 'Next section',    cc: 81 },
-  prev_section:    { label: 'Previous',        cc: 82 },
-  speed_up:        { label: 'Faster',          cc: 83 },
-  speed_down:      { label: 'Slower',          cc: 84 },
-  retract_rep:     { label: 'Retract rep',     cc: 85 },
+  restart_section: { label: 'Restart',         cc: null, chip: true },
+  play_pause:      { label: 'Play / pause',    cc: 80,   chip: true },
+  prev_section:    { label: 'Previous',        cc: 82,   chip: true },
+  next_section:    { label: 'Next section',    cc: 81,   chip: true },
+  speed_up:        { label: 'Faster',          cc: 83,   chip: true },
+  speed_down:      { label: 'Slower',          cc: 84,   chip: true },
+  retract_rep:     { label: 'Retract rep',     cc: 85,   chip: true },
   confirm_clean:   { label: 'Confirm clean',   cc: null },
-  restart_section: { label: 'Restart section', cc: null },
   nudge_start:     { label: 'Nudge start',     cc: null },
   nudge_end:       { label: 'Nudge end',       cc: null },
   transpose_up:    { label: 'Transpose up',    cc: null },

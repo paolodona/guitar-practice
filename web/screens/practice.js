@@ -87,14 +87,23 @@
  *    2026-09-06: a shortcut reference overlay, built from ACTIONS + keys.js's
  *    KEY_MAP directly so it can't drift from what actually fires) and
  *    cancel_lead_in (added live 2026-09-06: Esc exits the lead-in overlay).
- *    It's the one deliberate exception to "six elements, nothing else" — hidden until
- *    invoked, so it doesn't compete with the hero for attention while
- *    playing. loop_toggle/metronome/fullscreen/nudge_start/nudge_end still
- *    have no represented control on this artboard and are left unsubscribed
- *    rather than given invented behaviour (nudge_start/nudge_end DO have a
- *    control now, but it lives on song.js's inspector — this screen has no
- *    section-boundary editing at all, see the design's own division of
- *    labour between the two screens).
+ *    The foot strip itself grew past the artboard's fixed six live
+ *    2026-09-10: restart_section is now a seventh chip (Paolo: back to the
+ *    section's start, keeps playing if playing, stays paused if paused —
+ *    exactly what its handler below already did for the 'r' key since
+ *    Phase 1) and Previous now sits left of Next, both ACTIONS' own table
+ *    order (actions.js's `chip` field, not a hand-reordered copy here).
+ *    Neither changes docs/05-foot-control.md's six-CC pedal vocabulary —
+ *    restart_section has no CC, so "resist a seventh" still holds for the
+ *    hardware; it only ever holds for the on-screen strip too. help stays
+ *    the one exception hidden until invoked, so it doesn't compete with the
+ *    hero for attention while playing. loop_toggle/metronome/fullscreen/
+ *    nudge_start/nudge_end still have no represented control on this
+ *    artboard and are left unsubscribed rather than given invented
+ *    behaviour (nudge_start/nudge_end DO have a control now, but it lives
+ *    on song.js's inspector — this screen has no section-boundary editing
+ *    at all, see the design's own division of labour between the two
+ *    screens).
  *
  * 5. Phase 1, G1: the wave-host's grid lines are real
  *    (`timeline.computeGrid`), replacing the fixed-pixel CSS gradient
@@ -206,17 +215,23 @@ const PLAY_ICON = '<svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="
 const PAUSE_ICON = '<svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true"><rect x="5" y="4.5" width="4" height="13" rx="1" fill="#9CAAA4"/><rect x="13" y="4.5" width="4" height="13" rx="1" fill="#9CAAA4"/></svg>';
 
 /**
- * One icon per foot action (`ACTIONS` entries with a real `cc`) — a
+ * One icon per foot-strip chip (`ACTIONS` entries with `chip: true`) — a
  * completeness test (web/tests/test_foot_icons.mjs) asserts every such
  * entry has a matching key here, same "one action table" discipline
  * actions.js's own module doc already applies to CCs: an icon silently
- * missing for a real foot action is the same class of bug as a missing
- * one. `play_pause`'s own entry is `PLAY_ICON` (the paused default);
+ * missing for a real chip is the same class of bug as a missing one.
+ * `play_pause`'s own entry is `PLAY_ICON` (the paused default);
  * `renderFootIcon` below is what actually swaps it live.
  * @type {Record<string, string>}
  */
 export const FOOT_ICONS = {
   play_pause: PLAY_ICON,
+  // restart_section: Material Design's "replay" glyph (fill, not stroke,
+  // like PLAY_ICON/PAUSE_ICON above — it pairs with playback, not with
+  // navigation or undo) — deliberately not a mirror of prev_section's
+  // skip-back triangle, which reads as "a different section", not "the
+  // top of this one".
+  restart_section: '<svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path fill="#9CAAA4" d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/></svg>',
   next_section: '<svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true"><path d="M4.5 5v12l8.5-6z" fill="#9CAAA4"/><rect x="14.5" y="5" width="2.6" height="12" rx="1" fill="#9CAAA4"/></svg>',
   prev_section: '<svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true"><rect x="4.9" y="5" width="2.6" height="12" rx="1" fill="#9CAAA4"/><path d="M17.5 5v12l-8.5-6z" fill="#9CAAA4"/></svg>',
   speed_up: '<svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true">'
@@ -785,21 +800,31 @@ export function mount(el, payload) {
   }
   helpOverlay.addEventListener('click', (e) => { if (e.target === helpOverlay) toggleHelp(); });
 
-  // ---- foot strip: exactly the six CC actions, in ACTIONS' own table
-  // order (never hand-reordered — see CLAUDE.md's "one action table").
+  // ---- foot strip: every ACTIONS entry with `chip: true`, in ACTIONS' own
+  // table order (never hand-reordered — see CLAUDE.md's "one action table").
+  // Six of these also carry a pedal CC (design/Main.dc.html's fixed
+  // vocabulary, docs/05-foot-control.md's "resist a seventh" — that rule is
+  // about the PEDAL, not this on-screen strip); restart_section, added live
+  // 2026-09-10 at Paolo's request, is mouse/keyboard only, so its
+  // chip__head corner shows its keyboard shortcut instead of a CC number.
   // Group Q, Q1's original layout (icon right-aligned, label+CC stacked
-  // left) was replaced 2026-09-06 at Paolo's request: label top-left, CC
-  // top-right (chip__head), icon large (88px, 4x FOOT_ICONS' own 22px
-  // viewBox) and centred in the remaining chip body below the header. ----
-  const footActions = Object.entries(ACTIONS).filter(([, spec]) => spec.cc != null);
-  footEl.innerHTML = footActions.map(([name, spec]) => `
+  // left) was replaced 2026-09-06 at Paolo's request: label top-left,
+  // CC/key top-right (chip__head), icon large (88px, 4x FOOT_ICONS' own
+  // 22px viewBox) and centred in the remaining chip body below the header. ----
+  const footActions = Object.entries(ACTIONS).filter(([, spec]) => spec.chip);
+  footEl.innerHTML = footActions.map(([name, spec]) => {
+    const corner = spec.cc != null
+      ? `CC ${spec.cc}`
+      : (keysForAction[name] ?? []).map(keyLabel).join(' / ');
+    return `
     <button class="chip" data-chip="${name}">
       <div class="chip__head">
         <div style="font-size:17px;font-weight:500">${escapeHtml(spec.label)}</div>
-        <div class="mono" style="font-size:12px;color:var(--accent-dim,#8A5C29);letter-spacing:.14em">CC ${spec.cc}</div>
+        <div class="mono" style="font-size:12px;color:var(--accent-dim,#8A5C29);letter-spacing:.14em">${escapeHtml(corner)}</div>
       </div>
       <div class="chip__icon" data-chip-icon="${name}">${FOOT_ICONS[name] ?? ''}</div>
-    </button>`).join('');
+    </button>`;
+  }).join('');
   footEl.querySelectorAll('[data-chip]').forEach((btn) => {
     btn.addEventListener('click', () => dispatch(btn.dataset.chip, 'ui'));
   });
@@ -1272,9 +1297,18 @@ export function mount(el, payload) {
       ladder.confirm();
       renderDiscrete();
     },
+    // Back to the section's beginning (lead-in included); keeps playing if
+    // `playing` is true, stays paused if it is false -- a foot-strip chip
+    // now (module doc, decision 4), not just the 'r' key, so this is hit
+    // far more often than before. `playing` is passed to engine.
+    // restartSection() explicitly because RealtimeEngine has no playing
+    // state of its own to read it back from (see that method's own doc,
+    // FOUND LIVE 2026-09-10); the click is gated the same way rather than
+    // always (re)triggered, so a restart while paused stays silent on BOTH
+    // audio paths, not just the music.
     restart_section() {
-      if (engineReady) engine.restartSection();
-      playClick();
+      if (engineReady) engine.restartSection(playing);
+      if (playing) playClick(); else stopClick();
       beginLap();
       elapsed = -cosmeticPreRoll;
       advancing = false;

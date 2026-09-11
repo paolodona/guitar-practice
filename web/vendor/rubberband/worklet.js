@@ -267,7 +267,11 @@ class RubberBandLooper extends AudioWorkletProcessor {
         this.ended = false; // R1: a restarted non-looping source can end again
         this.endedPosted = false;
         this._feedSilence(this.preferredStartPad);
-        this.playing = true;
+        // FOUND LIVE 2026-09-10: this used to hardcode `this.playing = true`,
+        // so a restart pressed while paused made the worklet audibly play
+        // anyway -- player.js's RealtimeEngine.restartSection() now sends
+        // the caller's actual playing state instead of assuming one.
+        this.playing = msg.playing !== false;
         break;
       case 'seek': {
         // Authoritative clamp -- player.js clamps too (against the section's
