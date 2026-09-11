@@ -2,10 +2,10 @@ name: RambaSS
 tuning: Eb standard
 venue: ''
 songs:
-- slug: tutti-in-fila
-  shift: 0
 - slug: no-farts-in-the-car
   shift: -1
+- slug: tutti-in-fila
+  shift: 0
 - slug: i-poohffi
   shift: 0
 - slug: manlio
