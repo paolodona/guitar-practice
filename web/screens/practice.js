@@ -245,9 +245,16 @@ export const FOOT_ICONS = {
   speed_down: '<svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true">'
     + '<path d="M5 7l6 5 6-5" fill="none" stroke="#9CAAA4" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>'
     + '<path d="M5 12l6 5 6-5" fill="none" stroke="#9CAAA4" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  // FOUND BY REVIEW 2026-09-11 (#7): the old arc (`A7 7 0 1 0` from
+  // (15.5,15.5) to (15,6)) traces a circle centred near (20.4, 10.5) --
+  // more than half of it past this viewBox's own x=22 edge, clipped
+  // silently. Recentred on (11, 11), radius 6.5, comfortably inside `0 0
+  // 22 22` with room for the 1.8px stroke's round caps on top --
+  // web/tests/test_foot_icons.mjs checks the actual geometry against the
+  // viewBox now, not just that a string is present.
   retract_rep: '<svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true">'
-    + '<path d="M15.5 15.5A7 7 0 1 0 15 6" fill="none" stroke="#9CAAA4" stroke-width="1.8" stroke-linecap="round"/>'
-    + '<path d="M15 2.5v4.2h4.2" fill="none" stroke="#9CAAA4" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    + '<path d="M15.18 6.02A6.5 6.5 0 1 1 6.02 6.82" fill="none" stroke="#9CAAA4" stroke-width="1.8" stroke-linecap="round"/>'
+    + '<path d="M13.68 2.31L15.18 6.02L11.27 5.19" fill="none" stroke="#9CAAA4" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
 };
 
 // Phase 1.5, P2's pure half moved to timeline.js 2026-09-06 (see that
