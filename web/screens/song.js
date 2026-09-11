@@ -117,6 +117,25 @@ import { renderSections, attachCreateHandler } from '../sections.js';
 import { computeGrid, drawGrid, sizeCanvas, viewX, computeSeekPosition } from '../timeline.js';
 import { on } from '../actions.js';
 import { createEngine } from '../player.js';
+// Reused rather than redrawn (#2): the same Material "replay" glyph
+// practice.js's foot strip already uses for the identical concept there
+// ("back to the top of THIS section, without touching play/pause").
+import { FOOT_ICONS } from './practice.js';
+
+/**
+ * #2's target: the currently selected section's own start, or 0 when
+ * nothing is selected (or the whole recording is previewing). Exported,
+ * pure, and free of `mount()`'s closures for the same reason
+ * timeline.js's `computeSeekPosition` is (P2) -- this repo has no DOM
+ * library to drive a real click through `mount()`'s own markup, so the
+ * one piece of real logic here is tested directly instead.
+ * @param {{id: string, start_s: number}[]} sections
+ * @param {string | null} selectedId
+ */
+export function restartTargetS(sections, selectedId) {
+  const sec = sections.find((s) => s.id === selectedId);
+  return sec ? sec.start_s : 0;
+}
 
 const STYLE_ID = 'song-screen-style';
 
@@ -445,6 +464,9 @@ export function mount(el, payload) {
 
         <div style="margin-top:14px;background:var(--surface,#131B19);border:1px solid var(--hairline,#1C2523);border-radius:5px;
                     padding:14px 18px;display:flex;align-items:center;gap:20px">
+          <div data-transport-restart title="Back to this section's start" style="width:42px;height:42px;border-radius:21px;background:var(--raised,#1B2422);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0">
+            ${FOOT_ICONS.restart_section}
+          </div>
           <div data-transport-play style="width:42px;height:42px;border-radius:21px;background:var(--accent,#E0913F);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0">
             <svg width="14" height="16" viewBox="0 0 14 16"><path d="M1 1l12 7-12 7z" fill="var(--ground,#0C1211)"/></svg>
           </div>
@@ -472,6 +494,7 @@ export function mount(el, payload) {
   const barRuler = root.querySelector('[data-bar-ruler]');
   const rungsHost = root.querySelector('[data-rungs]');
   const transportPlayBtn = root.querySelector('[data-transport-play]');
+  const transportRestartBtn = root.querySelector('[data-transport-restart]');
   const transportClockEl = root.querySelector('[data-transport-clock]');
 
   root.querySelector('[data-back]').addEventListener('click', () => { location.hash = '#/'; });
@@ -748,6 +771,16 @@ export function mount(el, payload) {
   function seekToClientX(clientX) {
     const rect = waveHost.getBoundingClientRect();
     const { sourceS } = computeSeekPosition(clientX, rect, view());
+    seekPlayheadTo(sourceS);
+  }
+
+  /** The move-position half of a seek, factored out of seekToClientX so
+   *  #2's restart control (any other fixed-target seek, not just a click)
+   *  can share it rather than duplicate the two-state dance: paused, only
+   *  the cosmetic marker/counter moves; playing, the live engine seeks too
+   *  and the running playheadTick rAF loop picks the new position up on
+   *  its very next frame. */
+  function seekPlayheadTo(sourceS) {
     playheadSourceS = sourceS;
     playheadLastTs = null;
     renderPlayhead();
@@ -755,6 +788,20 @@ export function mount(el, payload) {
       try { engine.seek(sourceS); } catch { /* no node yet -- nothing to seek */ }
     }
   }
+
+  // #2: back to the top of the SELECTED section without touching whether
+  // the transport is playing or paused -- seekPlayheadTo already makes
+  // exactly that distinction (see its own doc), so this is only ever the
+  // target resolution (restartTargetS) plus the same seek. Must never
+  // assign `transportPlaying`, call `engine.play()`/`engine.pause()`, or
+  // touch the play/pause icon -- practice.js's own restart_section chip
+  // hit precisely that bug once already (commit 6dc2850, "Fix restart
+  // playing through a pause"), and web/tests/test_song_restart.mjs checks
+  // this function's own source for it.
+  function restartToSectionStart() {
+    seekPlayheadTo(restartTargetS(sections, selectedId));
+  }
+  transportRestartBtn.addEventListener('click', restartToSectionStart);
 
   let detachCreateHandler = null;
   function renderLanes() {
