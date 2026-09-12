@@ -652,6 +652,35 @@ def test_section_rm_unknown_id_refuses(repo: Repo, tmp_path: Path) -> None:
     assert rc == 2
 
 
+def test_section_rm_refuses_the_whole_song_entry(repo: Repo, tmp_path: Path) -> None:
+    slug = _add(repo, tmp_path, seconds=30.0)
+    rc = cli.main(["section", slug, "rm", "whole-song"])
+    assert rc == 2
+    song = load_song(repo.song_dir(slug) / "song.yaml")
+    assert any(s.id == "whole-song" for s in song.sections)
+
+
+def test_section_update_can_trim_the_whole_song_entry(repo: Repo, tmp_path: Path) -> None:
+    """The feature this guards: a long intro/outro is still trimmable even
+    though the whole-song entry itself can't be deleted."""
+    slug = _add(repo, tmp_path, seconds=30.0)
+    rc = cli.main(["section", slug, "update", "whole-song", "--start-s", "5"])
+    assert rc == 0
+    song = load_song(repo.song_dir(slug) / "song.yaml")
+    section = next(s for s in song.sections if s.id == "whole-song")
+    assert section.start_s == 5.0
+    assert section.full_song is True
+
+
+def test_section_rm_allows_the_whole_song_entry_once_unmarked(repo: Repo, tmp_path: Path) -> None:
+    slug = _add(repo, tmp_path, seconds=30.0)
+    cli.main(["section", slug, "update", "whole-song", "--no-full-song"])
+    rc = cli.main(["section", slug, "rm", "whole-song"])
+    assert rc == 0
+    song = load_song(repo.song_dir(slug) / "song.yaml")
+    assert not any(s.id == "whole-song" for s in song.sections)
+
+
 def test_section_with_no_subcommand_prints_its_own_help(
     repo: Repo, tmp_path: Path, capsys: pytest.CaptureFixture
 ) -> None:

@@ -34,6 +34,7 @@ from woodshed.manifest import (
     Song,
     Tempo,
     effective_pre_roll_beats,
+    ensure_deletable,
     hash_file,
     load_song,
     save_song,
@@ -414,10 +415,11 @@ def cmd_section_update(args: argparse.Namespace) -> int:
 def cmd_section_rm(args: argparse.Namespace) -> int:
     repo = _repo()
     slug, path, song = _load_song(repo, args.slug)
-    remaining = [s for s in song.sections if s.id != args.id]
-    if len(remaining) == len(song.sections):
+    target = next((s for s in song.sections if s.id == args.id), None)
+    if target is None:
         raise WoodshedError(f"{slug}: no section {args.id!r}")
-    song.sections = remaining
+    ensure_deletable(target)  # refuses the whole-song entry -- see its own docstring
+    song.sections = [s for s in song.sections if s.id != args.id]
     save_song(song, path)
     _say(f"{slug}: removed section {args.id!r}")
     return 0

@@ -53,6 +53,7 @@ __all__ = [
     "check_binding",
     "effective_pre_roll_beats",
     "whole_song_section",
+    "ensure_deletable",
 ]
 
 
@@ -193,14 +194,43 @@ def whole_song_section(duration_s: float) -> Section:
     shows this exact shape (`id: whole-song`, `name: Whole song`,
     `full_song: true`, `target_speed: 100`) as what a hand-authored
     `song.yaml` looks like -- this makes it the default instead of
-    something easy to forget to add. Still just an ordinary `Section`:
-    `woodshed section rm whole-song` (or the inspector's own delete) can
-    remove it like any other, nothing here special-cases it further.
+    something easy to forget to add. An ordinary `Section` in every other
+    respect -- trimming its start_s/end_s (a long intro or outro) is a plain
+    update -- except deletion: see `ensure_deletable` below, which both
+    `woodshed section rm` and the inspector's own delete route through.
     """
     return Section(
         id="whole-song", name="Whole song", start_s=0.0, end_s=duration_s,
         snapped="free", target_speed=100.0, full_song=True,
     )
+
+
+def ensure_deletable(section: Section) -> None:
+    """Refuse to delete the whole-song entry (`full_song: True`).
+
+    Every song is guaranteed one `full_song` section from the moment its
+    recording is bound (`whole_song_section` above) -- it is what makes
+    Practice reachable with no section drawn by hand, and its id is what
+    the ledger's whole-song reps are counted against. Deleting it would
+    leave a song with no default practice target and orphan those rows
+    (still on disk, CLAUDE.md's ledger invariant, but with no section left
+    to show them against). Trimming it (a long intro or outro) stays a
+    plain update -- `start_s`/`end_s` go through `Section.model_validate`
+    like any other edit -- only removal is refused, and only while
+    `full_song` is still set: un-checking it first (an explicit, separate
+    choice) clears the way to delete what is then an ordinary section.
+
+    CLI (`cmd_section_rm`) and the API (`POST /api/section`, action=delete)
+    both call this before removing a section, so a hand-typed command and a
+    UI click are refused identically -- the same reasoning as this module's
+    other checks that must not depend on which write path is used.
+    """
+    if section.full_song:
+        raise WoodshedError(
+            f"section '{section.id}': the whole-song entry (full_song: true) can't "
+            "be deleted -- trim its start_s/end_s instead, or un-check 'full song' "
+            "first if you mean to remove it for good"
+        )
 
 
 class PatchChange(BaseModel):

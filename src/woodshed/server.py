@@ -150,6 +150,7 @@ from woodshed.manifest import (
     Section,
     Setlist,
     effective_pre_roll_beats,
+    ensure_deletable,
     load_song,
     save_song,
 )
@@ -1303,8 +1304,10 @@ class WoodshedHandler(BaseHTTPRequestHandler):
         action = str(body.get("action", "upsert"))
         if action == "delete":
             section_id = str(body.get("id", ""))
-            if section_id not in {s.id for s in song.sections}:
+            target = next((s for s in song.sections if s.id == section_id), None)
+            if target is None:
                 raise WoodshedError(f"no such section: {section_id!r}")
+            ensure_deletable(target)  # refuses the whole-song entry -- see its own docstring
             song.sections = [s for s in song.sections if s.id != section_id]
         else:
             section_id = str(body.get("id") or uuid.uuid4().hex[:8])

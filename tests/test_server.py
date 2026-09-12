@@ -1140,6 +1140,51 @@ def test_post_section_deletes_a_span(served):
     assert "solo-full" in [s["id"] for s in data["sections"]]
 
 
+def test_post_section_refuses_to_delete_the_whole_song_entry(served):
+    base, repo, slug = served
+    song_path = repo.song_dir(slug) / "song.yaml"
+    song = load_song(song_path)
+    song.sections.append(
+        Section(
+            id="whole-song", name="Whole song", start_s=0.0, end_s=200.0,
+            snapped="free", target_speed=100.0, full_song=True,
+        )
+    )
+    save_song(song, song_path)
+
+    with pytest.raises(urllib.error.HTTPError) as caught:
+        _post(base, "/api/section", {"song": slug, "action": "delete", "id": "whole-song"})
+    assert caught.value.code == 400
+
+    reloaded = load_song(song_path)
+    assert any(s.id == "whole-song" for s in reloaded.sections)
+
+
+def test_post_section_can_trim_the_whole_song_entry(served):
+    """The feature this guards: a long intro/outro is still trimmable even
+    though the whole-song entry itself can't be deleted."""
+    base, repo, slug = served
+    song_path = repo.song_dir(slug) / "song.yaml"
+    song = load_song(song_path)
+    song.sections.append(
+        Section(
+            id="whole-song", name="Whole song", start_s=0.0, end_s=200.0,
+            snapped="free", target_speed=100.0, full_song=True,
+        )
+    )
+    save_song(song, song_path)
+
+    status, data = _post(base, "/api/section", {
+        "song": slug, "id": "whole-song", "name": "Whole song",
+        "start_s": 8.0, "end_s": 200.0, "snapped": "free", "target_speed": 100.0,
+        "full_song": True,
+    })
+    assert status == 200
+    updated = next(s for s in data["sections"] if s["id"] == "whole-song")
+    assert updated["start_s"] == 8.0
+    assert updated["full_song"] is True
+
+
 def test_post_section_exact_duplicate_is_400_with_error_key(served):
     base, _, slug = served
     with pytest.raises(urllib.error.HTTPError) as caught:

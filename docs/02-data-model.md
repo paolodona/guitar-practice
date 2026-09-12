@@ -177,9 +177,15 @@ have to be remembered together.
 recording is first bound (`woodshed add`, `POST /api/song/upload`, and both
 capture-binding paths — `manifest.whole_song_section`) — every song has
 something to Practice from the moment it exists, with no section drawn by
-hand first. It is an ordinary section in every other respect: `woodshed
-section rm whole-song` (or the inspector's own delete) removes it like any
-other, and nothing refuses that.
+hand first. It is an ordinary section in every other respect — trimming its
+`start_s`/`end_s` for a long intro or outro is a plain update — **except
+deletion, which is refused** (`manifest.ensure_deletable`, checked by both
+`woodshed section rm` and the inspector's own delete) while `full_song` is
+still set: removing it would leave a song with no default practice target,
+and orphan its ledger rows (still on disk — the ledger never loses a line —
+but with no section left to show them against). Un-checking `full_song`
+first is the escape hatch for someone who really means to remove it; that
+turns it into an ordinary section, deletable like any other.
 
 **The invariants that remain.** `start < end`; both inside the file; `id` unique
 within the song. Two sections with the *identical* span are refused — that is a

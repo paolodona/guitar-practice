@@ -31,6 +31,7 @@ from woodshed.manifest import (
     Tempo,
     check_binding,
     effective_pre_roll_beats,
+    ensure_deletable,
     hash_file,
     load_setlist,
     load_song,
@@ -338,12 +339,38 @@ def test_whole_song_section_spans_the_full_duration() -> None:
     assert section.target_speed == 100.0
 
 
-def test_whole_song_section_is_an_ordinary_removable_section() -> None:
-    """Nothing about it is special beyond full_song=True -- it round-trips
-    through Song like any other section."""
+def test_whole_song_section_round_trips_through_song() -> None:
+    """Nothing about it is special to Song/pydantic beyond full_song=True --
+    it round-trips like any other section. (Deletion IS special -- see
+    ensure_deletable below -- but that is a write-path check, not a model
+    constraint, so it belongs to a caller, not to loading/saving.)"""
     song = _song_with_section(whole_song_section(60.0))
     assert song.sections[0].full_song is True
     assert len(song.sections) == 1
+
+
+# --- ensure_deletable: the whole-song entry can't be removed ------------
+
+
+def test_ensure_deletable_refuses_a_full_song_section() -> None:
+    section = whole_song_section(60.0)
+    with pytest.raises(WoodshedError, match="whole-song"):
+        ensure_deletable(section)
+
+
+def test_ensure_deletable_allows_an_ordinary_section() -> None:
+    section = Section(
+        id="full-solo", name="Full solo", start_s=10.0, end_s=20.0,
+        snapped="free", target_speed=100,
+    )
+    ensure_deletable(section)  # does not raise
+
+
+def test_ensure_deletable_allows_a_section_once_full_song_is_unset() -> None:
+    """The escape hatch: un-checking full_song first turns the whole-song
+    entry into an ordinary, deletable section."""
+    section = whole_song_section(60.0).model_copy(update={"full_song": False})
+    ensure_deletable(section)  # does not raise
 
 
 def _song_with_section(section: Section, pre_roll_beats: float = 4.0) -> Song:
