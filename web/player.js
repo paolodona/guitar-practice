@@ -383,6 +383,29 @@ export class RealtimeEngine extends EventTarget {
   }
 
   /**
+   * The rung currently audible. BufferEngine's own accessor of the same
+   * name can lag what was last asked for (a render has to be built before
+   * it can be heard); here a ratio change is instant, so the two are always
+   * equal and `pending` is always false. Mirrored so a caller holding
+   * whichever engine `createEngine()` handed it can read "what is actually
+   * playing" without branching on which — the same reason the rest of this
+   * class shares BufferEngine's shape.
+   */
+  get speedPct() { return this._speedPct; }
+
+  /** The shift currently audible — BufferEngine's accessor, mirrored. */
+  get semitones() { return this._semitones; }
+
+  /** @see speedPct — always equal to it on this engine. */
+  get targetSpeedPct() { return this._speedPct; }
+
+  /** @see speedPct — always equal to `semitones` on this engine. */
+  get targetSemitones() { return this._semitones; }
+
+  /** Always false: this engine's changes take effect immediately. */
+  get pending() { return false; }
+
+  /**
    * @param {number} pct - percent, 50.0 means 50%; range 40-110
    *   (CLAUDE.md: "Practice speeds are discrete" governs the CACHE, not
    *   this slider — the real-time engine may take any value in range).
@@ -393,6 +416,7 @@ export class RealtimeEngine extends EventTarget {
     if (this._node) {
       this._node.port.postMessage({ type: 'setRatio', ratio: 1 / (clamped / 100) });
     }
+    this._announceRung();
   }
 
   /** @param {number} n - semitones, clamped to ±6 (tuning.MAX_SHIFT) */
@@ -402,6 +426,21 @@ export class RealtimeEngine extends EventTarget {
     if (this._node) {
       this._node.port.postMessage({ type: 'setPitch', scale: Math.pow(2, clamped / 12) });
     }
+    this._announceRung();
+  }
+
+  /** BufferEngine's 'rung' event, mirrored — always already landed here.
+   *  A screen can listen to one event name on either engine. */
+  _announceRung() {
+    this.dispatchEvent(new CustomEvent('rung', {
+      detail: {
+        speedPct: this._speedPct,
+        semitones: this._semitones,
+        targetSpeedPct: this._speedPct,
+        targetSemitones: this._semitones,
+        pending: false,
+      },
+    }));
   }
 
   /** Resume or start playback from the current position. */
@@ -664,6 +703,20 @@ const SEAM_EPS = 1e-6;
 const TICK_MS = 50;
 
 /**
+ * How many decoded renders BufferEngine keeps in memory at once.
+ *
+ * FOUND LIVE 2026-09-11: `_buffers` was unbounded, and a decoded render is
+ * not small — tutti-in-fila's 88s "Full solo" at 40% is 226 seconds of
+ * stereo float32, ~87MB, and the thirteen rungs the cache had built that
+ * evening would be most of a gigabyte held live if every one were visited.
+ * Four is enough that stepping a rung up and back down never refetches
+ * (the common shape of a practice session) without the page carrying a
+ * whole ladder's worth of PCM. Eviction is insertion-ordered and never
+ * touches the buffer currently playing or the one queued at a seam.
+ */
+const MAX_DECODED_RENDERS = 4;
+
+/**
  * Phase 2's cache-backed engine, and CLAUDE.md invariant 9 made real: "a
  * loop plays from a pre-rendered, decoded AudioBuffer with a native
  * sample-exact loop — never from a real-time stretcher, which cannot put
@@ -709,14 +762,31 @@ export class BufferEngine extends EventTarget {
     this._section = null;
     /** @type {AudioBuffer | null} */
     this._buffer = null;
-    /** decoded buffers by render URL — returning to a rung never refetches. */
+    /** decoded buffers by render URL — returning to a rung never refetches.
+     *  Insertion-ordered and capped at MAX_DECODED_RENDERS; see `_remember`. */
     this._buffers = new Map();
+    /** In-flight `_render` promises by URL, so two presses that want the
+     *  same file share one fetch and one 202 poll loop rather than racing
+     *  two of each at the server. */
+    this._renderWaits = new Map();
+    /** Renders the server is still building, by URL — the 'rendering'
+     *  event's whole state. A scalar here is what made the status bar flap
+     *  between two speeds and blank while one was still going. */
+    this._waits = new Map();
     /** @type {{source: AudioBufferSourceNode, gain: GainNode, anchor: any} | null} */
     this._active = null;
     /** @type {any} */
     this._pendingSwap = null;
     this._speedPct = 100;
     this._semitones = 0;
+    // What was last ASKED for, latched synchronously by `_changeRender`
+    // before it awaits anything. `_speedPct` is what is audible; these two
+    // are where it is going. Keeping both is what lets a render that
+    // finishes after a newer press be recognised as stale and dropped —
+    // and what lets the screen say "playing 50%, heading for 80%" instead
+    // of showing a number the room is not making.
+    this._targetSpeedPct = 100;
+    this._targetSemitones = 0;
     this._playing = false;
     this._position = 0; // playback seconds, where a play() would resume from
     this._qualified = false;
@@ -731,8 +801,24 @@ export class BufferEngine extends EventTarget {
     this.maxPolls = 900;
   }
 
-  /** The rung currently loaded, as a percent. */
+  /** The rung currently AUDIBLE, as a percent — what the room is playing,
+   *  which is not the same as what was last pressed while a render builds.
+   *  Every clock on this side of the wire is derived from this one, so a
+   *  caller that wants a playhead to match the music reads it, not the
+   *  target below. */
   get speedPct() { return this._speedPct; }
+
+  /** The rung last ASKED for. Equal to `speedPct` except while a render is
+   *  building or a swap is queued for the next seam. */
+  get targetSpeedPct() { return this._targetSpeedPct; }
+
+  /** The shift last asked for. Same relationship as `targetSpeedPct`. */
+  get targetSemitones() { return this._targetSemitones; }
+
+  /** Whether what was asked for has yet to become audible. */
+  get pending() {
+    return this._speedPct !== this._targetSpeedPct || this._semitones !== this._targetSemitones;
+  }
 
   /**
    * Where playback actually is, in PLAYBACK seconds, right now — the
@@ -780,9 +866,18 @@ export class BufferEngine extends EventTarget {
     // permanently silent, and pause() no-oped too.
     this._playing = false;
     this._section = section;
+    // A new section invalidates every decoded render held for the old one
+    // (they are different files, keyed by a URL that names the section), so
+    // nothing here is worth carrying over -- and holding it would count
+    // against MAX_DECODED_RENDERS for renders that can never be asked for
+    // again from this engine.
+    this._buffers.clear();
     this._buffer = await this._render(this._speedPct, this._semitones);
     this._position = 0;
     this._qualified = true;
+    this._targetSpeedPct = this._speedPct;
+    this._targetSemitones = this._semitones;
+    this._announceRung();
   }
 
   /** Start (or resume) playback. */
@@ -835,6 +930,7 @@ export class BufferEngine extends EventTarget {
     this._stopEverything();
     this._playing = false;
     this._qualified = false;
+    if (swap) this._announceRung(); // the swap's rung was adopted above
   }
 
   /**
@@ -925,14 +1021,37 @@ export class BufferEngine extends EventTarget {
     return renderClock(this._section, speedPct);
   }
 
-  /** Fetch + decode the render for one (speed, semitones), polling while
-   *  the server answers 202 because rubberband (or Demucs before it) is
-   *  still working. Cached by URL. */
-  async _render(speedPct, semitones) {
+  /**
+   * Fetch + decode the render for one (speed, semitones), polling while the
+   * server answers 202 because rubberband (or Demucs before it) is still
+   * working.
+   *
+   * Two callers wanting the same URL share ONE request and one poll loop.
+   * FOUND LIVE 2026-09-11: without that, an up-down-up press sequence asked
+   * the server for the same file twice and ran two independent 202 loops
+   * over it, each firing its own 'rendering' events at the status bar.
+   */
+  _render(speedPct, semitones) {
     const url = renderUrl(this._section, speedPct, semitones);
     const cached = this._buffers.get(url);
-    if (cached) return cached;
-    let announced = false;
+    if (cached) {
+      // Re-insert so the insertion-ordered eviction below treats a rung
+      // just returned to as the freshest, not the stalest.
+      this._buffers.delete(url);
+      this._buffers.set(url, cached);
+      return Promise.resolve(cached);
+    }
+    const inFlight = this._renderWaits.get(url);
+    if (inFlight) return inFlight;
+    const wait = this._fetchRender(url, speedPct, semitones).finally(() => {
+      this._renderWaits.delete(url);
+      this._endWait(url);
+    });
+    this._renderWaits.set(url, wait);
+    return wait;
+  }
+
+  async _fetchRender(url, speedPct, semitones) {
     for (let poll = 0; poll < this.maxPolls; poll++) {
       const res = await fetch(url);
       if (res.status === 202) {
@@ -949,55 +1068,105 @@ export class BufferEngine extends EventTarget {
         } catch {
           // A 202 with no JSON body still means "not built yet".
         }
-        announced = true;
-        this.dispatchEvent(new CustomEvent('rendering', {
-          detail: { stage, speedPct, semitones, polls: poll + 1 },
-        }));
+        this._beginWait(url, { stage, speedPct, semitones, polls: poll + 1 });
         await new Promise((resolve) => setTimeout(resolve, this.pollMs));
         continue;
       }
       if (!res.ok) {
-        if (announced) this._announceRenderDone(speedPct, semitones);
         throw new Error(`BufferEngine: fetch ${url}: ${res.status} ${res.statusText}`);
       }
       const bytes = await res.arrayBuffer();
       const buffer = await this.ctx.decodeAudioData(bytes);
-      this._buffers.set(url, buffer);
-      if (announced) this._announceRenderDone(speedPct, semitones);
+      this._remember(url, buffer);
       return buffer;
     }
-    if (announced) this._announceRenderDone(speedPct, semitones);
     throw new Error(`BufferEngine: gave up waiting for the render at ${url}`);
   }
 
-  /** The other edge of 'rendering': `stage: null` means whatever was being
-   *  waited for is no longer being waited for, however it ended. Only ever
-   *  fired if a wait was announced in the first place, so a cache hit stays
-   *  completely silent. */
-  _announceRenderDone(speedPct, semitones) {
-    this.dispatchEvent(new CustomEvent('rendering', {
-      detail: { stage: null, speedPct, semitones },
+  /** Keep `_buffers` bounded, never evicting what is playing or queued.
+   *  See MAX_DECODED_RENDERS for the measurement behind the number. */
+  _remember(url, buffer) {
+    this._buffers.set(url, buffer);
+    for (const [key, held] of this._buffers) {
+      if (this._buffers.size <= MAX_DECODED_RENDERS) break;
+      if (held === buffer || held === this._buffer || held === this._pendingSwap?.buffer) continue;
+      this._buffers.delete(key);
+    }
+  }
+
+  /** Record that *url* is still building and re-announce the status. */
+  _beginWait(url, detail) {
+    this._waits.set(url, detail);
+    this._announceWait();
+  }
+
+  /** *url* is no longer building, however it ended. The status only goes
+   *  quiet when NOTHING is left — a wait that finishes while another is
+   *  still running must not blank the bar. */
+  _endWait(url) {
+    if (!this._waits.delete(url)) return;
+    if (this._waits.size) this._announceWait();
+    else this.dispatchEvent(new CustomEvent('rendering', { detail: { stage: null } }));
+  }
+
+  /** Announce the wait that matches what was last asked for, if one does —
+   *  the bar should name the press the user is waiting on, not whichever
+   *  render happened to poll most recently. */
+  _announceWait() {
+    if (!this._waits.size) return;
+    const target = renderUrl(this._section, this._targetSpeedPct, this._targetSemitones);
+    const detail = this._waits.get(target) ?? [...this._waits.values()].pop();
+    this.dispatchEvent(new CustomEvent('rendering', { detail: { ...detail } }));
+  }
+
+  /** Tell a listener where the engine is and where it is going. Fired
+   *  whenever either moves, so a screen never has to poll to find out that
+   *  the rung it asked for has become audible. */
+  _announceRung() {
+    this.dispatchEvent(new CustomEvent('rung', {
+      detail: {
+        speedPct: this._speedPct,
+        semitones: this._semitones,
+        targetSpeedPct: this._targetSpeedPct,
+        targetSemitones: this._targetSemitones,
+        pending: this.pending,
+      },
     }));
   }
 
   async _changeRender(speedPct, semitones) {
-    // Compare against what the engine is HEADING FOR, not what it is
-    // playing: a scheduled swap has not updated `_speedPct` yet (that
-    // happens when the seam arrives), so comparing against the live value
-    // made ArrowUp-then-ArrowDown before the seam cancel nothing at all --
-    // the engine went to 55% while the screen said 50% and every rep was
-    // logged at 50. FOUND BY REVIEW 2026-09-07.
-    const heading = this._pendingSwap ?? this;
-    if (speedPct === heading.speedPct && semitones === heading.semitones) return;
-    // Asking for exactly what is already playing, with a swap pending, is
-    // "never mind": drop the queued node and put the outgoing one back.
-    if (this._pendingSwap && speedPct === this._speedPct && semitones === this._semitones) {
-      this._cancelPendingSwap();
+    // Latch the target SYNCHRONOUSLY, before anything is awaited. This is
+    // the fix for the whole class of bug this method used to have: it
+    // compared against `_pendingSwap ?? this`, and `_pendingSwap` is only
+    // assigned AFTER the await below, so N presses in rapid succession all
+    // got past the guard and started N concurrent renders. Each called
+    // `_scheduleSwap` (cancelling the previous) whenever ITS render
+    // finished -- and the shortest output renders fastest, so the LAST
+    // press came back FIRST and the FIRST press won. The engine settled on
+    // a rung nobody asked for while the screen showed the one they did.
+    // FOUND LIVE 2026-09-11, Paolo, on tutti-in-fila/full-solo.
+    this._targetSpeedPct = speedPct;
+    this._targetSemitones = semitones;
+    this._announceRung();
+
+    if (speedPct === this._speedPct && semitones === this._semitones) {
+      // Asking for exactly what is already playing is "never mind": drop
+      // any queued node and put the outgoing one back.
+      if (this._pendingSwap) {
+        this._cancelPendingSwap();
+        this._announceRung();
+      }
       return;
+    }
+    if (this._pendingSwap
+      && speedPct === this._pendingSwap.speedPct
+      && semitones === this._pendingSwap.semitones) {
+      return; // already queued for the next seam
     }
     if (!this._section) {
       this._speedPct = speedPct;
       this._semitones = semitones;
+      this._announceRung();
       return;
     }
     let buffer;
@@ -1010,11 +1179,32 @@ export class BufferEngine extends EventTarget {
       return;
     }
     if (this._destroyed) return;
+    // Stale: something newer was asked for while this was building. Drop
+    // it -- it is already decoded and in `_buffers`, so pressing back to it
+    // costs nothing, but adopting it now would override a later press.
+    if (speedPct !== this._targetSpeedPct || semitones !== this._targetSemitones) return;
+    if (speedPct === this._speedPct && semitones === this._semitones) return;
 
     if (!this._playing || !this._active) {
+      // Stopped: adopt immediately, but carry the paused position across
+      // the clock change. Playback seconds are NOT comparable across a
+      // speed change -- the same conversion through source seconds that
+      // pause() makes, and for the same reason (CLAUDE.md's two clocks).
+      // FOUND LIVE 2026-09-11: without it, pausing at 50% and pressing up
+      // to 100% resumed at an offset from the old, longer clock, past the
+      // new render's loopEnd, where Web Audio plays to the end of the
+      // buffer and stops rather than looping -- "the section looping for
+      // the first few seconds and getting stuck".
+      const oldClock = this._clock();
+      const sourceS = this._position * oldClock.speed
+        + (this._section.startS - oldClock.preRollS);
       this._speedPct = speedPct;
       this._semitones = semitones;
       this._buffer = buffer;
+      const newClock = this._clock();
+      const playback = (sourceS - (this._section.startS - newClock.preRollS)) / newClock.speed;
+      this._position = Math.min(newClock.loopEnd, Math.max(0, playback));
+      this._announceRung();
       return;
     }
     this._scheduleSwap(buffer, speedPct, semitones);
@@ -1123,10 +1313,29 @@ export class BufferEngine extends EventTarget {
       anchor: { startTime: swap.seamTime, offset: swap.clock.loopStart, clock: swap.clock },
     };
     this._nextSeam = seamTimeAt(this._active.anchor, 0);
+    // The rung asked for is audible from this instant -- the one moment a
+    // screen can stop showing it as pending.
+    this._announceRung();
   }
 
   _startAt(offset) {
     const clock = this._clock();
+    // Clamp into the render that is actually loaded. Web Audio, handed an
+    // offset past `loopEnd`, plays to the end of the buffer and stops
+    // instead of looping -- and `seamTimeAt(anchor, 0)` for such an offset
+    // lands in the PAST, so `_tick` would read a lap as already complete
+    // and fire 'pass' on its very first call. That writes a rep nobody
+    // played into an append-only ledger, which is the one file this repo
+    // cannot repair. Every caller should be passing something in range;
+    // this is the belt to that brace. FOUND LIVE 2026-09-11.
+    const safeOffset = Math.min(clock.loopEnd, Math.max(0, offset));
+    if (safeOffset !== offset) {
+      // The position handed in was not inside the render that is loaded, so
+      // where playback actually resumes is a guess. A lap that begins from
+      // a guess is not a lap anyone played: disqualify it and let the next
+      // natural wrap re-arm the one after, exactly as a seek does.
+      this._qualified = false;
+    }
     const gain = this.ctx.createGain();
     const source = this.ctx.createBufferSource();
     source.buffer = this._buffer;
@@ -1135,8 +1344,8 @@ export class BufferEngine extends EventTarget {
     source.loopEnd = clock.loopEnd;
     source.connect(gain).connect(this.ctx.destination);
     const startTime = this.ctx.currentTime;
-    source.start(startTime, offset);
-    this._active = { source, gain, anchor: { startTime, offset, clock } };
+    source.start(startTime, safeOffset);
+    this._active = { source, gain, anchor: { startTime, offset: safeOffset, clock } };
     this._nextSeam = seamTimeAt(this._active.anchor, 0);
   }
 

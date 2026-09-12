@@ -458,6 +458,47 @@ export function mount(el, payload) {
   let guitarBusy = false; // true only while a loadSection() swap is in flight
   const demucsAvailable = payload.demucs_available !== false; // undefined degrades to "available"
 
+  /**
+   * How long a speed or shift press waits for the next one before the
+   * engine is told about it.
+   *
+   * FOUND LIVE 2026-09-11, Paolo: "if I want to move the speed from 50% to
+   * 80%, I do not need all the intermediate versions to be created, as my
+   * target is 80% (I clicked Faster multiple times in rapid succession)".
+   * Each press used to call `engine.setSpeedPct` directly, and every one of
+   * those is a distinct cache key, so six presses commissioned six
+   * rubberband renders on the server -- five of which nobody would ever
+   * hear, all six competing for the same CPU, which is why the one that was
+   * wanted took so long. Latching the target and committing once is the
+   * whole fix; 350ms is longer than a burst of clicks and shorter than a
+   * deliberate second press.
+   *
+   * Only the BUFFER engine pays for a press. On the real-time stretcher a
+   * ratio change is a message to a worklet, so it is applied immediately
+   * and this never runs -- debouncing there would add lag for nothing.
+   */
+  const SPEED_COMMIT_MS = 350;
+  let speedCommitTimer = null;
+  let shiftCommitTimer = null;
+
+  function commitSpeed() {
+    clearTimeout(speedCommitTimer);
+    if (!engineReady) return;
+    if (engineKind === 'realtime') { engine.setSpeedPct(speedPct); return; }
+    speedCommitTimer = setTimeout(() => {
+      if (engineReady) engine.setSpeedPct(speedPct);
+    }, SPEED_COMMIT_MS);
+  }
+
+  function commitShift() {
+    clearTimeout(shiftCommitTimer);
+    if (!engineReady) return;
+    if (engineKind === 'realtime') { engine.setSemitones(shift); return; }
+    shiftCommitTimer = setTimeout(() => {
+      if (engineReady) engine.setSemitones(shift);
+    }, SPEED_COMMIT_MS);
+  }
+
   // Debounced POST /api/shift -- see module doc, decision 2. No-op with no
   // setlist context: there is nothing to write the override onto.
   function persistShift() {
@@ -481,8 +522,27 @@ export function mount(el, payload) {
     if (!(payload.tempo.bpm > 0)) return 0;
     return beats * secPerBeat(payload.tempo);
   }
+  /**
+   * The speed the room is ACTUALLY playing, which is not `speedPct` while a
+   * render builds: `speedPct` is what was last pressed, and BufferEngine
+   * cannot honour a press until the FLAC exists, is decoded, and the next
+   * loop seam arrives. RealtimeEngine answers its own live ratio, so the
+   * two are equal there and this costs nothing.
+   *
+   * FOUND LIVE 2026-09-11, Paolo: every playback clock below used to be
+   * derived from `speedPct`, while `tick()` read the position off the
+   * engine's OWN clock -- so with the screen at 80% and the engine still on
+   * 50%, the playhead advanced 1.6x wrong and a waveform click landed
+   * somewhere unrelated. That is CLAUDE.md's two-clock invariant broken
+   * exactly the way its own note warns is silent. Every cosmetic duration
+   * here now comes from the same clock `engine.position()` is measured in.
+   */
+  function audibleSpeedPct() {
+    if (engineReady && engine && typeof engine.speedPct === 'number') return engine.speedPct;
+    return speedPct;
+  }
   function preRollPlaybackSeconds() {
-    return preRollSourceSeconds() / (speedPct / 100);
+    return preRollSourceSeconds() / (audibleSpeedPct() / 100);
   }
 
   // isolate_guitar's own clamp (separate.py): the clip it caches covers
@@ -655,7 +715,7 @@ export function mount(el, payload) {
   }
 
   function loopDurationPlayback() {
-    return (section.end_s - section.start_s) / (speedPct / 100);
+    return (section.end_s - section.start_s) / (audibleSpeedPct() / 100);
   }
 
   // Cosmetic-only durations for the ring/waveform/playhead estimate (module
@@ -976,8 +1036,23 @@ export function mount(el, payload) {
     shiftValEl.style.color = shift === 0 ? 'var(--good,#5FA88F)' : 'var(--accent,#E0913F)';
     tuningCaptionEl.textContent = tuningNote();
 
-    const currentBpm = Math.round(payload.tempo.bpm * (speedPct / 100));
-    speedSubEl.textContent = `${currentBpm} bpm · ${payload.tempo.bpm.toFixed(1)} at full speed`;
+    // The big number is the TARGET -- what was pressed -- and it is drawn
+    // hollow until the room is actually making it, with the audible rung
+    // named underneath. Paolo's own call, 2026-09-11: "it is highly
+    // irritating that I cannot trust what is displayed". Showing only the
+    // target (what it did before) lies for as long as a render takes;
+    // showing only the audible rung makes a press look ignored. Showing
+    // both, with the pending one visibly unfinished, is the only version
+    // where every pixel is true.
+    const audiblePct = audibleSpeedPct();
+    const speedPending = audiblePct !== speedPct;
+    const currentBpm = Math.round(payload.tempo.bpm * (audiblePct / 100));
+    speedSubEl.textContent = speedPending
+      ? `playing ${audiblePct}% · ${currentBpm} bpm`
+      : `${currentBpm} bpm · ${payload.tempo.bpm.toFixed(1)} at full speed`;
+    const speedNumStyle = speedPending
+      ? 'font-size:236px;color:transparent;-webkit-text-stroke:2px var(--accent-dim,#8A5C29)'
+      : 'font-size:236px;color:var(--accent,#E0913F)';
 
     if (advancing && advanceInfo) {
       speedCellEl.innerHTML = `
@@ -985,12 +1060,12 @@ export function mount(el, payload) {
           <div class="mono num" style="font-size:15px;color:var(--ink-3,#6A7873);text-decoration:line-through;font-weight:400">${advanceInfo.oldSpeed}%</div>
           <div class="mono" style="font-size:15px;color:var(--good,#5FA88F);letter-spacing:.02em">+${(advanceInfo.newSpeed - advanceInfo.oldSpeed).toFixed(advanceInfo.newSpeed % 1 === 0 && advanceInfo.oldSpeed % 1 === 0 ? 0 : 1)}</div>
         </div>
-        <div class="num" style="font-size:236px;color:var(--accent,#E0913F);text-shadow:0 0 90px rgba(224,145,63,.34)">${speedPct}%</div>`;
+        <div class="num" style="${speedPending ? speedNumStyle : 'font-size:236px;color:var(--accent,#E0913F);text-shadow:0 0 90px rgba(224,145,63,.34)'}">${speedPct}%</div>`;
       repsValEl.textContent = '0';
       repsValEl.style.color = 'var(--recessive,#4C635C)';
       repsSubEl.textContent = 'counter reset at the new rung';
     } else {
-      speedCellEl.innerHTML = `<div class="num" style="font-size:236px;color:var(--accent,#E0913F)">${speedPct}%</div>`;
+      speedCellEl.innerHTML = `<div class="num" style="${speedNumStyle}">${speedPct}%</div>`;
       repsValEl.textContent = String(repCount);
       repsValEl.style.color = 'var(--ink,#E8EEEB)';
       const remaining = ladder.remaining;
@@ -1023,7 +1098,10 @@ export function mount(el, payload) {
     const barsInSection = Math.max(1, Math.round((section.end_s - section.start_s) / (secPerBeat(payload.tempo) * beatsPerBar(payload.tempo))));
     const preRollBeats = Math.round(payload.practice.pre_roll_beats);
     capStartEl.textContent = `BAR ${barBeatLabel(section.start_s, payload.tempo)}`;
-    capMidEl.textContent = `${preRollBeats} BEAT${preRollBeats === 1 ? '' : 'S'} LEAD-IN · ${barsInSection} BARS · ${loopS.toFixed(1)} s AT ${speedPct}%`;
+    // `loopS` is the AUDIBLE lap length, so the percent beside it has to be
+    // the audible rung too -- naming the pressed one there would put two
+    // numbers that disagree in the same sentence.
+    capMidEl.textContent = `${preRollBeats} BEAT${preRollBeats === 1 ? '' : 'S'} LEAD-IN · ${barsInSection} BARS · ${loopS.toFixed(1)} s AT ${audiblePct}%`;
     capEndEl.textContent = `BAR ${barBeatLabel(section.end_s, payload.tempo)}`;
   }
 
@@ -1090,6 +1168,7 @@ export function mount(el, payload) {
       renderSemitones = event.detail.semitones;
       renderGuitarToggle();
     });
+    e.addEventListener('rung', (event) => onRung(event.detail));
     e.addEventListener('error', (err) => console.error('practice.js: engine error', err.detail?.error));
     // Speed and shift BEFORE loadSection: for the buffer engine they
     // decide WHICH file is fetched, so setting them afterwards would
@@ -1148,6 +1227,28 @@ export function mount(el, payload) {
     return engineInitPromise;
   }
 
+  /**
+   * The engine's rung moved, or it started heading for a new one (player.js
+   * fires 'rung' for both). This is the ONE place the screen learns that a
+   * pressed speed has actually become audible -- everything that is a
+   * property of the sound rather than of the press hangs off it:
+   *
+   *  - the ladder's own speed, so a clean rep is credited to the rung the
+   *    recording was really playing at;
+   *  - the cosmetic lap durations, re-frozen here as well as at a pass,
+   *    because a swap lands AT a seam and the lap that begins there is the
+   *    first one in the new clock.
+   */
+  function onRung(detail) {
+    // Only once the press has LANDED. While `pending` is true the engine is
+    // still on the old rung and the ladder must not be dragged back to it --
+    // `onPass`'s auto-advance moves the ladder itself at a seam, and that
+    // advance is already correct for the lap that just finished.
+    if (!detail.pending && detail.speedPct !== ladder.speed) ladder.setSpeed(detail.speedPct);
+    beginLap();
+    renderDiscrete();
+  }
+
   function onPass() {
     elapsed = 0;
     // The ladder decides whether this lap counted and whether it moved the
@@ -1161,8 +1262,15 @@ export function mount(el, payload) {
     post('/api/rep', {
       song: payload.slug,
       section: section.id,
-      speed: speedPct,
-      semitones: shift,
+      // The speed and shift the lap was actually PLAYED at, not the ones
+      // last pressed. FOUND LIVE 2026-09-11: these used to be `speedPct`/
+      // `shift`, which move the instant a button is pressed while the
+      // engine keeps playing the old render until its replacement is built
+      // -- so reps were filed against a rung the room never made. The
+      // ledger is append-only and is the only irreplaceable file here
+      // (CLAUDE.md), which is what makes getting this right non-optional.
+      speed: audibleSpeedPct(),
+      semitones: engineReady && typeof engine.semitones === 'number' ? engine.semitones : shift,
       pass: true,
       clean,
       loop_s: loopDurationPlayback(),
@@ -1175,7 +1283,7 @@ export function mount(el, payload) {
     if (advanced) {
       advanceInfo = { oldSpeed: advanced.from, newSpeed: advanced.to, earnedAt: new Date() };
       speedPct = advanced.to;
-      if (engineReady) engine.setSpeedPct(speedPct);
+      commitSpeed();
       advancing = true;
       clearTimeout(advanceTimer);
       advanceTimer = setTimeout(() => {
@@ -1264,16 +1372,20 @@ export function mount(el, payload) {
     },
     next_section() { gotoSibling(1); },
     prev_section() { gotoSibling(-1); },
+    // `speedPct` is the TARGET from here on -- what was asked for. The
+    // ladder is NOT moved here: a rep played while the 80% render is still
+    // building was played at 50%, and crediting it to 80% would put a
+    // number in the ledger that the recording never made. `ladder.setSpeed`
+    // moves on the engine's own 'rung' event instead, when the new speed is
+    // actually audible. See onRung() below.
     speed_up() {
       speedPct = clampSpeed(speedPct + cfg.ladderStep);
-      ladder.setSpeed(speedPct);
-      if (engineReady) engine.setSpeedPct(speedPct);
+      commitSpeed();
       renderDiscrete();
     },
     speed_down() {
       speedPct = clampSpeed(speedPct - cfg.ladderStep);
-      ladder.setSpeed(speedPct);
-      if (engineReady) engine.setSpeedPct(speedPct);
+      commitSpeed();
       renderDiscrete();
     },
     retract_rep() {
@@ -1323,13 +1435,13 @@ export function mount(el, payload) {
     },
     transpose_up() {
       shift = clampShift(shift + 1);
-      if (engineReady) engine.setSemitones(shift);
+      commitShift();
       persistShift();
       renderDiscrete();
     },
     transpose_down() {
       shift = clampShift(shift - 1);
-      if (engineReady) engine.setSemitones(shift);
+      commitShift();
       persistShift();
       renderDiscrete();
     },

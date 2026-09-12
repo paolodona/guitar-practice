@@ -1132,9 +1132,15 @@ class WoodshedHandler(BaseHTTPRequestHandler):
                 target_speed=section.target_speed,
             )
             state = LadderState(speed=speed_pct, clean_at_speed=0)
+            # `priority=1`: a guess about the next rung must never sit in
+            # front of a render someone is waiting to hear. Renders are
+            # serialised from 2026-09-11 (see `render_runner`'s module doc
+            # for the six-concurrent-rubberbands session that caused it),
+            # so where this lands in the queue is now a real question.
             self.render_runner.ensure_started(
                 f"ahead:{dest}",
                 lambda: render_module.plan_ahead(self.repo, song, section, state, cfg, semitones),
+                priority=1,
             )
             return
 

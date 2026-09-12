@@ -51,18 +51,84 @@ def test_ensure_started_is_a_noop_for_a_key_already_in_flight() -> None:
     assert len(calls) == 1
 
 
-def test_two_different_keys_run_concurrently() -> None:
+def test_two_different_keys_run_one_at_a_time() -> None:
+    """FOUND LIVE 2026-09-11, Paolo, practising tutti-in-fila/full-solo.
+
+    This runner used to start a thread per key and say so in its own
+    docstring: "renders are independent per cache key and may run
+    concurrently without stepping on each other". They are independent, and
+    they do step on each other -- not through shared state but through the
+    CPU. Six rapid speed presses commissioned six `rubberband --fine`
+    processes over the same 88-second span at once, and each one then took
+    six times as long as it would have alone, which is what the status bar
+    was reporting when it flapped between percentages for minutes.
+
+    Renders are serialised from here. The client only asks for one at a
+    time now (screens/practice.js debounces a burst of presses into a
+    single target), so the queue is normally one deep; this is what keeps
+    it honest when it is not.
+    """
     runner = RenderRunner()
-    barrier = threading.Barrier(2, timeout=2.0)
+    concurrent = []
+    live = {"n": 0}
+    lock = threading.Lock()
+    done = threading.Event()
 
     def fn() -> None:
-        barrier.wait()  # only passes if BOTH threads reach it -- proves concurrency
+        with lock:
+            live["n"] += 1
+            concurrent.append(live["n"])
+        time.sleep(0.02)
+        with lock:
+            live["n"] -= 1
+            if len(concurrent) == 2:
+                done.set()
 
     runner.ensure_started("a", fn)
     runner.ensure_started("b", fn)
 
+    assert done.wait(timeout=2.0), "both renders should have run"
     _wait_until_idle(runner, "a")
     _wait_until_idle(runner, "b")
+    assert concurrent == [1, 1], f"renders overlapped: {concurrent}"
+
+
+def test_a_queued_render_is_reported_as_in_progress_before_it_starts() -> None:
+    """A caller polling `in_progress` must not be told "not running" about a
+    render that is queued -- `GET /api/render`'s 202 path would otherwise
+    start it a second time."""
+    runner = RenderRunner()
+    release = threading.Event()
+
+    runner.ensure_started("slow", lambda: release.wait(timeout=2.0))
+    runner.ensure_started("queued", lambda: None)
+
+    assert runner.in_progress("queued") is True
+    release.set()
+    _wait_until_idle(runner, "slow")
+    _wait_until_idle(runner, "queued")
+
+
+def test_a_user_render_jumps_the_queue_ahead_of_a_look_ahead() -> None:
+    """`GET /api/render`'s cache-hit path fires `render.plan_ahead` for the
+    next rung, fire-and-forget. With one worker that look-ahead would sit in
+    front of the render someone is actually waiting to hear, so priority
+    exists for exactly this: the press you made outranks the guess the
+    server made about your next one."""
+    runner = RenderRunner()
+    order = []
+    release = threading.Event()
+
+    runner.ensure_started("blocking", lambda: release.wait(timeout=2.0))
+    runner.ensure_started("ahead", lambda: order.append("ahead"), priority=1)
+    runner.ensure_started("wanted", lambda: order.append("wanted"), priority=0)
+
+    release.set()
+    _wait_until_idle(runner, "blocking")
+    _wait_until_idle(runner, "ahead")
+    _wait_until_idle(runner, "wanted")
+
+    assert order == ["wanted", "ahead"]
 
 
 def test_error_is_captured_and_surfaced() -> None:
