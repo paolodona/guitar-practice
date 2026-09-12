@@ -21,14 +21,6 @@ practice:
   click: lead-in
   loop_crossfade_ms: 10.0
 sections:
-- id: 436c3b14
-  name: Vinceremo
-  start_s: 133.39901969521435
-  end_s: 161.51744051332324
-  snapped: free
-  target_speed: 100.0
-  counts_toward_readiness: true
-  full_song: false
 - id: d6f23b46
   name: Solo
   start_s: 219.0
@@ -47,3 +39,11 @@ sections:
   start_speed: 75.0
   counts_toward_readiness: true
   full_song: true
+- id: 436c3b14
+  name: Vinceremo
+  start_s: 136.499214233271
+  end_s: 161.51744051332324
+  snapped: free
+  target_speed: 100.0
+  counts_toward_readiness: true
+  full_song: false

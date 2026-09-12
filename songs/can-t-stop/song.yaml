@@ -19,8 +19,8 @@ practice:
   reps_to_advance: 3
   pre_roll_beats: 4.0
   pre_roll_every_pass: false
-  click: lead-in
   loop_crossfade_ms: 10.0
+  click: lead-in
 sections:
 - id: whole-song
   name: Whole song
@@ -32,9 +32,10 @@ sections:
   full_song: true
 - id: 21870fe8
   name: Main riff
-  start_s: 20.0
+  start_s: 21.494687895596382
   end_s: 75.0
   snapped: free
   target_speed: 100.0
   counts_toward_readiness: true
   full_song: false
+patch_changes: []

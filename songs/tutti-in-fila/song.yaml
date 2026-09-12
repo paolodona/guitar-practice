@@ -18,8 +18,8 @@ practice:
   reps_to_advance: 3
   pre_roll_beats: 4.0
   pre_roll_every_pass: false
-  click: lead-in
   loop_crossfade_ms: 10.0
+  click: lead-in
 sections:
 - id: whole-song
   name: Whole song
@@ -29,14 +29,6 @@ sections:
   target_speed: 100.0
   counts_toward_readiness: true
   full_song: true
-- id: full-solo
-  name: Full solo
-  start_s: 150.0
-  end_s: 262.38120587658227
-  snapped: beat
-  target_speed: 100.0
-  counts_toward_readiness: true
-  full_song: false
 - id: tapping
   name: Tapping
   start_s: 201.5093816078167
@@ -45,3 +37,32 @@ sections:
   target_speed: 100.0
   counts_toward_readiness: true
   full_song: false
+- id: full-solo
+  name: Full solo
+  start_s: 145.71172595656645
+  end_s: 234.1295129265766
+  snapped: beat
+  target_speed: 100.0
+  counts_toward_readiness: true
+  full_song: false
+- id: ef909e23
+  name: Second run
+  start_s: 181.3013104051998
+  end_s: 199.4243620678051
+  snapped: free
+  target_speed: 100.0
+  counts_toward_readiness: true
+  full_song: false
+- id: 1431dc68
+  name: First run
+  start_s: 156.76211350165107
+  end_s: 167.7681323815357
+  snapped: free
+  target_speed: 100.0
+  counts_toward_readiness: true
+  full_song: false
+patch_changes:
+- at_s: 1.893635715065502
+  patch: U07-2
+- at_s: 145.58419128313054
+  patch: U30-1
