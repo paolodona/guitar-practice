@@ -111,7 +111,39 @@ test('song.js\'s preview load resolves and sends the applicable patch', () => {
   assert.ok(/import\s*\{[^}]*\bsendProgramChange\b[^}]*\}\s*from\s*['"]\.\.\/gx100\.js['"]/.test(songSrc));
   const match = songSrc.match(/async function playPreview\(\) \{[\s\S]*?\n  \}/);
   assert.ok(match, 'playPreview not found in song.js -- has it been renamed?');
-  assert.ok(match[0].includes('sendProgramChange(resolvePatchAt('), 'playPreview must resolve then send the patch for the section it just loaded');
+  assert.ok(match[0].includes('applyPatchAt('), 'playPreview must resolve then send the patch for the section it just loaded (via applyPatchAt)');
+});
+
+// Found live 2026-09-11, Paolo: "the playhead crossing a program change dot
+// does not change the selected patch" -- playPreview only ever applied the
+// patch covering the section's/preview's own START, once, at load; nothing
+// re-resolved it as the (cosmetic-estimate) playhead actually moved past a
+// later entry. applyPatchAt (de-duped against activePatchMemory, so a
+// steady position doesn't resend every frame) plus a call to it from every
+// playheadTick frame is the fix -- lint-style, same reason as the rest of
+// this file: no DOM/rAF loop to actually drive here.
+test('applyPatchAt resolves through resolvePatchAt and de-dupes against activePatchMemory before sending', () => {
+  const match = songSrc.match(/function applyPatchAt\(atS\) \{[\s\S]*?\n  \}/);
+  assert.ok(match, 'applyPatchAt not found in song.js -- has it been renamed?');
+  assert.ok(match[0].includes('resolvePatchAt(patchChanges, atS)'), 'applyPatchAt must resolve the memory for atS against the song\'s own patch_changes timeline');
+  assert.ok(/if\s*\(\s*memory\s*===\s*activePatchMemory\s*\)\s*return/.test(match[0]), 'applyPatchAt must skip re-sending when the resolved memory has not changed');
+  assert.ok(match[0].includes('sendProgramChange('), 'applyPatchAt must actually send once the memory has changed');
+});
+
+test('playheadTick re-resolves the patch every frame, so a dot the playhead plays past mid-loop/mid-preview fires too', () => {
+  const match = songSrc.match(/function playheadTick\(ts\) \{[\s\S]*?\n  \}/);
+  assert.ok(match, 'playheadTick not found in song.js -- has it been renamed?');
+  assert.ok(match[0].includes('applyPatchAt(playheadSourceS)'), 'playheadTick must call applyPatchAt(playheadSourceS) so crossing a dot mid-playback actually sends the new patch');
+});
+
+test('activePatchMemory is reset on a real stop (onPreviewEnded) and on pause, so the next playPreview always sends fresh', () => {
+  const endedMatch = songSrc.match(/function onPreviewEnded\(\) \{[\s\S]*?\n  \}/);
+  assert.ok(endedMatch, 'onPreviewEnded not found in song.js -- has it been renamed?');
+  assert.ok(endedMatch[0].includes('activePatchMemory = null'), 'onPreviewEnded must reset activePatchMemory');
+
+  const toggleMatch = songSrc.match(/function togglePreviewPlaying\(\) \{[\s\S]*?\n  \}/);
+  assert.ok(toggleMatch, 'togglePreviewPlaying not found in song.js -- has it been renamed?');
+  assert.ok(toggleMatch[0].includes('activePatchMemory = null'), 'togglePreviewPlaying\'s pause branch must reset activePatchMemory');
 });
 
 test('practice.js\'s section load resolves and sends the applicable patch', () => {

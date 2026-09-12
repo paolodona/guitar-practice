@@ -248,6 +248,21 @@ export function mount(el, payload) {
   // NOT assume a sorted list, but every other reader in this file may as
   // well see one) and the lane's own dot order agree.
   let patchChanges = [...(payload.patch_changes || [])].sort((a, b) => a.at_s - b.at_s);
+  // The memory last actually sent, so playheadTick (which re-resolves every
+  // frame while playing) only calls sendProgramChange again when the
+  // playhead has actually crossed into a NEW entry -- not on every frame it
+  // happens to still be inside the same one, and not a second time for the
+  // same memory two adjacent entries both happen to name. Reset to null on
+  // stop/pause so the next playPreview always sends fresh (matching the
+  // pre-existing "always apply on load" behaviour), even if it resolves to
+  // the same memory that was already showing.
+  let activePatchMemory = null;
+  function applyPatchAt(atS) {
+    const memory = resolvePatchAt(patchChanges, atS);
+    if (memory === activePatchMemory) return;
+    activePatchMemory = memory;
+    sendProgramChange(memory);
+  }
 
   function closestRung(target) {
     return RUNGS.reduce((a, b) => (Math.abs(b - target) < Math.abs(a - target) ? b : a), RUNGS[0]);
@@ -306,6 +321,12 @@ export function mount(el, payload) {
     transportPlaying = false;
     setTransportIcon(false);
     stopPlayhead();
+    // A real end, not stopPlayhead's own internal use from startPlayhead
+    // (which must NOT clear this -- playPreview already sent the fresh
+    // patch for the section it just loaded, immediately before calling
+    // startPlayhead) -- so the NEXT playPreview always sends fresh again,
+    // same as this screen's own pre-existing "always apply on load" rule.
+    activePatchMemory = null;
   }
 
   // References `durationS`/`transportPlayBtn`, both declared further down
@@ -352,13 +373,24 @@ export function mount(el, payload) {
       preRollS: 0,
       loop: !!sec,
     });
-    // #3: auto-apply the patch that applies AT the section's own start --
-    // never at startFrom, a possible mid-section scrub resume position;
-    // "which patch is this section" is a fact about start_s, not about
-    // wherever playback happens to pick back up. sendProgramChange's own
-    // doc covers the toggle/degrade -- fire-and-forget, never blocks audio
-    // on a MIDI round trip.
-    sendProgramChange(resolvePatchAt(patchChanges, startS));
+    // #3: auto-apply the patch that covers wherever playback is ABOUT to
+    // actually start. For a SELECTED section that is always its own
+    // start_s, never startFrom (a possible mid-section scrub resume
+    // position) -- "which patch is this section" is a fact about start_s,
+    // not about wherever playback happens to pick back up. For the
+    // whole-recording preview (no section, sec is null) there is no
+    // equivalent fixed "this preview's own patch" -- startS is always 0
+    // there, so using it unconditionally would (re-)apply the very first
+    // patch on every press even after scrubbing deep into the song;
+    // startFrom (the actual resume position, playheadTick's own frame-by-
+    // frame applyPatchAt calls would otherwise have to correct a beat
+    // later) is the fact that matters there. applyPatchAt/
+    // sendProgramChange's own doc covers the toggle/degrade -- fire-and-
+    // forget, never blocks audio on a MIDI round trip. activePatchMemory
+    // was reset to null on the last stop/pause (or this is the first press
+    // this mount), so this always sends even when it resolves to the same
+    // memory that was already showing.
+    applyPatchAt(sec ? startS : startFrom);
     if (!transportPlaying) return; // paused again while loadSection was in flight
     engine.setSpeedPct(previewSpeed);
     engine.setSemitones(shift);
@@ -431,9 +463,9 @@ export function mount(el, payload) {
         </div>
 
         <div data-patch-lane title="Click to add a GX-100 patch change; click a dot to edit or delete it"
-             style="position:relative;height:18px;cursor:pointer"></div>
+             style="position:relative;height:18px;cursor:pointer;background:var(--surface,#131B19);border-radius:3px"></div>
 
-        <div data-lane-root style="position:relative;height:88px"></div>
+        <div data-lane-root style="position:relative;height:88px;overflow:hidden"></div>
 
         <div style="margin-top:14px;background:var(--surface,#131B19);border:1px solid var(--hairline,#1C2523);border-radius:5px;
                     padding:14px 18px;display:flex;align-items:center;gap:20px">
@@ -557,6 +589,11 @@ export function mount(el, payload) {
       // needs swallowing here.
       try { engine.pause(); } catch { /* no node between loads -- see above */ }
       pausePlayhead();
+      // Same reasoning as onPreviewEnded: the next resume goes back through
+      // playPreview (module doc, decision 2: it reloads on every press), so
+      // this makes that resend fresh instead of skipping it because the
+      // resolved memory happens to be unchanged.
+      activePatchMemory = null;
     }
   }
   transportPlayBtn.addEventListener('click', togglePreviewPlaying);
@@ -691,6 +728,12 @@ export function mount(el, payload) {
     if (!sec) return; // selectionBox is already hidden -- nothing to attach handles to
     detachWaveDrag = attachDragHandlers(selectionBox, sec, view(), grid, {
       onDragCommit: (patch) => { patchSection(patch.id, patch); },
+      // selectionBox owns its own permanent, translucent look (set once in
+      // this screen's own HTML template so the waveform stays visible
+      // underneath) — never the lane-tile opaque "selected" fill
+      // attachDragHandlers otherwise reapplies on drag-end. See
+      // attachDragHandlers' own doc, "Found live 2026-09-11".
+      restyleOnDrag: false,
     });
   }
 
@@ -760,6 +803,16 @@ export function mount(el, payload) {
       playheadSourceS += dtS * (previewSpeed / 100);
     }
     playheadLastTs = ts;
+    // Found live 2026-09-11, Paolo: "the playhead crossing a program change
+    // dot does not change the selected patch" -- playPreview only ever
+    // applied the patch that covers a section's/preview's own START, once,
+    // at load. This is the other half: re-resolve every frame against the
+    // (cosmetic-estimate) playhead position itself, so a dot the playhead
+    // actually plays PAST while a section or the whole recording is looping
+    // or playing through it fires too -- applyPatchAt's own de-dupe against
+    // activePatchMemory means this is a no-op on every frame that hasn't
+    // crossed into a new entry yet, not one MIDI send per frame.
+    applyPatchAt(playheadSourceS);
     const sec = sections.find((s) => s.id === selectedId);
     const startS = sec ? sec.start_s : 0;
     const endS = sec ? sec.end_s : durationS;
@@ -1000,7 +1053,9 @@ export function mount(el, payload) {
       </div>
       <div style="margin-top:auto;display:flex;flex-direction:column;gap:12px">
         <button class="practise-btn" data-practise>Practice this</button>
-        <button class="practise-btn" data-delete style="background:var(--warn-tint,#2A1D17);color:var(--warn,#C9805E)">Delete section</button>
+        ${sec.full_song
+          ? '<div class="mono" style="font-size:11px;color:var(--ink-3,#6A7873);text-align:center;line-height:1.5">The whole-song entry can&rsquo;t be deleted &mdash; trim Start/End for a long intro or outro instead.</div>'
+          : '<button class="practise-btn" data-delete style="background:var(--warn-tint,#2A1D17);color:var(--warn,#C9805E)">Delete section</button>'}
       </div>
     `;
     const numField = (name, parse, extract = (v) => v) => {
@@ -1020,7 +1075,11 @@ export function mount(el, payload) {
     inspector.querySelector('[data-practise]').addEventListener('click', () => {
       location.hash = `#/practice/${encodeURIComponent(slug)}/${encodeURIComponent(sec.id)}`;
     });
-    inspector.querySelector('[data-delete]').addEventListener('click', () => deleteSection(sec.id));
+    // Absent entirely for the full_song entry (the block above replaces it
+    // with an explanatory note) -- optional chaining, not a `?` in the
+    // selector, since deleteSection itself also refuses (server.py's
+    // ensure_deletable) and this is only the UI-side half of that.
+    inspector.querySelector('[data-delete]')?.addEventListener('click', () => deleteSection(sec.id));
     inspector.querySelectorAll('[data-snap]').forEach((btn) => {
       btn.addEventListener('click', () => patchSection(sec.id, { snapped: btn.dataset.snap }));
     });
@@ -1050,6 +1109,15 @@ export function mount(el, payload) {
   // (#1) with no separate coordinate system.
   const patchLaneEl = root.querySelector('[data-patch-lane]');
   patchLaneEl.style.position = 'relative';
+  // Found live 2026-09-11, Paolo: nothing about the lane read as clickable
+  // beyond its title tooltip (invisible until hovered long enough to show)
+  // -- same hover-tint convention sections.js's own attachCreateHandler
+  // already uses for its "drag here to create a section" affordance, lifted
+  // rather than reinvented. The resting background (template's own
+  // `var(--surface)`) is what makes the strip legible as its own clickable
+  // element even before any hover; this only brightens it further on top.
+  patchLaneEl.addEventListener('pointerenter', () => { patchLaneEl.style.background = 'rgba(224,145,63,.10)'; });
+  patchLaneEl.addEventListener('pointerleave', () => { patchLaneEl.style.background = 'var(--surface,#131B19)'; });
 
   /** The local patch-name list (config/gx100.yaml), fetched once and
    *  cached -- "refresh" (below) re-fetches it explicitly rather than a
@@ -1080,6 +1148,89 @@ export function mount(el, payload) {
     }).join('');
   }
 
+  /**
+   * The popup's own body -- factored out of openPatchPopup so a refresh can
+   * re-render it in place (same popupEl, same position) both BEFORE the
+   * fetch (a "Loading…" shell) and after it resolves, rather than the two
+   * states being different code paths that can drift.
+   * *state* is `{loading: true}` or `{loading: false, names}`.
+   */
+  function patchPopupBodyHtml(existing, state) {
+    const controls = state.loading
+      ? `<span class="mono" data-patch-loading style="font-size:12px;color:var(--ink-3,#6A7873);min-width:140px">Loading patches…</span>
+         <button data-patch-refresh title="Re-read config/gx100.yaml" class="stepper-btn" disabled
+                 style="width:28px;height:28px;font-size:14px;opacity:.45">&#8635;</button>`
+      : `<select class="fld mono" data-patch-select style="font-size:13px;min-width:140px">
+           ${patchOptionsHtml(state.names, existing?.patch ?? DEFAULT_MEMORY)}
+         </select>
+         <button data-patch-refresh title="Re-read config/gx100.yaml" class="stepper-btn" style="width:28px;height:28px;font-size:14px">&#8635;</button>`;
+    const deleteBtn = existing
+      ? '<button data-patch-delete title="Delete this program change" class="stepper-btn" style="width:28px;height:28px;font-size:14px;color:var(--warn,#C9805E)">&times;</button>'
+      : '';
+    // Found live 2026-09-11, Paolo: an empty config/gx100.yaml (or one that
+    // doesn't exist yet -- gx100.load_patch_names's own degrade) left the
+    // select showing only the current/default memory with nothing to
+    // explain why, indistinguishable from "the list failed to load". This
+    // names the actual reason once the fetch has genuinely come back empty.
+    // `woodshed gx100 sync` (added the same day) reads it straight off the
+    // pedal -- this popup's own refresh icon only re-reads the file, since
+    // a sync is a real, minutes-long hardware operation and stays a
+    // deliberate terminal command (docs/05-foot-control.md).
+    const hint = (!state.loading && (state.names.patches ?? []).length === 0)
+      ? `<div class="mono" style="font-size:10px;color:var(--ink-3,#6A7873);margin-top:6px;max-width:230px;line-height:1.4">
+           No patches configured yet &mdash; run <code>woodshed gx100 sync</code> to read
+           them off the pedal, or add them by hand to <code>config/gx100.yaml</code>.
+         </div>`
+      : '';
+    return `<div style="display:flex;gap:6px;align-items:center">${controls}${deleteBtn}</div>${hint}`;
+  }
+
+  /** Wires up whatever the current popup body actually contains -- called
+   *  after every (re)render, loading shell included, so a click during a
+   *  refresh (delete, say) still works. */
+  function attachPatchPopupHandlers(popup, atS, existing) {
+    popup.querySelector('[data-patch-select]')?.addEventListener('change', async (e) => {
+      const { patch_changes: updated } = await post('/api/patch-change', {
+        song: slug, action: 'upsert', at_s: atS, patch: e.target.value,
+      });
+      patchChanges = updated;
+      closePatchPopup();
+      renderPatchLane();
+    });
+    const refreshBtn = popup.querySelector('[data-patch-refresh]');
+    if (!refreshBtn.disabled) {
+      refreshBtn.addEventListener('click', () => {
+        // Re-render the SAME popupEl as a loading shell first -- so the
+        // click has a visible effect immediately, even when the fetch
+        // that follows is fast enough (or, on a still-empty
+        // config/gx100.yaml, unchanged enough) to look like nothing
+        // happened otherwise -- then fetch and fill it back in.
+        popup.innerHTML = patchPopupBodyHtml(existing, { loading: true });
+        attachPatchPopupHandlers(popup, atS, existing);
+        fillPatchPopup(popup, atS, existing, /* forceRefresh */ true);
+      });
+    }
+    popup.querySelector('[data-patch-delete]')?.addEventListener('click', async () => {
+      const { patch_changes: updated } = await post('/api/patch-change', {
+        song: slug, action: 'delete', at_s: atS,
+      });
+      patchChanges = updated;
+      closePatchPopup();
+      renderPatchLane();
+    });
+  }
+
+  /** Fetch the patch-name list and fill *popup* in once it resolves.
+   *  Guards against the popup having been closed (click elsewhere) or
+   *  reopened at a different position while the fetch was in flight -- a
+   *  stale response must never overwrite whatever is showing now. */
+  async function fillPatchPopup(popup, atS, existing, forceRefresh) {
+    const names = await ensurePatchNames(forceRefresh);
+    if (popupEl !== popup) return;
+    popup.innerHTML = patchPopupBodyHtml(existing, { loading: false, names });
+    attachPatchPopupHandlers(popup, atS, existing);
+  }
+
   let popupEl = null;
   function closePatchPopup() {
     popupEl?.remove();
@@ -1095,46 +1246,27 @@ export function mount(el, payload) {
    */
   async function openPatchPopup(atS, existing) {
     closePatchPopup();
-    const names = await ensurePatchNames();
     const x = viewX(atS, view());
 
     popupEl = document.createElement('div');
     popupEl.style.cssText = 'position:absolute;top:100%;margin-top:4px;z-index:20;'
       + 'background:var(--surface,#131B19);border:1px solid var(--line,#26302E);border-radius:6px;'
-      + 'padding:8px;display:flex;gap:6px;align-items:center;box-shadow:0 8px 24px rgba(0,0,0,.4)';
+      + 'padding:8px;box-shadow:0 8px 24px rgba(0,0,0,.4)';
     popupEl.style.left = `${Math.max(0, x - 60)}px`;
-    popupEl.innerHTML = `
-      <select class="fld mono" data-patch-select style="font-size:13px;min-width:140px">
-        ${patchOptionsHtml(names, existing?.patch ?? DEFAULT_MEMORY)}
-      </select>
-      <button data-patch-refresh title="Re-read config/gx100.yaml" class="stepper-btn" style="width:28px;height:28px;font-size:14px">&#8635;</button>
-      ${existing ? '<button data-patch-delete title="Delete this program change" class="stepper-btn" style="width:28px;height:28px;font-size:14px;color:var(--warn,#C9805E)">&times;</button>' : ''}
-    `;
+    // Found live 2026-09-11, Paolo: this used to `await ensurePatchNames()`
+    // BEFORE creating popupEl at all -- on a cold cache (the very first
+    // popup of the session) that meant one full network round trip with
+    // NOTHING on screen: no popup, no spinner, indistinguishable from the
+    // click not having registered. The loading shell below appears
+    // immediately; fillPatchPopup swaps in the real content once the fetch
+    // (cached, so usually instant after the first open) actually resolves.
+    popupEl.innerHTML = patchPopupBodyHtml(existing, { loading: true });
     patchLaneEl.appendChild(popupEl);
-
-    popupEl.querySelector('[data-patch-select]').addEventListener('change', async (e) => {
-      const { patch_changes: updated } = await post('/api/patch-change', {
-        song: slug, action: 'upsert', at_s: atS, patch: e.target.value,
-      });
-      patchChanges = updated;
-      closePatchPopup();
-      renderPatchLane();
-    });
-    popupEl.querySelector('[data-patch-refresh]').addEventListener('click', async () => {
-      await ensurePatchNames(true);
-      openPatchPopup(atS, existing); // rebuild with the fresh list, same position
-    });
-    popupEl.querySelector('[data-patch-delete]')?.addEventListener('click', async () => {
-      const { patch_changes: updated } = await post('/api/patch-change', {
-        song: slug, action: 'delete', at_s: atS,
-      });
-      patchChanges = updated;
-      closePatchPopup();
-      renderPatchLane();
-    });
+    attachPatchPopupHandlers(popupEl, atS, existing);
     // Stop a click inside the popup from bubbling to the document-level
     // "click elsewhere closes it" listener wired once, below.
     popupEl.addEventListener('pointerdown', (e) => e.stopPropagation());
+    await fillPatchPopup(popupEl, atS, existing, /* forceRefresh */ false);
   }
 
   patchLaneEl.addEventListener('pointerdown', (e) => {
@@ -1153,14 +1285,27 @@ export function mount(el, payload) {
   // already uses for its own dropdown.
   document.addEventListener('pointerdown', closePatchPopup);
 
+  // Shown centered in the lane only while it is EMPTY -- once a first patch
+  // change exists, the dots plus the lane's own title tooltip already carry
+  // the "click a dot to edit or delete it" half of the affordance, and a
+  // permanent label would compete with real dots for the same 18px strip.
+  // pointer-events:none so it never intercepts the click meant for the lane
+  // (or a dot) underneath it.
+  const PATCH_HINT_HTML = `<div data-patch-hint style="position:absolute;inset:0;display:flex;
+    align-items:center;justify-content:center;pointer-events:none;white-space:nowrap;overflow:hidden;
+    text-overflow:ellipsis;font-family:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace;
+    font-size:10px;letter-spacing:.04em;color:var(--ink-2,#9CAAA4);opacity:.45">
+    Click to add a GX-100 patch change</div>`;
+
   function renderPatchLane() {
     const v = view();
-    patchLaneEl.innerHTML = patchChanges.map((c) => {
+    const dots = patchChanges.map((c) => {
       const x = viewX(c.at_s, v);
       if (x < -6 || x > v.widthPx + 6) return ''; // off-screen at this zoom -- skip, don't clamp (timeline.js's own viewX trap)
       return `<div data-at-s="${c.at_s}" title="${escapeHtml(c.patch)} at ${c.at_s.toFixed(2)}s" style="position:absolute;left:${x}px;top:2px;
         width:10px;height:10px;border-radius:50%;background:var(--accent,#E0913F);cursor:pointer;transform:translateX(-50%)"></div>`;
     }).join('');
+    patchLaneEl.innerHTML = dots + (patchChanges.length === 0 ? PATCH_HINT_HTML : '');
     if (popupEl) patchLaneEl.appendChild(popupEl); // survives the innerHTML rebuild above
   }
 

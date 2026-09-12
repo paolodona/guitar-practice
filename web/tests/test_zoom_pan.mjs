@@ -187,6 +187,77 @@ test('the draggable start/end bars reuse sections.js\'s attachDragHandlers and c
   assert.ok(match[0].includes('patchSection('), 'a committed drag must go through the same patchSection path as every other boundary edit');
 });
 
+test('renderWaveDrag opts the waveform overlay out of attachDragHandlers\' lane-tile restyling, so a drag never overwrites selectionBox\'s own translucent look', () => {
+  // Found live 2026-09-11, Paolo: editing (dragging) a section's boundary
+  // left the waveform completely hidden behind a solid orange box from then
+  // on. Root cause: attachDragHandlers' setDraggingLook (sections.js) resets
+  // sectionEl's background/border to VARIANTS.selected on drag-end -- right
+  // for a lane tile (which had exactly that look already), wrong for
+  // song.js's selectionBox, whose OWN permanent style (set once in this
+  // screen's HTML template: `background:rgba(224,145,63,.10)`) is what keeps
+  // the waveform visible underneath it. `restyleOnDrag: false` is the fix;
+  // this test pins both halves so neither can silently regress.
+  const match = songSrc.match(/function renderWaveDrag\(\) \{[\s\S]*?\n  \}/);
+  assert.ok(match, 'renderWaveDrag not found in song.js -- has it been renamed?');
+  assert.ok(
+    /restyleOnDrag\s*:\s*false/.test(match[0]),
+    'renderWaveDrag must pass restyleOnDrag: false to attachDragHandlers, or a boundary drag will paint over the waveform again',
+  );
+
+  const sectionsJsPath = fileURLToPath(new URL('../sections.js', import.meta.url));
+  const sectionsSrc = readFileSync(sectionsJsPath, 'utf8');
+  const setDraggingLookMatch = sectionsSrc.match(/function setDraggingLook\(dragging\) \{[\s\S]*?\n  \}/);
+  assert.ok(setDraggingLookMatch, 'setDraggingLook not found in sections.js -- has it been renamed?');
+  assert.ok(
+    /if\s*\(\s*!restyleOnDrag\s*\)\s*return/.test(setDraggingLookMatch[0]),
+    'setDraggingLook must skip restyling sectionEl when restyleOnDrag is false',
+  );
+});
+
+test('section lane tiles no longer spill outside the lane when zoomed/panned -- laneRoot clips, and a fully off-view section is skipped', () => {
+  // Found live 2026-09-11, Paolo: zooming/panning the waveform sent section
+  // tiles "off the screen" -- onto the inspector panel, in the reported
+  // screenshot. Root cause: pct()'s left/width is computed from the
+  // (possibly zoomed) view with no clamping, same as every other
+  // view-relative mark in this app, but laneRoot (unlike wave-host) had no
+  // overflow:hidden to clip the result visually.
+  const laneRootMatch = songSrc.match(/<div data-lane-root[\s\S]*?><\/div>/);
+  assert.ok(laneRootMatch, 'the data-lane-root element not found in song.js\'s template -- has it been renamed?');
+  assert.ok(
+    /overflow:hidden/.test(laneRootMatch[0]),
+    'data-lane-root should clip its children the same way wave-host already does, so a section spanning past the current view is clipped rather than spilling onto neighbouring UI',
+  );
+
+  const sectionsJsPath = fileURLToPath(new URL('../sections.js', import.meta.url));
+  const sectionsSrc = readFileSync(sectionsJsPath, 'utf8');
+  const paintMatch = sectionsSrc.match(/function paint\(\) \{[\s\S]*?\n  \}/);
+  assert.ok(paintMatch, 'paint() not found in sections.js -- has it been renamed?');
+  assert.ok(
+    /section\.end_s\s*<=\s*view\.startS\s*\|\|\s*section\.start_s\s*>=\s*view\.endS/.test(paintMatch[0]),
+    'paint() should skip a section with no overlap with the current view at all, mirroring drawGrid/renderPatchLane\'s own off-view culling',
+  );
+});
+
+test('the GX-100 patch-change lane reads as clickable -- a resting background, a hover tint, and an empty-state hint', () => {
+  // Found live 2026-09-11, Paolo: nothing about the lane read as clickable
+  // beyond an invisible-until-hovered title tooltip.
+  const laneDivMatch = songSrc.match(/<div data-patch-lane[\s\S]*?><\/div>/);
+  assert.ok(laneDivMatch, 'the data-patch-lane element not found in song.js\'s template -- has it been renamed?');
+  assert.ok(
+    /background:var\(--surface/.test(laneDivMatch[0]),
+    'the patch lane should have a resting background so the strip itself reads as clickable, not just its dots',
+  );
+  assert.ok(
+    /patchLaneEl\.addEventListener\(['"]pointerenter['"]/.test(songSrc)
+    && /patchLaneEl\.addEventListener\(['"]pointerleave['"]/.test(songSrc),
+    'the patch lane should brighten on hover, the same affordance sections.js\'s attachCreateHandler already uses for its own empty-lane hover cue',
+  );
+  assert.ok(
+    /PATCH_HINT_HTML/.test(songSrc) && /patchChanges\.length === 0/.test(songSrc),
+    'the patch lane should show a centered hint while it has no patch changes yet',
+  );
+});
+
 test('the playhead is moved with a transform, not redrawn per frame via a % left (console.html\'s own .playhead convention)', () => {
   assert.ok(
     /playheadEl\.style\.transform\s*=\s*`translateX/.test(songSrc),

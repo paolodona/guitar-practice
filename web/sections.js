@@ -280,6 +280,24 @@ export function renderSections(laneRoot, sectionsData, view, grid = { bars: [], 
     }
     laneRoot.innerHTML = '';
     for (const section of sectionsData) {
+      // Found live 2026-09-11, Paolo: zooming/panning the waveform sent
+      // section tiles "off the screen" -- root cause was pct()'s left/width
+      // being computed from view() with NO clamping (viewX is deliberately
+      // unclamped, see timeline.js's own module doc), same as every other
+      // view-relative mark in this app, but laneRoot (unlike wave-host) had
+      // no `overflow:hidden` to clip the overflow visually -- a section
+      // entirely outside the current (possibly zoomed) view still got a
+      // real left/width percentage, sometimes placing it hundreds of
+      // percent off to one side, where it spilled over whatever UI happened
+      // to sit there (the inspector panel, in the reported screenshot)
+      // instead of just being invisible. laneRoot now has overflow:hidden
+      // (song.js's own template) for the partially-visible case; a section
+      // with NO overlap with the view at all is skipped outright here,
+      // mirroring the same skip-when-off-view pattern drawGrid's
+      // marksAreLegibleAt/drawVerticalLine and song.js's own renderPatchLane
+      // dot-culling already use -- there is nothing useful to hit-test in a
+      // tile nobody can see.
+      if (section.end_s <= view.startS || section.start_s >= view.endS) continue;
       const el = buildTile(section);
       laneRoot.appendChild(el);
       if (section.id === selectedId) {
@@ -325,14 +343,33 @@ export function renderSections(laneRoot, sectionsData, view, grid = { bars: [], 
  * wrote — a beat-snapped section stays recorded as beat-snapped after
  * being dragged, which is the whole point of `docs/02-data-model.md`'s "a
  * section records HOW its boundary was placed".
+ *
+ * `handlers.restyleOnDrag` (default true) toggles the `ordinary`/`container`/
+ * `selected`/`dragging` background+border swap this function otherwise
+ * applies to *sectionEl* itself (`setDraggingLook`, below). That swap is
+ * right for a lane tile (renderSections' own `buildTile` gave it one of
+ * those four looks in the first place, so restoring "selected" on drag-end
+ * is just putting it back). song.js's waveform overlay (`selectionBox`)
+ * reuses this same function against a DIFFERENT element that owns its OWN
+ * permanent, deliberately translucent style (`background:rgba(224,145,63,
+ * .10)`, so the waveform underneath stays visible) — restyling it "back to
+ * selected" on drag-end does not restore that, it overwrites it with
+ * `VARIANTS.selected`'s OPAQUE `--accent-tint` fill, permanently, since nothing
+ * else ever sets selectionBox's background again after the initial render.
+ * **Found live 2026-09-11**: editing (dragging) a section's boundary left
+ * the waveform completely hidden behind a solid orange box from then on —
+ * root cause was exactly that clobbered inline style. `restyleOnDrag: false`
+ * (song.js's own renderWaveDrag call) skips `setDraggingLook` entirely, so a
+ * caller with its own persistent look for *sectionEl* is never overwritten.
  * @param {HTMLElement} sectionEl
  * @param {SectionView & {snapped: string}} section
  * @param {import('./timeline.js').View} view
  * @param {import('./timeline.js').Grid} [grid]
- * @param {{onDragCommit?: (patch: object) => void}} [handlers]
+ * @param {{onDragCommit?: (patch: object) => void, restyleOnDrag?: boolean}} [handlers]
  * @returns {() => void} detach
  */
 export function attachDragHandlers(sectionEl, section, view, grid = { bars: [], beats: [] }, handlers = {}) {
+  const restyleOnDrag = handlers.restyleOnDrag ?? true;
   const track = sectionEl.parentElement;
 
   const makeHandle = (side) => {
@@ -369,6 +406,7 @@ export function attachDragHandlers(sectionEl, section, view, grid = { bars: [], 
   }
 
   function setDraggingLook(dragging) {
+    if (!restyleOnDrag) return; // caller owns sectionEl's look — see this function's own doc
     const look = dragging ? VARIANTS.dragging : VARIANTS.selected;
     sectionEl.style.background = look.background;
     sectionEl.style.border = look.border;
