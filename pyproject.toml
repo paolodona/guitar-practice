@@ -20,6 +20,10 @@ capture = ["pyaudiowpatch"]
 # Guitar-only isolation (Phase 1.5, Group S). Pulls in torch -- big. Same
 # extra name rambass-live/pyproject.toml uses for the same dependency.
 separate = ["demucs>=4.0.1"]
+# `woodshed gx100 sync` (#3, N2 follow-up) -- SysEx over MIDI, gx100_sync.py's
+# own module dependency. Same two packages the sibling gx100 repo uses for the
+# same job, because they talk to the same wire.
+gx100 = ["mido>=1.3", "python-rtmidi>=1.5"]
 dev = ["pytest", "ruff"]
 
 [project.scripts]

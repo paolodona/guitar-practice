@@ -486,6 +486,49 @@ def cmd_setlist_shift(args: argparse.Namespace) -> int:
     return 0
 
 
+# ── commands: gx100 (#3, N2 follow-up -- reading real patch names) ───────
+def cmd_gx100_ports(args: argparse.Namespace) -> int:  # noqa: ARG001 -- fixed signature
+    from woodshed import gx100_sync
+    from woodshed.tools import require_module
+
+    mido = require_module("mido", "gx100")
+    inputs, outputs = list(mido.get_input_names()), list(mido.get_output_names())
+    guessed_in, guessed_out = gx100_sync.guess_gx100_ports(inputs, outputs)
+    _say("inputs:")
+    for name in inputs or ["(none)"]:
+        _say(f"  {'-> ' if name == guessed_in else '   '}{name}")
+    _say("outputs:")
+    for name in outputs or ["(none)"]:
+        _say(f"  {'-> ' if name == guessed_out else '   '}{name}")
+    return 0
+
+
+def cmd_gx100_sync(args: argparse.Namespace) -> int:
+    from woodshed import gx100, gx100_sync
+
+    repo = _repo()
+    _say(
+        f"reading {gx100.MAX_PC + 1} memories (U01-1..U32-4) off the pedal -- this takes a "
+        "minute or two and will briefly change the pedal's currently loaded patch, restored "
+        "when it's done."
+    )
+    transport = gx100_sync.open_transport(args.port_in, args.port_out)
+    try:
+        patches = gx100_sync.sync_patch_names(
+            transport,
+            on_progress=lambda index, name: _say(f"  {gx100.index_to_memory(index)}  {name}"),
+        )
+    finally:
+        transport.close()
+
+    existing = gx100.load_patch_names(repo.gx100_config_path)
+    gx100.save_patch_names(
+        repo.gx100_config_path, gx100.PatchNames(channel=existing.channel, patches=patches)
+    )
+    _say(f"wrote {len(patches)} patch names to {repo.gx100_config_path}")
+    return 0
+
+
 # ── commands: the ledger ─────────────────────────────────────────────────
 def cmd_log(args: argparse.Namespace) -> int:
     repo = _repo()
@@ -1381,6 +1424,20 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("song", help="the song's slug")
     sp.add_argument("shift", help="an integer, or 'none' to derive from the setlist's tuning")
     sp.set_defaults(func=cmd_setlist_shift)
+
+    # -- gx100 --
+    p = sub.add_parser("gx100", help="talk to the GX-100 pedal directly")
+    gx100_sub = p.add_subparsers(dest="gx100_command", metavar="<subcommand>")
+
+    sp = gx100_sub.add_parser("ports", help="list MIDI ports, marking the guessed GX-100 pair")
+    sp.set_defaults(func=cmd_gx100_ports)
+
+    sp = gx100_sub.add_parser(
+        "sync", help="read every patch name off the pedal into config/gx100.yaml"
+    )
+    sp.add_argument("--port-in", default=None, help="override the guessed input port name")
+    sp.add_argument("--port-out", default=None, help="override the guessed output port name")
+    sp.set_defaults(func=cmd_gx100_sync)
 
     # -- capture --
     p = sub.add_parser("capture", help="arm loopback, split a playlist on the gaps")

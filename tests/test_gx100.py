@@ -101,3 +101,36 @@ def test_load_patch_names_degrades_on_an_empty_file_too(tmp_path: Path) -> None:
     path.write_text("", encoding="utf-8")
     names = gx100.load_patch_names(path)
     assert names.patches == []
+
+
+def test_save_patch_names_round_trips_through_load(tmp_path: Path) -> None:
+    path = tmp_path / "gx100.yaml"
+    written = gx100.PatchNames(
+        channel=3,
+        patches=[gx100.PatchName(memory="U01-1", name="CLEAN"),
+                 gx100.PatchName(memory="U01-2", name="LEAD CRUNCH")],
+    )
+    gx100.save_patch_names(path, written)
+    read_back = gx100.load_patch_names(path)
+    assert read_back.channel == 3
+    assert [(p.memory, p.name) for p in read_back.patches] == [
+        ("U01-1", "CLEAN"), ("U01-2", "LEAD CRUNCH"),
+    ]
+
+
+def test_save_patch_names_replaces_whatever_was_there_before(tmp_path: Path) -> None:
+    # A sync overwrites the file wholesale -- it is a cache of the pedal now,
+    # not a hand-typed list a sync should merge into.
+    path = tmp_path / "gx100.yaml"
+    path.write_text("channel: 1\npatches:\n  - {memory: U09-9, name: Stale}\n", encoding="utf-8")
+    gx100.save_patch_names(path, gx100.PatchNames(
+        channel=1, patches=[gx100.PatchName(memory="U01-1", name="Fresh")],
+    ))
+    read_back = gx100.load_patch_names(path)
+    assert [p.memory for p in read_back.patches] == ["U01-1"]
+
+
+def test_save_patch_names_creates_missing_parent_directories(tmp_path: Path) -> None:
+    path = tmp_path / "config" / "gx100.yaml"
+    gx100.save_patch_names(path, gx100.PatchNames())
+    assert path.is_file()

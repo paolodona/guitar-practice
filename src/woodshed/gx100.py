@@ -50,6 +50,7 @@ __all__ = [
     "PatchName",
     "PatchNames",
     "load_patch_names",
+    "save_patch_names",
 ]
 
 #: A bare Program Change is 7-bit, and this pedal never receives Bank
@@ -99,10 +100,12 @@ def index_to_memory(index: int) -> str:
 
 
 class PatchName(BaseModel):
-    """One row of ``config/gx100.yaml``'s own ``patches:`` list -- a
-    human-typed label for a memory, checked against the pedal by hand
-    (the same discipline rambass-live's own config/gx100.yaml asks for:
-    "confirm against the pedal before relying on it")."""
+    """One row of ``config/gx100.yaml``'s own ``patches:`` list -- a memory and
+    the name stored on the pedal for it. Written by ``woodshed gx100 sync``
+    (``gx100_sync.sync_patch_names``), which reads it straight off the unit;
+    editable by hand too, the same discipline rambass-live's own
+    config/gx100.yaml asks for when there is no sync command to trust instead:
+    "confirm against the pedal before relying on it"."""
 
     model_config = ConfigDict(extra="allow")
 
@@ -113,8 +116,10 @@ class PatchName(BaseModel):
 class PatchNames(BaseModel):
     """``config/gx100.yaml`` in full: the MIDI channel Woodshed sends
     Program Changes on (must match the pedal's own RX CHANNEL,
-    docs/05-foot-control.md), and the local patch list the song screen's
-    patch-lane popup offers as suggestions."""
+    docs/05-foot-control.md), and the patch list the song screen's
+    patch-lane popup offers as suggestions -- a cache of what's actually on
+    the pedalboard once ``woodshed gx100 sync`` has populated it, rather than
+    a list someone has to keep typing out by hand."""
 
     model_config = ConfigDict(extra="allow")
 
@@ -124,11 +129,27 @@ class PatchNames(BaseModel):
 
 def load_patch_names(path: Path) -> PatchNames:
     """``config/gx100.yaml``, or field defaults when it does not exist yet
-    -- degrade, don't refuse (CLAUDE.md): before anyone has typed their
-    real patches in, the popup simply has nothing to suggest beyond typing
-    a raw memory name by hand."""
+    -- degrade, don't refuse (CLAUDE.md): before anyone has run
+    ``woodshed gx100 sync`` (or typed a patch in by hand), the popup simply
+    has nothing to suggest beyond typing a raw memory name."""
     if not path.is_file():
         return PatchNames()
     with path.open("r", encoding="utf-8") as f:
         data = yaml.safe_load(f) or {}
     return PatchNames.model_validate(data)
+
+
+def save_patch_names(path: Path, names: PatchNames) -> None:
+    """Write *names* back to ``config/gx100.yaml``, replacing whatever was there.
+
+    The only caller today is ``woodshed gx100 sync`` (``gx100_sync``), after it
+    has read the pedal -- this function itself does not care where *names*
+    came from, the same split every other on-disk write in this repo keeps
+    between "what to write" and "how the data was produced"."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = {
+        "channel": names.channel,
+        "patches": [{"memory": p.memory, "name": p.name} for p in names.patches],
+    }
+    with path.open("w", encoding="utf-8") as f:
+        yaml.safe_dump(data, f, sort_keys=False, allow_unicode=True)

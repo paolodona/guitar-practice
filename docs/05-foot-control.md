@@ -142,13 +142,25 @@ sound changes with the part.
   strip under the waveform: click empty space to drop one, click an
   existing dot to change or delete it), committed through
   `POST /api/patch-change`.
-* **`config/gx100.yaml`** is the local, human-maintained patch-name list
-  the lane's popup offers as suggestions (`memory`/`name` pairs, plus the
+* **`config/gx100.yaml`** is a *cache* of what's on the pedalboard — the
+  lane's popup offers it as suggestions (`memory`/`name` pairs, plus the
   MIDI `channel` Woodshed sends on — must match the pedal's own RX
-  CHANNEL) — read by `GET /api/gx100/patches`, and re-read on demand by the
-  popup's own refresh icon. Replaces the sibling-repo cross-reference
-  (Phase 3, N1) entirely: "one song-level timeline of program changes
-  replaces N-per-section free text."
+  CHANNEL) — read by `GET /api/gx100/patches`, and re-read (from disk, not
+  from the pedal) on demand by the popup's own refresh icon. Replaces the
+  sibling-repo cross-reference (Phase 3, N1) entirely: "one song-level
+  timeline of program changes replaces N-per-section free text."
+  Populated by **`woodshed gx100 sync`** (`gx100_sync.py`, #3 N2
+  follow-up), a terminal command — never a page load or a request handler
+  — that cycles the pedal through every memory a bare Program Change can
+  reach, reads the name actually stored on each one over SysEx, and writes
+  the whole list back, restoring whatever was loaded before it started.
+  That is a real, minutes-long hardware operation (loading a memory is the
+  only way to ask its name), which is exactly why it stays an explicit CLI
+  command and not something the popup's refresh icon triggers on its own —
+  the same "explicit toggle, not a silent side effect" instinct as
+  `config.gx100.send_program_changes` below, just for a different message
+  type. Still editable by hand afterwards for anything sync gets wrong or
+  a memory renamed on the pedal since the last sync.
 * Both the song screen's preview and the practice screen's section load
   resolve the applicable patch and send it, gated on
   `config.gx100.send_program_changes` (default `false`) — checked inside

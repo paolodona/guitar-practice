@@ -1,0 +1,258 @@
+channel: 1
+patches:
+- memory: U01-1
+  name: POOHFFI CLEAN
+- memory: U01-2
+  name: POOHFFI RHYTHM
+- memory: U01-3
+  name: POOHFFI LEAD
+- memory: U01-4
+  name: 4MY CLEAN TBD
+- memory: U02-1
+  name: 4MY CLEAN
+- memory: U02-2
+  name: 4MY RHYTHM
+- memory: U02-3
+  name: 4MY WAH
+- memory: U02-4
+  name: 4MY LEAD
+- memory: U03-1
+  name: MOTHER RHYTHM _
+- memory: U03-2
+  name: MOTHER RHYTHM
+- memory: U03-3
+  name: MILD DRIVE
+- memory: U03-4
+  name: ACOUSTIC GUITAR
+- memory: U04-1
+  name: PHURGONE CLN#1
+- memory: U04-2
+  name: PHURGONE CLN#2
+- memory: U04-3
+  name: PHURGONE PANTERA
+- memory: U04-4
+  name: PHURGONE CLEAN
+- memory: U05-1
+  name: DG CRISPY
+- memory: U05-2
+  name: DG RHYTHM
+- memory: U05-3
+  name: DG LEAD
+- memory: U05-4
+  name: DG CLEAN
+- memory: U06-1
+  name: RAGAZZA INTRO
+- memory: U06-2
+  name: RAGAZZA FLANGER
+- memory: U06-3
+  name: RAGAZZA RHYTHM
+- memory: U06-4
+  name: AMBIENT CLEAN
+- memory: U07-1
+  name: FUSION SOLO
+- memory: U07-2
+  name: ITTURFI RHYTHM
+- memory: U07-3
+  name: ITTURFI LEAD
+- memory: U07-4
+  name: CONSOLE CLEAN
+- memory: U08-1
+  name: DUAL CRUNCH
+- memory: U08-2
+  name: FUZZ SOLO
+- memory: U08-3
+  name: BOOST BAR BROS
+- memory: U08-4
+  name: THE BELLS
+- memory: U09-1
+  name: WINDWARD
+- memory: U09-2
+  name: ANCIENT MOON
+- memory: U09-3
+  name: CAPO'S & NUTS
+- memory: U09-4
+  name: WINTER IN 2047
+- memory: U10-1
+  name: BYPASS
+- memory: U10-2
+  name: LAB
+- memory: U10-3
+  name: SLOW DANCE
+- memory: U10-4
+  name: OVERTONE ORGAN
+- memory: U11-1
+  name: NEW AGED BLUES
+- memory: U11-2
+  name: SPACE ECHO
+- memory: U11-3
+  name: CLEAR DRIVE
+- memory: U11-4
+  name: CLEAR DRIVE
+- memory: U12-1
+  name: SURF COWBOY
+- memory: U12-2
+  name: AMERICANA
+- memory: U12-3
+  name: TREBLE BOOST
+- memory: U12-4
+  name: DIGITAL OCEAN
+- memory: U13-1
+  name: FUNK DRIVE
+- memory: U13-2
+  name: SUPER CLEAN/DS
+- memory: U13-3
+  name: ANCIENT DREAM
+- memory: U13-4
+  name: OCTAVE FUNK
+- memory: U14-1
+  name: GRAVITY GAINS
+- memory: U14-2
+  name: AMBIENT LEAD
+- memory: U14-3
+  name: DJENT METAL
+- memory: U14-4
+  name: SKYBLUE PINK
+- memory: U15-1
+  name: FUZZY DIST
+- memory: U15-2
+  name: DIMI GILMORIX
+- memory: U15-3
+  name: A LIGHTER TOUCH
+- memory: U15-4
+  name: HARMONIC DIST
+- memory: U16-1
+  name: PROUD DAD
+- memory: U16-2
+  name: DRY CRUNCH
+- memory: U16-3
+  name: OCTAVE CRUNCH
+- memory: U16-4
+  name: FUSION SWELLS
+- memory: U17-1
+  name: LO-FI CLEAN
+- memory: U17-2
+  name: SLAP GUITAR
+- memory: U17-3
+  name: '1993'
+- memory: U17-4
+  name: OCTAVE ORGAN
+- memory: U18-1
+  name: BIG DRIVE
+- memory: U18-2
+  name: BLUE LAKE
+- memory: U18-3
+  name: FAIRY OF FOREST
+- memory: U18-4
+  name: HARMONIC DRIVE
+- memory: U19-1
+  name: PROG LEAD TONE
+- memory: U19-2
+  name: CRYSTAL CLEAN
+- memory: U19-3
+  name: CLEAN BOOSTER
+- memory: U19-4
+  name: BUBBLE DELAY
+- memory: U20-1
+  name: HOT COUNTRY
+- memory: U20-2
+  name: EXPENSIVE TASTE
+- memory: U20-3
+  name: SWAMP CHORUS
+- memory: U20-4
+  name: EVERY 00'S MOVIE
+- memory: U21-1
+  name: SKY ROCK
+- memory: U21-2
+  name: EAGLE RING
+- memory: U21-3
+  name: X-MOD DRIVE
+- memory: U21-4
+  name: NIGHT TEAR
+- memory: U22-1
+  name: CHUNK TOWN
+- memory: U22-2
+  name: POLY OCT+FUZZ
+- memory: U22-3
+  name: OCTAVE+HARMONIST
+- memory: U22-4
+  name: MARS EXPLORER
+- memory: U23-1
+  name: STUDIO BASS
+- memory: U23-2
+  name: ROCK BASS CRUNCH
+- memory: U23-3
+  name: CLEAN ROCK BASS
+- memory: U23-4
+  name: T WAH BASS
+- memory: U24-1
+  name: DIST ROCK BASS
+- memory: U24-2
+  name: MONO BASS CLOUD
+- memory: U24-3
+  name: SYNTHY OCT BASS
+- memory: U24-4
+  name: FUZZ BASS
+- memory: U25-1
+  name: LOOPER CLEAN
+- memory: U25-2
+  name: LOOPER CRUNCH
+- memory: U25-3
+  name: LOOPER DRIVE
+- memory: U25-4
+  name: LOOPER -1OCT
+- memory: U26-1
+  name: GX DUAL DRIVE
+- memory: U26-2
+  name: HEAVY METAL
+- memory: U26-3
+  name: STUDIO BLUES
+- memory: U26-4
+  name: JC CLEAN
+- memory: U27-1
+  name: LEAD DRIVE
+- memory: U27-2
+  name: CRUNCH LEAD
+- memory: U27-3
+  name: NEO SOUL
+- memory: U27-4
+  name: MODERN OD
+- memory: U28-1
+  name: MODERN DS
+- memory: U28-2
+  name: CLEAN+SHIMMER
+- memory: U28-3
+  name: MILD DRIVE
+- memory: U28-4
+  name: ACOUSTIC GUITAR
+- memory: U29-1
+  name: FUZZY ROCK
+- memory: U29-2
+  name: PHASER CLEAN
+- memory: U29-3
+  name: BG DRIVE
+- memory: U29-4
+  name: OCTAVE CLEAN
+- memory: U30-1
+  name: HI-GAIN LEAD
+- memory: U30-2
+  name: DIMENSION FL
+- memory: U30-3
+  name: DRIVE + OCT CLN
+- memory: U30-4
+  name: SYNTH LEAD
+- memory: U31-1
+  name: RICH CHORUS DS
+- memory: U31-2
+  name: BASIC GIG
+- memory: U31-3
+  name: ROTARY+ECHO
+- memory: U31-4
+  name: AMBIENT CLEAN
+- memory: U32-1
+  name: FUSION SOLO
+- memory: U32-2
+  name: TWEED DRIVE
+- memory: U32-3
+  name: FLYING OVERTONE
+- memory: U32-4
+  name: CONSOLE CLEAN

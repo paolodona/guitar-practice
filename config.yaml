@@ -1,0 +1,7 @@
+gx100:
+  send_program_changes: true       # off by default (CLAUDE.md) -- turned on
+                                    # explicitly here so a section/song load
+                                    # actually sends the Program Change.
+  midi_output: ""                  # substring match on the output port name;
+                                    # empty matches the first available output
+                                    # (fine with one GX-100 attached).
