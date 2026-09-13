@@ -380,4 +380,71 @@ await test('the decoded-buffer cache is bounded', async () => {
   assert.ok([...engine._buffers.values()].includes(engine._buffer));
 });
 
+// ---- 8. speed and pitch compose, however the presses interleave ---------
+//
+// FOUND LIVE 2026-09-13, Paolo, on tutti-in-fila/1431dc68: pressed speed up
+// to a rung that was not cached, and while its "rendering" status was still
+// showing, changed the pitch by one semitone. The section came back playing
+// the NEW speed at the OLD pitch — a combination nobody asked for — because
+// two separate bugs compounded:
+//   (a) `setSemitones` composed against `this._speedPct` (audible) instead
+//       of `this._targetSpeedPct` (asked for), so the pitch press silently
+//       retargeted the engine at the OLD speed, discarding the still-in-
+//       flight speed change entirely.
+//   (b) even with (a) fixed, the swap already scheduled for the FIRST
+//       target was left in place while the SECOND target's render was
+//       fetched — it could still reach its seam and get adopted before the
+//       replacement was ready.
+// Both are exercised here independently.
+
+await test('a pitch change while a speed change is still in flight keeps both', async () => {
+  const { engine, gate } = await mounted({ speedPct: 50 });
+  engine.play();
+
+  engine.setSpeedPct(80); // not cached; render not yet resolved
+  await settle(2);
+  assert.equal(engine.targetSpeedPct, 80, 'sanity: speed change latched');
+
+  engine.setSemitones(-1); // pressed before the speed render landed
+  await settle(2);
+
+  // The engine must be chasing the COMBINATION last asked for, not have
+  // quietly dropped back to the old speed the moment pitch was touched.
+  assert.equal(engine.targetSpeedPct, 80, 'the pending speed change was discarded');
+  assert.equal(engine.targetSemitones, -1);
+
+  // Only one render should ever be asked for the actual target — never the
+  // stale (old speed, new pitch) combination this bug used to settle on.
+  await gate.release(urlFor(80, -1));
+  assert.equal(engine._pendingSwap?.speedPct, 80);
+  assert.equal(engine._pendingSwap?.semitones, -1);
+});
+
+await test('a swap already scheduled for a superseded target is cancelled immediately, not on arrival of the replacement', async () => {
+  const { ctx, engine, gate } = await mounted({ speedPct: 50 });
+  engine.play();
+
+  engine.setSpeedPct(80);
+  await settle(2);
+  await gate.release(urlFor(80)); // speed render lands and is scheduled
+  assert.equal(engine._pendingSwap?.speedPct, 80, 'sanity: swap queued for 80%/0');
+
+  // Change pitch before that swap's seam ever arrives. The old swap (for
+  // the now-superseded 80%/0 combination) must be dropped THIS INSTANT —
+  // synchronously, before the new render is even fetched — because it
+  // could otherwise still fire at its own seam first.
+  engine.setSemitones(-1);
+  assert.equal(engine._pendingSwap, null, 'a stale scheduled swap must not survive a new target');
+
+  // Prove it really would have fired if left in place: its seam is still
+  // in the future relative to the new render's arrival.
+  await gate.release(urlFor(80, -1));
+  assert.equal(engine._pendingSwap?.speedPct, 80);
+  assert.equal(engine._pendingSwap?.semitones, -1);
+  ctx.currentTime = engine._pendingSwap.seamTime;
+  engine._tick();
+  assert.equal(engine.speedPct, 80);
+  assert.equal(engine.semitones, -1);
+});
+
 process.exit(failures === 0 ? 0 : 1);

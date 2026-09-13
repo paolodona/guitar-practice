@@ -1075,7 +1075,13 @@ export class BufferEngine extends EventTarget {
    */
   setSpeedPct(pct, opts) {
     const clamped = Math.min(MAX_SPEED_PCT, Math.max(MIN_SPEED_PCT, pct));
-    return this._changeRender(clamped, this._semitones, opts);
+    // Compose against the TARGET semitones (what was last asked for), not
+    // the audible one. A speed change can be pressed while a pitch change
+    // is still pending -- reading `this._semitones` here would silently
+    // drop that pending pitch back to whatever is still playing, so the
+    // rung this settles on is a combination nobody asked for. FOUND LIVE
+    // 2026-09-13: symmetric to the bug fixed in `setSemitones` below.
+    return this._changeRender(clamped, this._targetSemitones, opts);
   }
 
   /**
@@ -1087,7 +1093,17 @@ export class BufferEngine extends EventTarget {
    */
   setSemitones(n, opts) {
     const clamped = Math.min(MAX_SHIFT, Math.max(-MAX_SHIFT, Math.round(n)));
-    return this._changeRender(this._speedPct, clamped, opts);
+    // Compose against the TARGET speed, not the audible one -- see
+    // setSpeedPct's comment. FOUND LIVE 2026-09-13, Paolo, on
+    // tutti-in-fila/1431dc68: a speed change was still rendering (not yet
+    // adopted, so `this._speedPct` was still the OLD speed) when a pitch
+    // change came in. Reading `this._speedPct` here retargeted the engine
+    // at (old speed, new pitch) and threw the speed change away entirely;
+    // the section settled at the wrong combination once the (unrelated,
+    // now-stale) original speed render happened to land. The engine must
+    // chase the combination last asked for, not whichever axis happened
+    // to finish rendering first.
+    return this._changeRender(this._targetSpeedPct, clamped, opts);
   }
 
   /** Tear down the audio graph. No further events fire after this. */
@@ -1285,6 +1301,28 @@ export class BufferEngine extends EventTarget {
       && speedPct === this._pendingSwap.speedPct
       && semitones === this._pendingSwap.semitones) {
       return; // already queued for the next seam
+    }
+    if (this._pendingSwap) {
+      // The target just moved to a rung that does not match what is
+      // already scheduled to swap in at the next seam. That scheduled
+      // swap is for a rung nobody wants any more, and it does not know
+      // that yet -- left in place, it can still fire (at ITS seam, on
+      // the audio thread, on a 50ms poll this main-thread code does not
+      // control) before the render for the NEW target has even resolved.
+      // The room hears the old rung adopted, however briefly, then a
+      // second swap to the right one once its render lands.
+      //
+      // FOUND LIVE 2026-09-13 on tutti-in-fila/1431dc68: a speed change
+      // reached `_scheduleSwap` and sat waiting for its seam; a pitch
+      // change arrived mid-wait, latching a new target above but (this
+      // branch not existing yet) leaving that old speed-only swap
+      // scheduled. Its seam arrived before the new speed+pitch render
+      // did, so the section swapped to the new speed at the OLD pitch,
+      // then swapped again to the right pitch a lap later. Cancelling
+      // here, the instant intent changes, means only the most recently
+      // asked-for target can ever reach a seam -- never one superseded
+      // before it got there.
+      this._cancelPendingSwap();
     }
     if (!this._section) {
       this._speedPct = speedPct;
