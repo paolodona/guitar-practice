@@ -1,13 +1,15 @@
 name: RambaSS
-tuning: Eb standard
+tuning: D standard
 venue: ''
 songs:
-- slug: no-farts-in-the-car
-  shift: -1
+- slug: for-my-grana
 - slug: tutti-in-fila
   shift: 0
+- slug: il-phurgone
 - slug: i-poohffi
-  shift: 0
 - slug: manlio
 - slug: ampiamente-contestabile
-  shift: 0
+  shift: -1
+- slug: i-want-it-all
+  shift: -1
+- slug: superman
