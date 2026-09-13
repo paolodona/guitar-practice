@@ -3,7 +3,7 @@ title: I Poohffi
 artist: Ramba SS
 recording:
   file: audio/02 I PoohFFI.wav
-  sha256: 2f4a6590f21bc7adfa31b9aa0fbc553c02576ef166ee3e48a4556498919d9f5c
+  sha256: 44c0d49ff7e9b9410cfc9a5d041bfe1b13cef98c8a88a07c089b4a868170a87e
   duration_s: 299.49387755102043
   tuning: Eb standard
 tempo:
@@ -18,8 +18,8 @@ practice:
   reps_to_advance: 3
   pre_roll_beats: 4.0
   pre_roll_every_pass: false
-  click: lead-in
   loop_crossfade_ms: 10.0
+  click: lead-in
 sections:
 - id: d6f23b46
   name: Solo
@@ -47,3 +47,14 @@ sections:
   target_speed: 100.0
   counts_toward_readiness: true
   full_song: false
+patch_changes:
+- at_s: 0.03491639618297216
+  patch: U01-2
+- at_s: 123.8942960885514
+  patch: U01-1
+- at_s: 160.9380151338927
+  patch: U01-2
+- at_s: 219.2515310410947
+  patch: U01-3
+- at_s: 241.80208765196159
+  patch: U01-2
