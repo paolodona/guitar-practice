@@ -717,6 +717,30 @@ const TICK_MS = 50;
 const MAX_DECODED_RENDERS = 4;
 
 /**
+ * How far under `renderClock().total` a decoded render may land and still
+ * be the whole thing.
+ *
+ * A render's duration is arithmetic — the section's span plus its lead-in,
+ * divided by the speed — and ffmpeg's cut and rubberband's output land a
+ * few milliseconds either side of it. MEASURED on the file that caused
+ * this check to exist (tutti-in-fila/1431dc68 at 60%): the clock says
+ * 21.790s, the FLAC is 21.780s. 250ms is twenty-five times that slack and
+ * still three orders of magnitude above what a truncated fetch produces.
+ *
+ * FOUND LIVE 2026-09-12, Paolo: "a constant 'sine' sound as if a few
+ * milliseconds were looping". `server._render` reports a render ready when
+ * its cache file EXISTS, and the render's last step used to encode
+ * straight onto that path, so a poll landing mid-encode was served a
+ * prefix of a FLAC with a 200. The browser decodes the frames that
+ * arrived; this engine then loops that fragment, because loop points that
+ * fall outside the buffer are ignored and the whole (tiny) buffer loops
+ * instead. src/woodshed/atomic.py fixes the server end — a render is now
+ * renamed onto its cache path, so it is never visible half-written. This
+ * is the check that means the room cannot be lied to about it anyway.
+ */
+const SHORT_RENDER_TOLERANCE_S = 0.25;
+
+/**
  * Phase 2's cache-backed engine, and CLAUDE.md invariant 9 made real: "a
  * loop plays from a pre-rendered, decoded AudioBuffer with a native
  * sample-exact loop — never from a real-time stretcher, which cannot put
@@ -815,6 +839,16 @@ export class BufferEngine extends EventTarget {
   /** The shift last asked for. Same relationship as `targetSpeedPct`. */
   get targetSemitones() { return this._targetSemitones; }
 
+  /** Whether the engine itself believes it is playing right now. Exposed
+   *  so a caller that optimistically flipped its own `playing` flag before
+   *  play() settled (screens/practice.js's play_pause handler, called
+   *  synchronously from the click/keydown so the AudioContext gets a real
+   *  user gesture to resume against) can be told when play() rolled itself
+   *  back — a blocked resume, verified asynchronously by `_verifyResumed`
+   *  below — instead of the screen going on showing "playing" after the
+   *  engine gave up. */
+  get playing() { return this._playing; }
+
   /** Whether what was asked for has yet to become audible. */
   get pending() {
     return this._speedPct !== this._targetSpeedPct || this._semitones !== this._targetSemitones;
@@ -884,10 +918,44 @@ export class BufferEngine extends EventTarget {
   play() {
     this._require('play');
     if (this._playing) return;
-    if (this.ctx.state === 'suspended') this.ctx.resume();
+    if (this.ctx.state === 'suspended') {
+      // Fire-and-forget was the bug: a browser can refuse this resume
+      // outside a fresh user gesture (RealtimeEngine.loadSection awaits
+      // the same call, above, for exactly this reason), and an unawaited,
+      // uncaught rejection -- or a resume that simply resolves with the
+      // context still stuck 'suspended' -- left `_playing` true and the
+      // nodes scheduled below against a clock that never advances:
+      // rendered, "playing", and silent, with nothing anywhere to say
+      // why. FOUND LIVE 2026-09-12, Paolo, i-want-it-all. Scheduling
+      // itself stays synchronous below -- sample-exact timing depends on
+      // `ctx.currentTime` read in THIS call, not after an await -- this
+      // only verifies, once the promise settles, that the resume it
+      // depended on actually landed.
+      this.ctx.resume().then(
+        () => this._verifyResumed(),
+        (error) => this._verifyResumed(error),
+      );
+    }
     this._startAt(this._position);
     this._playing = true;
     this._startTimer();
+  }
+
+  /** Confirm a resume() kicked off by play() actually left the context
+   *  running, and undo the optimistic start above if it did not. A no-op
+   *  once playback has moved on without it (a pause in between already
+   *  tore the graph down, and there is nothing left here to unwind). */
+  _verifyResumed(error) {
+    if (!this._playing || this.ctx.state === 'running') return;
+    this._stopEverything();
+    this._playing = false;
+    this._stopTimer();
+    this.dispatchEvent(new CustomEvent('error', {
+      detail: {
+        error: error
+          || new Error('BufferEngine.play: the browser blocked audio (AudioContext stuck suspended)'),
+      },
+    }));
   }
 
   /**
@@ -939,10 +1007,25 @@ export class BufferEngine extends EventTarget {
    * it was paused -- read off `this._playing`, which this engine already
    * tracks itself, so unlike RealtimeEngine.restartSection() the caller
    * does not need to pass it in (an argument here would just be ignored).
+   *
+   * A swap scheduled but not yet at its seam must not be silently discarded
+   * here: `_stopEverything()` below cancels it via `_cancelPendingSwap()`,
+   * and nothing else ever writes `_speedPct`/`_semitones` except
+   * `_adoptSwap()`, at a seam a torn-down graph will now never reach. Same
+   * bug shape as pause() (#4), same fix -- and cheaper here, because a
+   * restart always lands on sample 0, which is exactly where the queued
+   * buffer would have joined at its OWN loop start anyway: adopt it instead
+   * of waiting out the lap the button was pressed to skip.
    */
   restartSection() {
     this._require('restartSection');
     const wasPlaying = this._playing;
+    const swap = this._pendingSwap;
+    if (swap) {
+      this._speedPct = swap.speedPct;
+      this._semitones = swap.semitones;
+      this._buffer = swap.buffer;
+    }
     this._stopEverything();
     this._position = 0;
     this._qualified = true;
@@ -950,6 +1033,7 @@ export class BufferEngine extends EventTarget {
       this._startAt(0);
       this._playing = true;
     }
+    if (swap) this._announceRung(); // the swap's rung was adopted above
   }
 
   /**
@@ -983,22 +1067,27 @@ export class BufferEngine extends EventTarget {
    * `currentTime` the current loop ends, the two overlapping for one
    * crossfade); immediately, with nothing to swap at, when stopped.
    * @param {number} pct - percent, 50 means 50%
+   * @param {{atSeam?: boolean}} [opts] - `atSeam`: this call is a direct
+   *   reaction to the 'pass' that just fired (the ladder auto-advancing at
+   *   a clean rep), not a fresh press mid-lap. See `_scheduleSwap`'s own
+   *   doc for what that changes.
    * @returns {Promise<void>} resolves once the new buffer is scheduled
    */
-  setSpeedPct(pct) {
+  setSpeedPct(pct, opts) {
     const clamped = Math.min(MAX_SPEED_PCT, Math.max(MIN_SPEED_PCT, pct));
-    return this._changeRender(clamped, this._semitones);
+    return this._changeRender(clamped, this._semitones, opts);
   }
 
   /**
    * Move to a different shift. Same boundary discipline as setSpeedPct —
    * a shift change is a different rendered FILE here, not a live parameter.
    * @param {number} n - semitones, clamped to ±6 (tuning.MAX_SHIFT)
+   * @param {{atSeam?: boolean}} [opts] - see setSpeedPct
    * @returns {Promise<void>}
    */
-  setSemitones(n) {
+  setSemitones(n, opts) {
     const clamped = Math.min(MAX_SHIFT, Math.max(-MAX_SHIFT, Math.round(n)));
-    return this._changeRender(this._speedPct, clamped);
+    return this._changeRender(this._speedPct, clamped, opts);
   }
 
   /** Tear down the audio graph. No further events fire after this. */
@@ -1077,10 +1166,44 @@ export class BufferEngine extends EventTarget {
       }
       const bytes = await res.arrayBuffer();
       const buffer = await this.ctx.decodeAudioData(bytes);
+      if (this._isTruncated(buffer, speedPct)) {
+        // Served, but not finished: treat it exactly as a 202 and poll
+        // again. Deliberately NOT remembered — `_buffers` is keyed by URL,
+        // so caching this would keep the fragment for the session.
+        // TEMP diagnostic for the 2026-09-12 "sine noise" hunt.
+        console.warn(
+          `[player] TRUNCATED ${url} bytes=${bytes.byteLength} decoded=${buffer?.duration}s `
+          + `expected>=${renderClock(this._section, speedPct).total - SHORT_RENDER_TOLERANCE_S}s`,
+        );
+        this._beginWait(url, { stage: 'rendering', speedPct, semitones, polls: poll + 1 });
+        await new Promise((resolve) => setTimeout(resolve, this.pollMs));
+        continue;
+      }
+      // TEMP diagnostic for the 2026-09-12 "sine noise" hunt -- remove once
+      // the repeat on tutti-in-fila/1431dc68@60% is understood.
+      console.debug(
+        `[player] fetched ${url} bytes=${bytes.byteLength} decoded=${buffer.duration}s`,
+      );
       this._remember(url, buffer);
       return buffer;
     }
     throw new Error(`BufferEngine: gave up waiting for the render at ${url}`);
+  }
+
+  /**
+   * Is this decoded render shorter than the section it is supposed to be?
+   *
+   * The only question that distinguishes "the file was still being
+   * written" from "the file is fine", asked where the answer is known: the
+   * clock is arithmetic over the section's own span, so nothing has to be
+   * fetched to check it. See SHORT_RENDER_TOLERANCE_S for the drone this
+   * prevents and the measurement behind the slack.
+   */
+  _isTruncated(buffer, speedPct) {
+    if (!this._section) return false; // nothing to compare against
+    if (!buffer || !(buffer.duration > 0)) return true;
+    const expected = renderClock(this._section, speedPct).total;
+    return buffer.duration < expected - SHORT_RENDER_TOLERANCE_S;
   }
 
   /** Keep `_buffers` bounded, never evicting what is playing or queued.
@@ -1134,7 +1257,7 @@ export class BufferEngine extends EventTarget {
     }));
   }
 
-  async _changeRender(speedPct, semitones) {
+  async _changeRender(speedPct, semitones, { atSeam = false } = {}) {
     // Latch the target SYNCHRONOUSLY, before anything is awaited. This is
     // the fix for the whole class of bug this method used to have: it
     // compared against `_pendingSwap ?? this`, and `_pendingSwap` is only
@@ -1175,7 +1298,21 @@ export class BufferEngine extends EventTarget {
     } catch (error) {
       // A rung whose render will not build must not take practice down
       // with it: keep playing what is already loaded and say so once.
+      //
+      // "Say so once" is not enough on its own, though: `_targetSpeedPct`/
+      // `_targetSemitones` were latched at the top of this method, before
+      // any of this was known to be able to fail, and nothing else ever
+      // writes them back. Left latched at a rung that will never arrive,
+      // `pending` (speedPct !== targetSpeedPct) can never become false
+      // again — the screen's "ghost" number for this press stays hollow
+      // forever, with no visible sign anything went wrong once the status
+      // bar's own wait (already ended by `_render`'s `.finally()`, above)
+      // goes quiet. Roll the target back to what is actually audible so
+      // the ghost clears, the same way a fresh press would.
+      this._targetSpeedPct = this._speedPct;
+      this._targetSemitones = this._semitones;
       this.dispatchEvent(new CustomEvent('error', { detail: { error } }));
+      this._announceRung();
       return;
     }
     if (this._destroyed) return;
@@ -1207,20 +1344,51 @@ export class BufferEngine extends EventTarget {
       this._announceRung();
       return;
     }
-    this._scheduleSwap(buffer, speedPct, semitones);
+    this._scheduleSwap(buffer, speedPct, semitones, atSeam);
   }
 
-  /** J2: queue the next buffer and start it at the exact AudioContext time
-   *  the current loop ends, the two overlapping for one crossfade. */
-  _scheduleSwap(buffer, speedPct, semitones) {
+  /**
+   * J2: queue the next buffer and start it at the exact AudioContext time
+   * the current loop ends, the two overlapping for one crossfade.
+   *
+   * `atSeam` is the ladder's own case: this call is a direct reaction to
+   * the 'pass' the OLD anchor's loop just fired, not a fresh press
+   * somewhere mid-lap. The default search below (`seamTimeAt(anchor, n)`
+   * for the smallest `n` still ahead of `now`) is right for a mid-lap
+   * press -- there is no musically valid place to cut in except the OLD
+   * buffer's own next natural wrap, a full lap away. But by the time this
+   * runs, that wrap has ALREADY happened (that is what 'pass' means), and
+   * the next one the search can find is a full OTHER lap further out --
+   * so a ladder advance with its render already cached kept the room
+   * hearing the OLD speed for one whole extra lap, "swaps at the next
+   * lap" showing the whole time, before FOUND LIVE 2026-09-13, Paolo. The
+   * fix is not to search forward at all here: the wrap this is trying to
+   * catch is the one just gone, and the new buffer starting at its own
+   * `loopStart` right now is exactly as musically valid as it would have
+   * been at that wrap -- both are "the top of the section" -- so schedule
+   * as soon as Web Audio can take it instead.
+   */
+  _scheduleSwap(buffer, speedPct, semitones, atSeam = false) {
     this._cancelPendingSwap();
     const anchor = this._active.anchor;
     const now = this.ctx.currentTime;
-    let n = 0;
-    while (seamTimeAt(anchor, n) < now + SWAP_MIN_LEAD_S) n++;
-    const seamTime = seamTimeAt(anchor, n);
+    let seamTime;
+    if (atSeam) {
+      seamTime = now + SWAP_MIN_LEAD_S;
+    } else {
+      let n = 0;
+      while (seamTimeAt(anchor, n) < now + SWAP_MIN_LEAD_S) n++;
+      seamTime = seamTimeAt(anchor, n);
+    }
 
     const clock = this._clock(speedPct);
+    // TEMP diagnostic for the 2026-09-12 "sine noise" hunt -- remove once
+    // the repeat on tutti-in-fila/1431dc68@60% is understood.
+    console.debug(
+      `[player] scheduleSwap ${this._speedPct}%->${speedPct}% bufferDuration=${buffer.duration}s `
+      + `loopStart=${clock.loopStart} loopEnd=${clock.loopEnd} crossfadeS=${clock.crossfadeS} `
+      + `seamTime=${seamTime} ctxNow=${now}`,
+    );
     const crossfadeS = clock.crossfadeS;
     const gain = this.ctx.createGain();
     const source = this.ctx.createBufferSource();
@@ -1258,7 +1426,7 @@ export class BufferEngine extends EventTarget {
 
     this._pendingSwap = {
       seamTime, source, gain, clock, buffer, speedPct, semitones,
-      outgoing, retireTimer,
+      outgoing, retireTimer, atSeam,
     };
   }
 
@@ -1301,6 +1469,9 @@ export class BufferEngine extends EventTarget {
   _adoptSwap() {
     const swap = this._pendingSwap;
     this._pendingSwap = null;
+    // TEMP diagnostic for the 2026-09-12 "sine noise" hunt -- remove once
+    // the repeat on tutti-in-fila/1431dc68@60% is understood.
+    console.debug(`[player] adoptSwap now audible at ${swap.speedPct}% (was ${this._speedPct}%)`);
     // Deliberately does NOT tear the outgoing node down: it is still
     // fading, and `_scheduleSwap`'s own timer retires it once it has
     // finished. See that function for the click this caused.
@@ -1382,8 +1553,21 @@ export class BufferEngine extends EventTarget {
    * arithmetic and not an event is that there IS no event to wait for.
    */
   _tick() {
-    if (!this._playing || !this._active || this._nextSeam === null) return;
+    if (!this._playing || !this._active) return;
     const now = this.ctx.currentTime;
+    // An `atSeam` swap (_scheduleSwap's own doc) is scheduled moments from
+    // now, decoupled from the OLD anchor's own periodicity -- `_nextSeam`
+    // below still names that anchor's next NATURAL wrap, a full lap away,
+    // so a swap sitting at `now + SWAP_MIN_LEAD_S` would starve behind it
+    // forever if adoption only happened inside that loop. Checked here,
+    // outside it and before the `_nextSeam` guard, and NOT through the
+    // qualified/'pass' machinery below: the pass for this lap already
+    // fired (that is the whole reason this swap exists), so firing another
+    // one here would count a lap nobody played twice.
+    if (this._pendingSwap && this._pendingSwap.atSeam && now >= this._pendingSwap.seamTime - SEAM_EPS) {
+      this._adoptSwap();
+    }
+    if (this._nextSeam === null) return;
     let guard = 0;
     while (this._nextSeam !== null && now >= this._nextSeam - SEAM_EPS && guard++ < 1000) {
       const seam = this._nextSeam;

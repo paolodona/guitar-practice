@@ -59,11 +59,32 @@ test('a render wait outranks every other indicator -- the issue\'s own explicit 
   assert.equal(text, 'Rendering…', 'the active render must win over demucs-missing, guitarBusy and the realtime fallback');
 });
 
+test('a finished render still queued for the next seam says so, and names how to skip the wait', () => {
+  const { text, showProgress } = statusBarState({
+    ...QUIET, swapWaiting: true, detail: ' at 100% speed, -1 shift',
+  });
+  assert.equal(text, 'Rendered at 100% speed, -1 shift — swaps at the next lap, or press Restart now');
+  assert.equal(showProgress, false, 'nothing is building any more, so no indeterminate bar');
+});
+
+test('an active render wait outranks a stale swapWaiting flag', () => {
+  // Shouldn't coexist in practice (renderStatusBar only sets swapWaiting
+  // when renderStage is null), but the precedence is still worth pinning:
+  // a real build in progress must never be shadowed by an older "queued"
+  // message.
+  const { text } = statusBarState({
+    ...QUIET, renderStage: 'rendering', detail: ' at 90% speed, +0 shift', swapWaiting: true,
+  });
+  assert.equal(text, 'Rendering at 90% speed, +0 shift…');
+});
+
 test('with no render wait, a missing demucs install ranks above guitarBusy and the fallback', () => {
   const { text, showProgress } = statusBarState({
     ...QUIET, demucsAvailable: false, guitarBusy: true, engineKind: 'realtime',
   });
-  assert.equal(text, 'install demucs: uv sync --extra separate');
+  // demucs is a core dependency now, so this is an incomplete install,
+  // not a missing extra -- the fix is a bare `uv sync` and nothing else.
+  assert.equal(text, 'guitar isolation unavailable — run uv sync');
   assert.equal(showProgress, false, 'only an active render/separation wait shows the indeterminate progress bar');
 });
 

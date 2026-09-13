@@ -279,6 +279,46 @@ await test('restartSection re-arms the pass window from the top', async () => {
   assert.deepEqual(passes, [1]);
 });
 
+await test('restartSection adopts a pending swap instead of discarding it', async () => {
+  // Same bug shape as pause() (#4), same fix: a Faster/Slower/shift press
+  // mid-loop schedules a swap for the next seam, and restarting is a
+  // deliberate return to the section's own top -- exactly where a queued
+  // swap would have joined anyway, so there is no reason left to wait.
+  // Left to _stopEverything()'s unconditional _cancelPendingSwap(), the
+  // finished render was thrown away and the section restarted at the OLD
+  // speed, with the ghosted target never landing until a fresh press.
+  const fetch = fetchStub([{ status: 200 }]);
+  const { ctx, engine } = await mounted({ fetch, speedPct: 50 });
+  engine.play();
+  ctx.currentTime = 10;
+  await engine.setSpeedPct(55);
+  assert.ok(engine._pendingSwap, 'a swap is scheduled, not yet at its seam');
+
+  engine.restartSection();
+  assert.equal(engine._pendingSwap, null, 'restart resolves the pending swap one way or another');
+  assert.equal(engine.speedPct, 55, 'the readout and the engine must agree once restarted');
+  assert.equal(engine.pending, false);
+
+  const clock55 = renderClock(makeSection(), 55);
+  assert.equal(ctx.sources[ctx.sources.length - 1].loopStart, clock55.loopStart);
+  assert.equal(ctx.sources[ctx.sources.length - 1].started.offset, 0, 'restart is always the top, new rung or not');
+});
+
+await test('restartSection while already paused has no swap left to adopt', async () => {
+  // pause() (#4) already resolves any pending swap one way or another, so
+  // by the time restartSection() runs on a paused engine there is nothing
+  // left queued -- this just confirms the two fixes compose rather than
+  // fight over the same _pendingSwap.
+  const fetch = fetchStub([{ status: 200 }]);
+  const { engine } = await mounted({ fetch, speedPct: 50 });
+  engine.play();
+  await engine.setSpeedPct(55);
+  engine.pause();
+  assert.equal(engine.speedPct, 55, 'pause already adopted the swap');
+  engine.restartSection();
+  assert.equal(engine.pending, false);
+});
+
 // ---- J2: the boundary swap ---------------------------------------------
 
 await test('a speed change while playing starts the new buffer at the exact seam', async () => {
@@ -368,6 +408,84 @@ await test('a semitone change swaps at the boundary too, not instantly', async (
   assert.equal(fetch.seen[1], '/api/render/cant-stop/solo?speed=50&semitones=-1&source=mix');
   const seam = renderClock(makeSection(), 50).loopEnd;
   assert.ok(Math.abs(ctx.sources[ctx.sources.length - 1].started.when - seam) < 1e-9);
+});
+
+// ---- atSeam: the ladder's own case (FOUND LIVE 2026-09-13) -------------
+//
+// A ladder auto-advance happens exactly at a pass, i.e. right after the
+// OLD anchor's own wrap has already occurred. The default seam search
+// (above) can only find that anchor's NEXT natural occurrence, a whole
+// lap later -- correct for a press mid-lap, wrong here, since the wrap
+// this is trying to catch already happened and waiting for another lap
+// of it is precisely the bug. `atSeam: true` schedules the swap at
+// `now + SWAP_MIN_LEAD_S` instead of searching the old anchor's
+// periodicity at all.
+
+await test('setSpeedPct({ atSeam: true }) schedules at now + the minimum lead, not the old anchor\'s next wrap', async () => {
+  const fetch = fetchStub([{ status: 200 }]);
+  const { ctx, engine } = await mounted({ fetch, speedPct: 50 });
+  engine.play();
+  const oldClock = renderClock(makeSection(), 50);
+  // Land just past a pass, the way onPass's ladder auto-advance does --
+  // the old anchor's own next wrap is a whole `lap` away from here.
+  ctx.currentTime = oldClock.loopEnd + 0.001;
+  await engine.setSpeedPct(55, { atSeam: true });
+
+  const newSource = ctx.sources[ctx.sources.length - 1];
+  const expectedSeam = ctx.currentTime; // _render resolved synchronously (cache hit)
+  assert.ok(
+    newSource.started.when < oldClock.loopEnd + oldClock.lap,
+    'must not wait for the old anchor\'s next natural wrap, a full lap away',
+  );
+  assert.ok(Math.abs(newSource.started.when - (expectedSeam + 0.05)) < 1e-6);
+  assert.ok(Math.abs(newSource.started.offset - renderClock(makeSection(), 55).loopStart) < 1e-9);
+});
+
+await test('an atSeam swap adopts on the next tick, without firing a second pass for the same lap', async () => {
+  const fetch = fetchStub([{ status: 200 }]);
+  const { ctx, engine } = await mounted({ fetch, speedPct: 50 });
+  const passes = [];
+  engine.addEventListener('pass', () => passes.push(1));
+  engine.play();
+  const oldClock = renderClock(makeSection(), 50);
+
+  ctx.currentTime = oldClock.loopEnd;
+  engine._tick(); // the real pass the ladder is reacting to
+  assert.deepEqual(passes, [1]);
+
+  await engine.setSpeedPct(55, { atSeam: true });
+  assert.ok(engine._pendingSwap, 'scheduled, not yet adopted');
+  assert.equal(engine.speedPct, 50, 'not audible yet');
+
+  ctx.currentTime += 0.05; // the minimum lead has now elapsed
+  engine._tick();
+  assert.equal(engine._pendingSwap, null, 'adopted');
+  assert.equal(engine.speedPct, 55);
+  assert.deepEqual(passes, [1], 'adopting an atSeam swap must not count a second pass for the same lap');
+});
+
+await test('after an atSeam swap adopts, the next pass is one NEW lap later, not tied to the old anchor', async () => {
+  const fetch = fetchStub([{ status: 200 }]);
+  const { ctx, engine } = await mounted({ fetch, speedPct: 50 });
+  const passes = [];
+  engine.addEventListener('pass', () => passes.push(1));
+  engine.play();
+  const oldClock = renderClock(makeSection(), 50);
+  ctx.currentTime = oldClock.loopEnd;
+  engine._tick();
+  await engine.setSpeedPct(55, { atSeam: true });
+  const adoptAt = ctx.currentTime + 0.05;
+  ctx.currentTime = adoptAt;
+  engine._tick();
+  assert.equal(engine.speedPct, 55);
+
+  const newLap = renderClock(makeSection(), 55).lap;
+  ctx.currentTime = adoptAt + newLap - 0.001;
+  engine._tick();
+  assert.deepEqual(passes, [1], 'the new (shorter) lap has not elapsed yet');
+  ctx.currentTime = adoptAt + newLap;
+  engine._tick();
+  assert.deepEqual(passes, [1, 1]);
 });
 
 await test('equalPowerCurve is sin/cos of one angle, so the pair sums to unit power', () => {

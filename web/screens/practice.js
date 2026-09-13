@@ -117,7 +117,8 @@
 import { currentSetlist, get, post } from '../app.js';
 import { drawWave, PRACTICE_WAVE_OPTS } from '../wave.js';
 import { computeGrid, drawGrid, sizeCanvas, computeSeekPosition, slicePeaksToWindow } from '../timeline.js';
-import { createEngine } from '../player.js';
+import { createEngine, renderClock } from '../player.js';
+import { Metronome } from '../metronome.js';
 import { Ladder, nextRung } from '../ladder.js';
 import { ACTIONS, on, dispatch } from '../actions.js';
 import { KEY_MAP } from '../keys.js';
@@ -219,6 +220,23 @@ const PLAY_ICON = '<svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="
 const PAUSE_ICON = '<svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true"><rect x="5" y="4.5" width="4" height="13" rx="1" fill="#9CAAA4"/><rect x="13" y="4.5" width="4" height="13" rx="1" fill="#9CAAA4"/></svg>';
 
 /**
+ * The metronome toggle's icon (2026-09-12). Self-hosted inline SVG like
+ * every other icon here — no icon font, no CDN, this repo's own "no
+ * network at runtime" rule. `currentColor` rather than the hard-coded
+ * #9CAAA4 the foot icons use, so the button's own colour drives it and
+ * the accent lights the whole glyph when it is on.
+ *
+ * A metronome, drawn as one: the tapered case, the pendulum rod leaning
+ * off-centre, and the weight on it. Deliberately not a musical note (that
+ * reads as "audio") and not a stopwatch (that reads as "timer").
+ */
+const METRONOME_ICON = '<svg width="20" height="20" viewBox="0 0 22 22" aria-hidden="true">'
+  + '<path d="M8.4 3h5.2l3.1 16H5.3z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>'
+  + '<path d="M11 4.4 8.3 15.6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>'
+  + '<rect x="8.4" y="8.6" width="3.6" height="1.9" rx="0.6" fill="currentColor" transform="rotate(-13 10.2 9.6)"/>'
+  + '</svg>';
+
+/**
  * One icon per foot-strip chip (`ACTIONS` entries with `chip: true`) — a
  * completeness test (web/tests/test_foot_icons.mjs) asserts every such
  * entry has a matching key here, same "one action table" discipline
@@ -285,6 +303,29 @@ function clampSpeed(v) { return Math.min(110, Math.max(40, v)); }
 function clampShift(v) { return Math.min(6, Math.max(-6, Math.round(v))); }
 
 /**
+ * Turn one engine 'error' event into the one line the status bar shows for
+ * it. Exported and pure for the same reason statusBarState is: player.js
+ * fires this same event for three unrelated failures (a render that will
+ * never build, a play() the browser silently blocked, RealtimeEngine's
+ * worklet crashing), told apart here only by the Error's own message --
+ * there is no `detail.kind`, so a message match is what there is -- and
+ * each deserves a different sentence: the first two leave the recording
+ * still audible at the last speed that worked, the third does not.
+ * @param {Error|undefined} error
+ * @returns {string}
+ */
+export function describeEngineError(error) {
+  const message = (error && error.message) || '';
+  if (/AudioContext stuck suspended/.test(message)) {
+    return 'playback was blocked by the browser — press play again';
+  }
+  if (/AudioWorkletProcessor crashed/.test(message)) {
+    return 'the audio engine crashed — reload to keep practising';
+  }
+  return 'that render failed — still practising the last speed that worked';
+}
+
+/**
  * #6: the ONE status bar's text, precedence made explicit rather than left
  * to whichever handler last wrote a shared string -- the issue's own
  * request. Exported, pure, and free of mount()'s closures for the same
@@ -300,14 +341,36 @@ function clampShift(v) { return Math.min(6, Math.max(-6, Math.round(v))); }
  *      exactly why the audio doesn't yet match the screen (the OLD render
  *      keeps playing audibly while the new one builds). Outranks
  *      everything below.
- *   2. Demucs not installed -- a persistent capability notice. Ranked
+ *   2. `swapWaiting` -- the render is DONE (no wait above to show) but the
+ *      ghosted number still disagrees with what's audible: a decoded
+ *      buffer is queued in `_pendingSwap`, waiting for the current loop to
+ *      finish its lap (CLAUDE.md invariant 9 -- the swap is anchored to the
+ *      loop's own seam, never mid-phrase). On a long section that wait can
+ *      be most of a minute with nothing above saying so once the fetch/
+ *      decode ends -- FOUND LIVE 2026-09-13, Paolo: "it is showing solid
+ *      orange after a reload, so the render clearly finished, but the
+ *      status bar said nothing the whole time I was staring at a ghost
+ *      number." Names the one way out that doesn't require waiting: Restart
+ *      now adopts a pending swap instead of discarding it (same fix as
+ *      pause()'s #4), so this is not just a diagnosis, it's true.
+ *   3. `engineError` -- a render that FAILED, or a play() the browser
+ *      silently blocked. Ranked directly under the two above rather than
+ *      above them: a fresh press already superseding the one that failed is
+ *      more relevant than a stale complaint about the press before it, and
+ *      the caller clears `engineError` itself the moment a new attempt
+ *      starts (see practice.js's 'rendering' listener) so the two are
+ *      never both true for the same press. Before this existed, a failed
+ *      render only ever reached `console.error` -- the screen kept
+ *      showing the old, unfulfillable target with no visible sign
+ *      anything had gone wrong once the wait above ended (by failing).
+ *   4. Demucs not installed -- a persistent capability notice. Ranked
  *      above guitarBusy exactly as the pre-#6 corner caption always did
  *      (the two are mutually exclusive in practice: toggleGuitarOnly()
  *      early-returns when demucs is unavailable, so guitarBusy can never
  *      become true then anyway).
- *   3. guitarBusy -- a guitar/mix source swap in flight that did NOT need
+ *   5. guitarBusy -- a guitar/mix source swap in flight that did NOT need
  *      a build (a warm cache), so no 'rendering' event ever fired for it.
- *   4. The realtime-engine fallback notice -- purely informational
+ *   6. The realtime-engine fallback notice -- purely informational
  *      (docs/03-audio-engine.md: a real-time stretcher is a real
  *      fallback, not a failure), so it ranks last.
  *
@@ -316,20 +379,90 @@ function clampShift(v) { return Math.min(6, Math.max(-6, Math.round(v))); }
  * connectivity state is a different kind of thing from a transient
  * operation notice.
  * @param {{renderStage: string|null, detail: string, guitarBusy: boolean,
- *           demucsAvailable: boolean, engineKind: string}} state
+ *           demucsAvailable: boolean, engineKind: string, engineError?: string,
+ *           swapWaiting?: boolean}} state
  * @returns {{text: string, showProgress: boolean}} showProgress is true
  *   only for an active render/separation wait -- the indeterminate bar
- *   never showed for the other three cases, even before #6.
+ *   never showed for the other cases, even before #6, and does not show
+ *   for `swapWaiting` either: there is nothing left building, only a seam
+ *   left to reach, and a bar that looked like a render in progress would
+ *   say the wrong thing about what's actually happening.
  */
-export function statusBarState({ renderStage, detail, guitarBusy, demucsAvailable, engineKind }) {
+export function statusBarState({
+  renderStage, detail, guitarBusy, demucsAvailable, engineKind, metronome, engineError, swapWaiting,
+}) {
   const rendering = renderStage === 'separating' ? `Isolating the guitar…${detail} (first time only)`
     : renderStage === 'rendering' ? `Rendering${detail}…`
     : '';
+  // The metronome's own three sayable states, ranked directly under an
+  // active render wait: 'fitting' is a wait like the two above it (about a
+  // second, once per section, and the toggle looks stuck without it), and
+  // the other two are the toggle explaining why it just turned itself
+  // back off -- which it must, because a metronome that silently does
+  // nothing is worse than one that says it cannot.
+  const metronomeText = metronome === 'fitting' ? 'Finding this section’s beats…'
+    : metronome === 'none' ? 'no clear pulse in this section — metronome off'
+    : metronome === 'no-cache' ? 'metronome needs the render cache — not the live stretcher'
+    : '';
   const text = rendering
-    || (!demucsAvailable ? 'install demucs: uv sync --extra separate' : '')
+    || (swapWaiting ? `Rendered${detail} — swaps at the next lap, or press Restart now` : '')
+    || engineError
+    || metronomeText
+    || (!demucsAvailable ? 'guitar isolation unavailable — run uv sync' : '')
     || (guitarBusy ? 'separating…' : '')
     || (engineKind === 'realtime' ? 'live stretch — no render cache' : '');
-  return { text, showProgress: !!rendering };
+  return { text, showProgress: !!rendering || metronome === 'fitting' };
+}
+
+/**
+ * Whether the metronome control is shown at all, whether it can be
+ * pressed, and what it says it is. Pure and exported for the same reason
+ * `statusBarState` is: this is the branching worth testing, and there is
+ * no DOM here to press a button in.
+ *
+ * Two rules, both deliberate:
+ *
+ *  - **Not on the whole-song section.** Paolo's own call, and it follows
+ *    from what that entry is (manifest.Section.full_song: a rep counter
+ *    for the whole recording, not a practice target). The whole point of
+ *    the metronome is that a section gets its OWN tempo measured; a
+ *    five-minute span is exactly the case where one tempo is a fiction.
+ *  - **Not on the real-time engine.** That engine has no honest position
+ *    (see decision 3 above) -- only the worklet's read pointer, which
+ *    leads the audible output by however much the stretcher is holding.
+ *    Clicking against it would be confidently wrong by a variable margin,
+ *    which is worse than saying so.
+ *
+ * `multiplier` (1, 2 or 4) only matters while `state === 'on'`: the press
+ * cycles off -> 1x -> 2x -> 4x -> off, all riding the ONE beat fit
+ * (`subdivideBeats` in metronome.js subdivides it; nothing is re-fetched or
+ * re-fit going from one rung of the cycle to the next), so a slow section
+ * that made the plain click too far apart to lock onto has somewhere to go
+ * without leaving the measured pulse.
+ *
+ * @param {{section: {full_song?: boolean}, engineKind: string|null, state: string,
+ *           multiplier?: number}} args
+ */
+export function metronomeControl({
+  section, engineKind, state, multiplier = 1,
+}) {
+  const shown = !section.full_song;
+  const enabled = shown && engineKind !== 'realtime' && state !== 'fitting';
+  const pressed = state === 'on';
+  // '' at 1x, same as the toggle read before the multiplier existed: the
+  // plain click doesn't need a badge, only a faster one does.
+  const label = pressed && multiplier > 1 ? `${multiplier}×` : '';
+  return {
+    shown,
+    enabled,
+    pressed,
+    label,
+    title: !shown ? 'The whole-song entry has no single tempo to click'
+      : engineKind === 'realtime' ? 'Metronome needs the render cache (m)'
+      : state === 'fitting' ? 'Finding this section’s beats…'
+      : pressed ? `Metronome on${multiplier > 1 ? ` — ${multiplier}× this section’s beats` : ` — this section’s own beats`} (m)`
+      : 'Metronome (m)',
+  };
 }
 
 const RING_R = 136;
@@ -444,6 +577,14 @@ export function mount(el, payload) {
   // was built was silence with no explanation -- and a first guitar-only
   // render is minutes of it.
   let renderStage = null;
+  // A render that failed, or a play() the browser silently blocked --
+  // statusBarState's own doc has the precedence. Null once whatever caused
+  // it is superseded: a fresh render attempt for the SAME or a different
+  // press ('rendering' firing with a stage again), or a play_pause() press
+  // trying again. Never left standing after the thing it described is no
+  // longer true, the same discipline renderStage/renderSpeedPct already
+  // follow below.
+  let engineError = null;
   // Which (speed, shift) renderStage is actually waiting on -- carried on
   // the SAME 'rendering' event (BufferEngine's own detail: {stage,
   // speedPct, semitones, polls}), not re-read from `speedPct`/`shift`
@@ -457,6 +598,34 @@ export function mount(el, payload) {
   let guitarOnly = false;
   let guitarBusy = false; // true only while a loadSection() swap is in flight
   const demucsAvailable = payload.demucs_available !== false; // undefined degrades to "available"
+
+  // ---- Metronome (2026-09-12) ----
+  // A click on the beats THIS section actually has, played over the track,
+  // for practising at 40% or against the isolated guitar -- where the rest
+  // of the band is either smeared or not there at all. The beats come from
+  // GET /api/beats/<slug>/<section> in SOURCE seconds and are fitted per
+  // section, because the song-level tempo is one number for a whole take:
+  // tutti-in-fila stores 116.04 while its sections fit 116.09, 116.59 and
+  // 117.42, so a grid run out from the song's t=0 reaches the solo about
+  // 0.8s late (src/woodshed/beatfit.py carries the measurements).
+  //
+  // Not the count-in overlay #5 removed: nothing plays before the music,
+  // there is no overlay, and no click is ever written into a render.
+  /** @type {import('../metronome.js').Metronome | null} */
+  let metronome = null;
+  /** @type {number[] | null} source seconds; null until first asked for */
+  let metronomeBeats = null;
+  /** 'off' | 'fitting' | 'on' | 'none' | 'no-cache' -- 'none' and
+   *  'no-cache' are the toggle saying why it turned itself back off. */
+  let metronomeState = 'off';
+  /** 1 | 2 | 4 -- only meaningful while `metronomeState === 'on'`. The
+   *  press cycles off -> 1x -> 2x -> 4x -> off (Paolo, 2026-09-12: a slow
+   *  section's click can be too far apart to lock onto). Never triggers a
+   *  re-fetch or a re-fit -- `subdivideBeats` (metronome.js) subdivides the
+   *  SAME measured pulse, so stepping the multiplier is as free as a rung
+   *  change. Reset to 1 whenever the toggle goes back to 'off', so turning
+   *  it on again always starts at the plain click. */
+  let metronomeMultiplier = 1;
 
   /**
    * How long a speed or shift press waits for the next one before the
@@ -476,6 +645,14 @@ export function mount(el, payload) {
    * Only the BUFFER engine pays for a press. On the real-time stretcher a
    * ratio change is a message to a worklet, so it is applied immediately
    * and this never runs -- debouncing there would add lag for nothing.
+   *
+   * The ladder's OWN auto-advance (onPass, below) does not go through this
+   * debounce at all: it is one deliberate value decided once, at a pass,
+   * never a burst of clicks to coalesce, and 350ms of waiting on top of
+   * `_scheduleSwap`'s own seam search was the other half of FOUND LIVE
+   * 2026-09-13's bug (see `atSeam` on `_changeRender`) -- by the time a
+   * debounced commit reached the engine, the seam it could still have
+   * caught was already gone, and the only one left was a full lap later.
    */
   const SPEED_COMMIT_MS = 350;
   let speedCommitTimer = null;
@@ -485,9 +662,25 @@ export function mount(el, payload) {
     clearTimeout(speedCommitTimer);
     if (!engineReady) return;
     if (engineKind === 'realtime') { engine.setSpeedPct(speedPct); return; }
+    // TEMP diagnostic for the 2026-09-12 "sine noise" hunt -- remove once
+    // the repeat on tutti-in-fila/1431dc68@60% is understood.
+    console.debug(`[practice] commitSpeed queued speedPct=${speedPct}`);
     speedCommitTimer = setTimeout(() => {
-      if (engineReady) engine.setSpeedPct(speedPct);
+      if (engineReady) {
+        console.debug(`[practice] commitSpeed firing setSpeedPct(${speedPct})`);
+        engine.setSpeedPct(speedPct);
+      }
     }, SPEED_COMMIT_MS);
+  }
+
+  /** The ladder's own commit, called from onPass: no debounce (this doc's
+   *  own note above), and `atSeam: true` so a render that is already
+   *  cached lands at the seam that just fired instead of the next natural
+   *  one a full lap later (player.js's `_scheduleSwap` doc has the why). */
+  function commitSpeedAtSeam() {
+    clearTimeout(speedCommitTimer);
+    if (!engineReady) return;
+    engine.setSpeedPct(speedPct, { atSeam: true });
   }
 
   function commitShift() {
@@ -511,6 +704,20 @@ export function mount(el, payload) {
       });
     }, 400);
   }
+
+  // The engine's three bindings, declared HERE rather than beside
+  // ensureEngine() (further down, under "the engine") because
+  // audibleSpeedPct() reads `engineReady`/`engine` and mount()'s own
+  // `let cosmeticPreRoll = preRollPlaybackSeconds()` calls it while the
+  // screen is still being built. `let` is not hoisted-and-initialised the
+  // way `function` is, so declaring them below that line put them in the
+  // temporal dead zone at mount: "Cannot access 'engineReady' before
+  // initialization", thrown inside route()'s promise -- a blank screen and
+  // one console line (FOUND LIVE 2026-09-12, Paolo). Nothing may move
+  // these below the first cosmetic-clock call.
+  let engine = null;
+  let engineReady = false;
+  let engineInitPromise = null;
 
   // Mirrors clock.pre_roll_seconds + manifest.effective_pre_roll_beats
   // (Phase 1, G2): SOURCE seconds, 0 with no tempo (never a divide-by-
@@ -589,6 +796,27 @@ export function mount(el, payload) {
     renderStatusBar();
   }
 
+  function renderMetronomeToggle() {
+    if (!metronomeToggleEl) return;
+    const state = metronomeControl({
+      section, engineKind, state: metronomeState, multiplier: metronomeMultiplier,
+    });
+    const host = metronomeToggleEl.closest('[data-metronome-control]');
+    // 'flex', not '': clearing the property REMOVES the inline
+    // `display:flex` the markup set, and the control falls back to block --
+    // the label then sits above the button instead of beside it, which is
+    // exactly what it did until a real browser was measured (2026-09-12).
+    if (host) host.style.display = state.shown ? 'flex' : 'none';
+    metronomeToggleEl.setAttribute('aria-pressed', String(state.pressed));
+    metronomeToggleEl.disabled = !state.enabled;
+    metronomeToggleEl.title = state.title;
+    metronomeToggleEl.style.color = state.pressed ? 'var(--accent,#E0913F)' : '';
+    metronomeToggleEl.style.opacity = state.enabled ? '' : '0.45';
+    const labelEl = metronomeToggleEl.querySelector('[data-metronome-label]');
+    if (labelEl) labelEl.textContent = state.label;
+    renderStatusBar();
+  }
+
   /** "at 75% speed, +2 shift" -- the (speedPct, semitones) a render/
    *  separation wait is actually FOR. Mirrors the shift-sign formatting
    *  already inlined at the tuning caption and the shift stepper's own
@@ -599,6 +827,25 @@ export function mount(el, payload) {
     if (renderSpeedPct == null || renderSemitones == null) return '';
     const shiftText = `${renderSemitones > 0 ? '+' : ''}${renderSemitones}`;
     return ` at ${renderSpeedPct}% speed, ${shiftText} shift`;
+  }
+
+  /** Same "at 75% speed, +2 shift" formatting as renderDetailSuffix, but for
+   *  the swap-waiting status (below) rather than an active render wait --
+   *  `renderSpeedPct`/`renderSemitones` are cleared back to nothing the
+   *  moment the wait ITSELF ends (BufferEngine's `_endWait` fires the null
+   *  stage with no speedPct/semitones attached), which is exactly the
+   *  instant a finished-but-not-yet-swapped render needs its own detail
+   *  text. `engine.targetSpeedPct`/`targetSemitones` stay put for as long as
+   *  the press they name is still pending, so read the still-audible target
+   *  off the engine itself rather than off a value the wait's own end just
+   *  blanked. */
+  function pendingSwapDetail() {
+    if (!engineReady || !engine) return '';
+    const spd = engine.targetSpeedPct;
+    const semi = engine.targetSemitones;
+    if (spd == null || semi == null) return '';
+    const shiftText = `${semi > 0 ? '+' : ''}${semi}`;
+    return ` at ${spd}% speed, ${shiftText} shift`;
   }
 
   /** What the small status line says when it has nothing more urgent: which
@@ -634,8 +881,22 @@ export function mount(el, payload) {
    */
   function renderStatusBar() {
     if (!statusBarEl) return;
+    // Nothing is building (renderStage is null -- the wait already ended)
+    // but the ghosted number still disagrees with what's audible: a
+    // decoded buffer is sitting in the engine's own _pendingSwap, queued
+    // for the next loop seam. statusBarState's own doc (case 2) has the
+    // reasoning; this is the one place that reads `engine.pending` to find
+    // out, since nothing else here tracks it independently.
+    const swapWaiting = !renderStage && engineReady && !!engine && engine.pending;
     const { text, showProgress } = statusBarState({
-      renderStage, detail: renderDetailSuffix(), guitarBusy, demucsAvailable, engineKind,
+      renderStage,
+      detail: swapWaiting ? pendingSwapDetail() : renderDetailSuffix(),
+      guitarBusy,
+      demucsAvailable,
+      engineKind,
+      metronome: metronomeState,
+      engineError,
+      swapWaiting,
     });
     if (statusTextEl) statusTextEl.textContent = text;
     if (statusTrackEl) statusTrackEl.style.display = showProgress ? 'block' : 'none';
@@ -644,6 +905,124 @@ export function mount(el, payload) {
 
   function renderEngineKind() {
     renderGuitarToggle();
+    renderMetronomeToggle();
+  }
+
+  // ---- the metronome's four moving parts ----
+  // ensure (an instance, on the ENGINE's context), retime (a clock that
+  // moved), apply (start or stop it), toggle (the press). Nothing else in
+  // this file touches web/metronome.js.
+
+  /** The click has to be scheduled on the same AudioContext the music is
+   *  playing on -- two contexts have two clocks and nothing aligns them --
+   *  so this can only exist once the engine does. `position()` answers
+   *  null whenever there is no honest position to give, which is what
+   *  makes a paused engine (and the real-time engine, which never has one)
+   *  schedule nothing rather than click into the dark. */
+  function ensureMetronome() {
+    if (metronome || !engineReady || engineKind !== 'buffer') return metronome;
+    if (typeof engine.position !== 'function') return null;
+    metronome = new Metronome(engine.ctx, () => (playing ? engine.position() : null));
+    return metronome;
+  }
+
+  /** The render clock the click is currently being timed against: the
+   *  AUDIBLE rung, never the pressed one, for the same reason the rep
+   *  ledger uses the audible speed -- what is playing is what the beats
+   *  have to line up with. */
+  function metronomeClock() {
+    return renderClock(sectionLoadParams(), audibleSpeedPct());
+  }
+
+  /** Re-time against a clock that has moved (a rung landed, the source
+   *  swapped). The BEATS never change -- they are source seconds -- which
+   *  is the whole economy of scheduling the click instead of rendering it:
+   *  a speed change costs one multiplication, not a re-fit and not a
+   *  second cache entry. */
+  function retimeMetronome() {
+    if (!metronome || !metronomeBeats || metronomeState !== 'on') return;
+    metronome.setBeats(
+      metronomeBeats, { startS: section.start_s }, metronomeClock(), metronomeMultiplier,
+    );
+  }
+
+  function applyMetronome() {
+    if (metronomeState !== 'on') {
+      if (metronome) metronome.stop();
+      return;
+    }
+    if (engineKind === 'realtime') {
+      metronomeState = 'no-cache';
+      renderMetronomeToggle();
+      return;
+    }
+    if (!ensureMetronome()) return; // engine not up yet; ensureEngine() calls back
+    retimeMetronome();
+    metronome.start();
+  }
+
+  /** The multiplier cycle: off -> 1x -> 2x -> 4x -> off. */
+  const METRONOME_RUNGS = [1, 2, 4];
+
+  /**
+   * The press. First time on, this fetches the section's beats (about a
+   * second, cached on disk from then on); after that it is instant, and
+   * every later press in the same section just steps the multiplier --
+   * `subdivideBeats` (metronome.js) subdivides the SAME fit, so 2x and 4x
+   * never re-fetch or re-fit either.
+   *
+   * Turning itself back off is deliberate in two cases -- a section with
+   * no measurable pulse, and the real-time fallback engine -- because a
+   * toggle that reads "on" while nothing clicks is the worst of the three
+   * possible states. The status bar says which.
+   */
+  async function toggleMetronome() {
+    if (section.full_song || metronomeState === 'fitting') return;
+    if (metronomeState === 'no-cache') {
+      metronomeState = 'off';
+      metronomeMultiplier = 1;
+      renderMetronomeToggle();
+      return;
+    }
+    if (metronomeState === 'on') {
+      const next = METRONOME_RUNGS.indexOf(metronomeMultiplier) + 1;
+      if (next < METRONOME_RUNGS.length) {
+        metronomeMultiplier = METRONOME_RUNGS[next];
+        retimeMetronome();
+        renderMetronomeToggle();
+        return;
+      }
+      metronomeState = 'off';
+      metronomeMultiplier = 1;
+      if (metronome) metronome.stop();
+      renderMetronomeToggle();
+      return;
+    }
+
+    if (metronomeBeats === null) {
+      metronomeState = 'fitting';
+      renderMetronomeToggle();
+      try {
+        const data = await get(
+          `/api/beats/${encodeURIComponent(payload.slug)}/${encodeURIComponent(section.id)}`,
+        );
+        metronomeBeats = Array.isArray(data.beats) ? data.beats : [];
+      } catch (err) {
+        console.warn(`practice.js: could not fit this section's beats (${err && err.message})`, err);
+        // Left NULL, not []: a failed request (the server restarted, the
+        // fit raised) must be retryable by pressing again. Only a
+        // successful fit that found no pulse is a settled answer worth
+        // remembering, and that one comes back as an empty list.
+        metronomeState = 'none';
+        renderMetronomeToggle();
+        return;
+      }
+    }
+
+    metronomeMultiplier = 1;
+    metronomeState = metronomeBeats.length === 0 ? 'none' : 'on';
+    applyMetronome();
+    renderMetronomeToggle();
   }
 
   /**
@@ -710,6 +1089,10 @@ export function mount(el, payload) {
       }
       guitarBusy = false;
       renderGuitarToggle();
+      // The source swapped under a fresh node: same beats (the isolated
+      // clip is cut from the same recording, so source seconds are source
+      // seconds), new node, so the click has to be re-anchored.
+      retimeMetronome();
       renderDiscrete();
     }
   }
@@ -765,6 +1148,14 @@ export function mount(el, payload) {
         </div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:12px;padding-top:6px">
           <div style="display:flex;gap:20px;align-items:flex-start">
+            <div data-metronome-control style="display:flex;gap:12px;align-items:center">
+              <div class="lbl" style="font-size:12px">Metronome</div>
+              <div style="display:flex;align-items:center;border:1px solid var(--line,#26302E);border-radius:5px;padding:5px">
+                <button class="stepper-btn" data-metronome-toggle aria-pressed="false"
+                        title="Metronome (m)" style="min-width:44px;display:flex;align-items:center;justify-content:center;gap:3px"
+                        >${METRONOME_ICON}<span data-metronome-label class="mono" style="font-size:11px"></span></button>
+              </div>
+            </div>
             <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
               <div style="display:flex;gap:12px;align-items:center">
                 <div class="lbl" style="font-size:12px">Guitar only</div>
@@ -854,6 +1245,7 @@ export function mount(el, payload) {
   const shiftValEl = root.querySelector('[data-shift-val]');
   const tuningCaptionEl = root.querySelector('[data-tuning-caption]');
   const guitarToggleEl = root.querySelector('[data-guitar-toggle]');
+  const metronomeToggleEl = root.querySelector('[data-metronome-toggle]');
   const speedCellEl = root.querySelector('[data-speed-cell]');
   const speedSubEl = root.querySelector('[data-speed-sub]');
   const repsValEl = root.querySelector('[data-reps-val]');
@@ -963,6 +1355,16 @@ export function mount(el, payload) {
   // ---- "Guitar only" toggle (Phase 1.5, S3) ----
   if (guitarToggleEl) guitarToggleEl.addEventListener('click', toggleGuitarOnly);
   renderGuitarToggle();
+
+  // ---- metronome toggle (2026-09-12) ----
+  // The button dispatches the ACTION rather than calling the handler --
+  // CLAUDE.md's "one action table shared by mouse, keyboard and MIDI": the
+  // 'm' key and this button must reach the same code by the same route,
+  // and a screen's own button is not a private shortcut around the table.
+  if (metronomeToggleEl) {
+    metronomeToggleEl.addEventListener('click', () => dispatch('metronome_toggle', 'ui'));
+  }
+  renderMetronomeToggle();
 
   function tuningNote() {
     const rec = payload.recording.tuning;
@@ -1132,14 +1534,14 @@ export function mount(el, payload) {
     if (engineReady) {
       try { engine.seek(sourceS); } catch { /* no node yet -- nothing to seek */ }
     }
+    if (metronome) metronome.resync();
     elapsed = frac * cosmeticLoopDur;
     renderCheap();
   }
 
   // ---- the engine (this unit's half of D7) ----
-  let engine = null;
-  let engineReady = false;
-  let engineInitPromise = null;
+  // The three bindings themselves live near the top of mount() -- see the
+  // note there; only the functions that use them belong here.
   /**
    * Create the RealtimeEngine and load this section -- but only once, and
    * only ever called from inside a user-gesture handler (play_pause,
@@ -1166,10 +1568,37 @@ export function mount(el, payload) {
       renderStage = event.detail.stage;
       renderSpeedPct = event.detail.speedPct;
       renderSemitones = event.detail.semitones;
+      // A new attempt starting supersedes whatever the last one's failure
+      // said -- the same "say so once" spirit as the render/error split
+      // below: a stale complaint about the press before this one is never
+      // more relevant than the press actually in flight now.
+      if (event.detail.stage) engineError = null;
       renderGuitarToggle();
+      renderStatusBar();
     });
     e.addEventListener('rung', (event) => onRung(event.detail));
-    e.addEventListener('error', (err) => console.error('practice.js: engine error', err.detail?.error));
+    e.addEventListener('error', (err) => {
+      // #6: surfaced in the one status bar rather than only console-logged
+      // -- a render that will never build (player.js's own _changeRender
+      // doc: "keep playing what is already loaded") or a play() the
+      // browser silently blocked used to leave the screen showing
+      // "playing" or an unfulfillable target with nothing visible to say
+      // why. See statusBarState's own doc for where this ranks.
+      console.error('practice.js: engine error', err.detail?.error);
+      engineError = describeEngineError(err.detail?.error);
+      renderStatusBar();
+      // A blocked play() rolls the ENGINE's own `playing` back to false
+      // (player.js's `_verifyResumed`) — this screen's `playing` is a
+      // separate, optimistically-set local flag (module doc, decision 3)
+      // and has no other way to learn the engine gave up. Left unsynced,
+      // the screen would keep showing "playing" -- ring animating, foot
+      // icon lit -- over audio that will never start.
+      if (typeof engine.playing === 'boolean' && !engine.playing && playing) {
+        playing = false;
+        renderCheap();
+        renderFootIcon();
+      }
+    });
     // Speed and shift BEFORE loadSection: for the buffer engine they
     // decide WHICH file is fetched, so setting them afterwards would
     // fetch the wrong render and then immediately replace it.
@@ -1210,6 +1639,10 @@ export function mount(el, payload) {
         }
         engineReady = true;
         renderEngineKind();
+        // A metronome switched on before the first play() has been waiting
+        // for exactly this: an engine, and therefore an AudioContext to
+        // schedule against. No-op when it was never switched on.
+        applyMetronome();
         // #3: auto-apply the patch that applies at THIS section's own
         // start -- resolved once, here, since a section never changes
         // mid-mount (a different one is a fresh navigation, gotoSibling's
@@ -1246,7 +1679,17 @@ export function mount(el, payload) {
     // advance is already correct for the lap that just finished.
     if (!detail.pending && detail.speedPct !== ladder.speed) ladder.setSpeed(detail.speedPct);
     beginLap();
+    // The rung that just became audible stretched every beat with it. The
+    // beats themselves are source seconds and did not move -- only the
+    // clock they are read through -- so this is a re-time, never a re-fit.
+    retimeMetronome();
     renderDiscrete();
+    // Every event that can flip `engine.pending` fires 'rung' (a press
+    // latching a new target, a swap adopted at its seam, an error rolling
+    // the target back, restartSection adopting a queued swap) -- so this is
+    // the one place that needs to re-check the swap-waiting status text,
+    // rather than each caller remembering to.
+    renderStatusBar();
   }
 
   function onPass() {
@@ -1258,6 +1701,10 @@ export function mount(el, payload) {
     // boundary, never mid-loop" structural rather than remembered.
     const { clean, advanced } = ladder.pass_();
     repCount += 1;
+    // TEMP diagnostic for the 2026-09-12 "sine noise after the first loop"
+    // hunt -- remove once the repeat on tutti-in-fila/1431dc68@60% is
+    // understood.
+    console.debug(`[practice] onPass clean=${clean} advanced=${advanced ? `${advanced.from}%->${advanced.to}%` : 'no'}`);
 
     post('/api/rep', {
       song: payload.slug,
@@ -1283,7 +1730,7 @@ export function mount(el, payload) {
     if (advanced) {
       advanceInfo = { oldSpeed: advanced.from, newSpeed: advanced.to, earnedAt: new Date() };
       speedPct = advanced.to;
-      commitSpeed();
+      commitSpeedAtSeam();
       advancing = true;
       clearTimeout(advanceTimer);
       advanceTimer = setTimeout(() => {
@@ -1359,15 +1806,25 @@ export function mount(el, payload) {
       renderCheap();
       renderFootIcon(); // Q1: the chip's icon swaps live on the ACTUAL playing state
       if (playing) {
+        // A fresh attempt supersedes whatever the last one's engine error
+        // said -- same reasoning as the 'rendering' listener above.
+        if (engineError) { engineError = null; renderStatusBar(); }
         // Called synchronously, same call stack as the click/keydown that
         // reached here -- ensureEngine()'s AudioContext gets created and
         // resumed as a direct consequence of this user gesture. Do not
         // await this before returning; play() fires once loadSection
         // resolves, whether that is on this press (first time) or already
         // settled (every press after).
-        ensureEngine().then(() => { if (engineReady && playing) engine.play(); });
+        ensureEngine().then(() => {
+          if (engineReady && playing) engine.play();
+          applyMetronome();
+        });
       } else if (engineReady) {
         engine.pause();
+        // Clicks are scheduled up to 400ms ahead on the audio thread, so
+        // pausing has to withdraw them: otherwise the room keeps ticking
+        // after the music stops.
+        if (metronome) metronome.stop();
       }
     },
     next_section() { gotoSibling(1); },
@@ -1427,12 +1884,16 @@ export function mount(el, payload) {
     // FOUND LIVE 2026-09-10).
     restart_section() {
       if (engineReady) engine.restartSection(playing);
+      // Playback jumped; anything already scheduled belongs to the lap
+      // that no longer exists. The next tick re-reads the position.
+      if (metronome) metronome.resync();
       beginLap();
       elapsed = -cosmeticPreRoll;
       advancing = false;
       clearTimeout(advanceTimer);
       renderDiscrete();
     },
+    metronome_toggle() { toggleMetronome(); },
     transpose_up() {
       shift = clampShift(shift + 1);
       commitShift();
@@ -1508,6 +1969,12 @@ export function mount(el, payload) {
     window.removeEventListener('resize', applyScale);
     unsubMidi();
     for (const unsub of unsubs) unsub();
+    if (metronome) {
+      // Before the engine: destroy() silences whatever is still scheduled
+      // and drops the gain node, and both live on the engine's context.
+      try { metronome.destroy(); } catch { /* never fully built */ }
+      metronome = null;
+    }
     if (engine) {
       try { engine.destroy(); } catch (err) { /* already torn down or never finished loading */ }
     }
