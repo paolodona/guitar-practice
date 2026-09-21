@@ -892,7 +892,7 @@ class WoodshedHandler(BaseHTTPRequestHandler):
                     "slug": entry.slug, "title": entry.slug, "artist": None,
                     "needs_audio": True, "readiness": None, "section_count": 0,
                     "sections_under_target": 0, "last_practised": None,
-                    "is_cold": False, "shift": None,
+                    "is_cold": False, "shift": None, "full_song_reps": 0,
                 })
                 continue
 
@@ -921,6 +921,27 @@ class WoodshedHandler(BaseHTTPRequestHandler):
                 and readiness.ratio > practice.COLD_REACHED_THRESHOLD
             )
 
+            # The dashboard's own full-song counter (Paolo's ask,
+            # 2026-09-21): a `full_song` section is a rep counter, not a
+            # ladder target (manifest.Section.full_song's own docstring),
+            # so its number belongs beside the rest of the row, not inside
+            # `section_count`/`readiness` which both exclude it on purpose.
+            # `next(..., None)` rather than a list comprehension: nothing
+            # stops a song having more than one full_song entry (an old
+            # manual toggle, now UI-inert but still on disk), and the
+            # dashboard's contract is "reps for the default whole-song
+            # entry" -- so this picks manifest.py's own fixed id first and
+            # only falls back to whichever full_song section sorts first
+            # for a song that somehow has none with that id.
+            full_song_section = next(
+                (s for s in song.sections if s.full_song and s.id == "whole-song"),
+                next((s for s in song.sections if s.full_song), None),
+            )
+            full_song_reps = (
+                ledger.totals(reps, song.slug, full_song_section.id).passes
+                if full_song_section else 0
+            )
+
             rows.append({
                 "slug": song.slug,
                 "title": song.title,
@@ -935,6 +956,7 @@ class WoodshedHandler(BaseHTTPRequestHandler):
                 "last_practised": last.isoformat() if last else None,
                 "is_cold": is_cold,
                 "shift": effective_shift(setlist, entry, song),
+                "full_song_reps": full_song_reps,
             })
 
         cfg = load_config(self.repo).defaults

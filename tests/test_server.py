@@ -934,6 +934,44 @@ def test_api_setlist_row_section_count_excludes_full_song(served):
     assert row["section_count"] == 2
 
 
+def test_api_setlist_row_full_song_reps_counts_passes_on_the_whole_song_entry(served):
+    """Paolo's ask, 2026-09-21: the dashboard's own "how many times have I
+    played the whole thing" counter -- passes against the `full_song`
+    section, not clean reps only (a pass is a pass; the ladder is what
+    cares about clean), and not the song's other, ordinary sections."""
+    base, repo, slug = served
+    song_path = repo.song_dir(slug) / "song.yaml"
+    song = load_song(song_path)
+    song.sections.append(
+        Section(
+            id="whole-song", name="Whole song", start_s=0.0, end_s=200.0,
+            snapped="free", target_speed=100.0, full_song=True,
+        )
+    )
+    save_song(song, song_path)
+    save_setlist(
+        Setlist(name="Gig", tuning="E standard", songs=[SetlistEntry(slug=slug)]),
+        repo.setlists_dir / "gig.yaml",
+    )
+
+    _, data = _get_json(base, "/api/setlist/gig")
+    assert data["rows"][0]["full_song_reps"] == 0
+
+    for clean in (True, False, True):  # an unclean pass still counts
+        _post(base, "/api/rep", {
+            "song": slug, "section": "whole-song", "speed": 100.0, "semitones": 0,
+            "pass": True, "clean": clean, "loop_s": 180.0, "setlist": None, "source": "ui",
+        })
+    # A rep against an ordinary section must not bleed into this count.
+    _post(base, "/api/rep", {
+        "song": slug, "section": "solo-full", "speed": 100.0, "semitones": 0,
+        "pass": True, "clean": True, "loop_s": 20.0, "setlist": None, "source": "ui",
+    })
+
+    _, data = _get_json(base, "/api/setlist/gig")
+    assert data["rows"][0]["full_song_reps"] == 3
+
+
 def test_api_setlist_row_flags_needs_audio_for_an_unbound_song(served):
     base, repo, slug = served
     save_setlist(
@@ -946,7 +984,7 @@ def test_api_setlist_row_flags_needs_audio_for_an_unbound_song(served):
     assert data["rows"][0] == {
         "slug": "ghost", "title": "ghost", "artist": None, "needs_audio": True,
         "readiness": None, "section_count": 0, "sections_under_target": 0,
-        "last_practised": None, "is_cold": False, "shift": None,
+        "last_practised": None, "is_cold": False, "shift": None, "full_song_reps": 0,
     }
 
 

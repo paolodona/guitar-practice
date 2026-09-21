@@ -85,7 +85,7 @@ function ensureStyle() {
     .ws-dash .pill { font-size:15px;padding:7px 14px;border-radius:4px;color:var(--ink-2,#9CAAA4);
       background:none;border:none;cursor:pointer;font-family:inherit }
     .ws-dash .pill.sel { background:var(--raised,#1B2422);color:var(--ink,#E8EEEB) }
-    .ws-dash .row { display:grid;grid-template-columns:18px 380px 1fr 210px 130px 96px 20px;
+    .ws-dash .row { display:grid;grid-template-columns:18px 380px 1fr 210px 130px 80px 96px 20px;
       align-items:center;gap:24px;padding:17px 12px;border-bottom:1px solid var(--hairline,#1C2523);
       text-decoration:none;color:inherit }
     .ws-dash a.row:hover { background:#111917 }
@@ -152,6 +152,7 @@ function rowHtml(row) {
         </div>
         <div style="font-size:14px;color:var(--ink-4,#5B6A64)">&mdash;</div>
         <div style="font-size:14px;color:var(--ink-4,#5B6A64)">&mdash;</div>
+        <div class="mono" style="font-size:13px;color:var(--ink-4,#5B6A64);text-align:right">&mdash;</div>
         <div class="mono" style="font-size:13px;color:var(--ink-4,#5B6A64);text-align:right">?</div>
         <div></div>
       </div>`;
@@ -188,6 +189,7 @@ function rowHtml(row) {
         ${row.is_cold ? '<div class="badge" style="background:var(--warn-tint,#2A1D17);color:var(--warn,#C9805E)">cold</div>' : ''}
       </div>
       <div class="mono num" style="font-size:13px;color:${shiftColor};text-align:right">${shiftText}</div>
+      <div class="mono num" style="font-size:13px;color:var(--ink-2,#9CAAA4);text-align:right" title="full-song reps">${row.full_song_reps}&times;</div>
       <div><svg width="7" height="12" viewBox="0 0 7 12" fill="none"><path d="M1 1l5 5-5 5" stroke="#3E4A46" stroke-width="1.5" stroke-linecap="round"/></svg></div>
     </a>`;
 }
@@ -469,6 +471,7 @@ function render(el, payload) {
         <div class="lbl" style="font-size:10px">Sections</div>
         <div class="lbl" style="font-size:10px">Practiced</div>
         <div class="lbl" style="font-size:10px;text-align:right">Shift</div>
+        <div class="lbl" style="font-size:10px;text-align:right">Full song</div>
         <div></div>
       </div>
       <div data-rows>${payload.rows.map(rowHtml).join('')}</div>
