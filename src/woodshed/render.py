@@ -57,6 +57,7 @@ import numpy as np
 from pydantic import ValidationError
 
 from woodshed import ladder
+from woodshed.atomic import published_atomically
 from woodshed.clock import Render, pre_roll_seconds
 from woodshed.errors import WoodshedError
 from woodshed.ladder import LadderConfig, LadderState
@@ -355,11 +356,16 @@ def render_section(
         baked_path = scratch_path / "baked.wav"
         _write_wav(baked_path, baked, sample_rate)
 
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        _run(
-            [ffmpeg, "-v", "error", "-nostdin", "-y", "-i", str(baked_path), str(dest)],
-            action=f"encode the render of section {section.id!r} to FLAC",
-        )
+        # Encoded BESIDE the destination and renamed onto it, never
+        # straight onto it: `server._render` reports a render ready when
+        # `dest.is_file()`, which is true from the instant ffmpeg opens the
+        # output. See atomic.py for the drone that window produced in the
+        # room, and for why a crash here must leave nothing behind.
+        with published_atomically(dest) as scratch:
+            _run(
+                [ffmpeg, "-v", "error", "-nostdin", "-y", "-i", str(baked_path), str(scratch)],
+                action=f"encode the render of section {section.id!r} to FLAC",
+            )
 
     return dest
 

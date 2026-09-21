@@ -11,11 +11,14 @@ array, rather than erroring or wrapping/reading garbage.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from pathlib import Path
+from unittest import mock
 
 import numpy as np
 import pytest
 
+import woodshed.peaks as peaks_module
 from woodshed.library import Repo
 from woodshed.peaks import compute_peaks, multi_resolution, read_peaks, write_peaks
 
@@ -159,6 +162,35 @@ def test_write_peaks_returns_a_path(repo: Repo) -> None:
     result = write_peaks(repo, "test-song", data)
 
     assert isinstance(result, Path)
+
+
+def test_write_peaks_publishes_each_file_whole_or_not_at_all(repo: Repo) -> None:
+    """`read_peaks` and `GET /api/peaks` read these while `analyze` may be
+    writing them, and half a JSON document is a parse error on the screen
+    rather than a waveform. Same all-or-nothing publish the render cache
+    got on 2026-09-12 (atomic.py), for the same reason: a reader must see
+    the previous file or the new one, never the write in progress."""
+    path = repo.cache_dir("test-song") / "peaks-1024.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    old = '{"level": 1024, "peaks": [[0.0, 0.0]]}'
+    path.write_text(old, encoding="utf-8")
+
+    seen_mid_write: list[str] = []
+    real = peaks_module.published_atomically
+
+    @contextmanager
+    def watching(dest: Path):
+        with real(dest) as scratch:
+            yield scratch
+            # The new document is fully written to the scratch file by now.
+            # A reader arriving at this instant is what the test is about.
+            seen_mid_write.append(dest.read_text(encoding="utf-8"))
+
+    with mock.patch.object(peaks_module, "published_atomically", watching):
+        write_peaks(repo, "test-song", {1024: [(-1.0, 1.0)]})
+
+    assert seen_mid_write == [old], "the destination was being written in place"
+    assert read_peaks(repo, "test-song", 1024) == {"level": 1024, "peaks": [[-1.0, 1.0]]}
 
 
 def test_read_peaks_returns_none_when_uncached(repo: Repo) -> None:

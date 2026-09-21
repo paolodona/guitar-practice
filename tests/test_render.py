@@ -282,6 +282,82 @@ def test_render_section_rubberband_pitch_is_the_raw_semitone_count(
     assert "--fine" in rb_argv
 
 
+def test_render_section_never_encodes_onto_the_cache_path_itself(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FOUND LIVE 2026-09-12, Paolo, on tutti-in-fila/1431dc68 at 60%: "a
+    constant 'sine' sound as if a few milliseconds were looping".
+
+    `server._render` reports a render ready when `dest.is_file()`, so the
+    destination must not exist until the FLAC is COMPLETE -- and the final
+    ffmpeg used to encode straight onto it, which creates the file at the
+    top of the encode. Polling the running server every 100ms while this
+    very render built caught the window on the first try: `200` with
+    `Content-Length: 0`. A poll landing slightly later gets a prefix of a
+    FLAC, which the browser decodes to a buffer of milliseconds and loops
+    with the loop points of a 22-second one.
+    """
+    repo, song, _calls = _setup(tmp_path, monkeypatch)
+    section = _section()
+    fp = span_fingerprint(song, section, pre_roll_s=0.0, crossfade_ms=10.0)
+    expected = cache_path(repo, song.slug, section.id, 60.0, 0, fp)
+
+    encode_targets: list[Path] = []
+    dest_existed_during_encode: list[bool] = []
+    inner = _fake_run([])
+
+    def watching_run(argv, **kwargs):
+        target = Path(argv[-1])
+        if target.suffix == ".flac":
+            encode_targets.append(target)
+            dest_existed_during_encode.append(expected.exists())
+        return inner(argv, **kwargs)
+
+    monkeypatch.setattr(render_module.subprocess, "run", watching_run)
+
+    dest = render_section(repo, song, section, 60.0, 0)
+
+    assert dest == expected
+    assert encode_targets, "no FLAC encode happened at all"
+    assert encode_targets[0] != expected, (
+        "the encode wrote straight onto the cache path -- a reader polling "
+        "mid-encode is served a truncated FLAC"
+    )
+    assert encode_targets[0].parent == expected.parent  # same filesystem: rename is atomic
+    assert encode_targets[0].suffix == ".flac"  # ffmpeg picks its muxer from the extension
+    assert dest_existed_during_encode == [False]
+    assert dest.is_file()  # and it IS there once the encode has finished
+
+
+def test_render_section_leaves_no_cache_file_when_the_encode_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The half of the same bug that outlives the session: `render_section`
+    returns early when `dest.is_file()`, so a render interrupted mid-encode
+    would be treated as cached forever after -- every later play of that
+    rung a drone, with nothing on screen to say why."""
+    repo, song, _calls = _setup(tmp_path, monkeypatch)
+    section = _section()
+    fp = span_fingerprint(song, section, pre_roll_s=0.0, crossfade_ms=10.0)
+    expected = cache_path(repo, song.slug, section.id, 60.0, 0, fp)
+    inner = _fake_run([])
+
+    def dying_run(argv, **kwargs):
+        target = Path(argv[-1])
+        if target.suffix == ".flac":
+            target.write_bytes(b"fLaC half an encode")  # what ffmpeg had managed
+            raise WoodshedError("ffmpeg died encoding the render")
+        return inner(argv, **kwargs)
+
+    monkeypatch.setattr(render_module.subprocess, "run", dying_run)
+
+    with pytest.raises(WoodshedError):
+        render_section(repo, song, section, 60.0, 0)
+
+    assert not expected.exists()
+    assert list(expected.parent.glob("*.flac")) == []
+
+
 def test_render_section_skips_the_work_when_already_cached(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -174,6 +174,43 @@ def test_isolate_guitar_writes_the_cache_file_and_returns_its_path(
     assert len(calls) == 3  # ffmpeg cut, demucs, ffmpeg transcode
 
 
+def test_isolate_guitar_never_transcodes_onto_the_cache_path_itself(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The stem cache is served (`GET /api/stem/...`) and probed
+    (`stem_path.is_file()` decides whether the 202 says "separating" or
+    "rendering"), so it needs the same all-or-nothing publish the render
+    cache needs -- see tests/test_atomic.py and atomic.py for the drone a
+    half-written FLAC made in the room on 2026-09-12. Guitar-only practice
+    would hit it exactly the same way, after a far longer wait."""
+    repo, song, _calls = _setup(tmp_path, monkeypatch)
+    section = _section()
+    fp = stem_fingerprint(song, section, pre_roll_s=0.0)
+    expected = stem_cache_path(repo, song.slug, section.id, fp)
+
+    targets: list[Path] = []
+    existed: list[bool] = []
+    inner = _fake_subprocess_run([])
+
+    def watching_run(argv, **kwargs):
+        target = Path(argv[-1])
+        if target.suffix == ".flac":
+            targets.append(target)
+            existed.append(expected.exists())
+        return inner(argv, **kwargs)
+
+    monkeypatch.setattr(separate_module.subprocess, "run", watching_run)
+
+    dest = isolate_guitar(repo, song, section)
+
+    assert dest == expected
+    assert targets and targets[0] != expected
+    assert targets[0].parent == expected.parent
+    assert targets[0].suffix == ".flac"
+    assert existed == [False]
+    assert dest.is_file()
+
+
 def test_isolate_guitar_ffmpeg_cut_argv_uses_source_seconds_with_pre_roll(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -50,6 +50,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+from woodshed.atomic import published_atomically
 from woodshed.errors import WoodshedError
 from woodshed.library import Repo
 from woodshed.manifest import Section, Song
@@ -186,10 +187,14 @@ def isolate_guitar(
                 f"(expected {guitar_wav})"
             )
 
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        _run_ffmpeg(
-            [ffmpeg, "-v", "error", "-nostdin", "-y", "-i", str(guitar_wav), str(dest)],
-            action=f"transcode the isolated guitar for section {section.id!r} to FLAC",
-        )
+        # Beside the destination, then renamed onto it -- `dest.is_file()`
+        # is what tells the server this stem is ready (and what tells the
+        # 202 body to stop saying "separating"), so the file must not
+        # appear until it is whole. atomic.py has the measurement.
+        with published_atomically(dest) as scratch:
+            _run_ffmpeg(
+                [ffmpeg, "-v", "error", "-nostdin", "-y", "-i", str(guitar_wav), str(scratch)],
+                action=f"transcode the isolated guitar for section {section.id!r} to FLAC",
+            )
 
     return dest

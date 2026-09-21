@@ -18,6 +18,8 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from woodshed.atomic import published_atomically
+
 if TYPE_CHECKING:
     from woodshed.library import Repo
 
@@ -109,7 +111,12 @@ def write_peaks(
     for level, peaks in data.items():
         path = cache_dir / f"peaks-{level}.json"
         payload = {"level": level, "peaks": [list(pair) for pair in peaks]}
-        path.write_text(json.dumps(payload), encoding="utf-8")
+        # Renamed onto, never written in place: `read_peaks` and
+        # `GET /api/peaks` can arrive mid-write, and half a JSON document
+        # is a parse error where a waveform should be. atomic.py has the
+        # same rule's audible version.
+        with published_atomically(path) as scratch:
+            scratch.write_text(json.dumps(payload), encoding="utf-8")
         last_path = path
 
     return last_path
