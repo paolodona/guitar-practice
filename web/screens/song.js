@@ -265,22 +265,13 @@ export function mount(el, payload) {
     sendProgramChange(memory);
   }
 
-  function closestRung(target) {
-    return RUNGS.reduce((a, b) => (Math.abs(b - target) < Math.abs(a - target) ? b : a), RUNGS[0]);
-  }
-  // Found live 2026-09-06, Paolo: "not all songs or sections will be
-  // practiced from 50%" -- default the preview rung to the INITIALLY
-  // selected section's own `starting_speed_pct` (server.py's
-  // `_section_starting_speed`, GET /api/song's per-section field: the
-  // earned ladder rung for an ordinary section, the last speed actually
-  // practiced for a `full_song` one -- and a `full_song` section, being
-  // the longest span starting at 0, is `sections[0]` -- i.e. the initial
-  // selection -- almost always in practice), falling back to the song's
-  // flat `start_speed` default only when nothing has been practised yet
-  // or the field is missing (an older cached payload).
-  const initialSection = sections.find((s) => s.id === selectedId);
-  const initialStartSpeed = initialSection?.starting_speed_pct ?? payload.practice.start_speed;
-  let previewSpeed = closestRung(initialStartSpeed);
+  // Found live 2026-09-21, Paolo: this workbench preview is for scrubbing
+  // around the song, not for practising it -- so the rung here always
+  // starts at 100 regardless of the song's `practice.start_speed` or any
+  // section's earned `starting_speed_pct`. Practice's own start speed is
+  // honoured where it matters: practice.js's mount (see that file's own
+  // comment, near `startSpeed: payload.practice.start_speed`), not here.
+  let previewSpeed = 100;
   let transportPlaying = false;
 
   // ---- the preview engine (Phase 1.5, R1) ----
