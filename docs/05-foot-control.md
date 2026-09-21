@@ -167,6 +167,23 @@ sound changes with the part.
   `sendProgramChange` itself, the one place that calls `output.send()`, so
   no future call site can bypass it. A bare `0xC0`, never a Bank Select
   pair, range-checked to 0–127 before anything goes out.
+* **Which output port it goes to is a decision, not a default.** An empty
+  `config.gx100.midi_output` means "find the GX-100 by name" — never "the
+  first available output". That earlier reading was wrong on this machine
+  and wrong *silently*: Windows enumerates
+
+  ```
+  0: Microsoft GS Wavetable Synth   1: GX-100   2: GX-100 DAW CTRL
+  ```
+
+  so every Program Change went to a software synth while the pedal sat on
+  whatever patch it was last left on (found live 2026-09-12: the app
+  believed it had sent `PC 116` for `U30-1`; SysEx `CurrentPatchNum` read
+  `99`, `U25-4`, untouched). A Program Change to the wrong device makes no
+  sound and raises no error, so `findOutput` now logs the port it chose,
+  once per page — the cheapest way for the next mis-pick to be visible
+  instead of mysterious. The pedal's `DAW CTRL` port is deliberately the
+  second choice: only its playing port selects memories.
 
 This is where the three repos finally close the loop: `gx100` designs the
 patch and confirms what the wire protocol actually is, `rambass-live` showed

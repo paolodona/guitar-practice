@@ -65,9 +65,11 @@ class Gx100(BaseModel):
     #: "Don't" and the same instinct as gx100's edit-buffer-only rule.
     send_program_changes: bool = False
     #: Case-insensitive substring against a Web MIDI output port's own
-    #: `name` -- same convention as `Midi.input` above. Empty matches the
-    #: first available output port, the ordinary case with one pedal
-    #: attached.
+    #: `name` -- same convention as `Midi.input` above. Empty means "find
+    #: the pedal by name" (`gx100.js`'s `pickOutput`), NOT "the first
+    #: available output port": Windows enumerates the GS Wavetable Synth
+    #: ahead of the GX-100, so that reading sent every Program Change to a
+    #: software synth, silently, until it was found live 2026-09-12.
     midi_output: str = ""
 
 

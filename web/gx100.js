@@ -94,13 +94,53 @@ export function resolvePatchAt(patchChanges, atS) {
 
 // ---- sending ---------------------------------------------------------------
 
+/** Port names that look like the pedal itself — the same hints
+ *  `gx100_sync.guess_gx100_ports` matches on the Python side, for the same
+ *  job (find the GX-100 among whatever else is plugged in). */
+const GX_HINTS = ['gx-100', 'gx100', 'boss gx'];
+
+/**
+ * Which output port to send Program Changes to, out of *outputs*, given
+ * `config.gx100.midi_output`.
+ *
+ * A non-empty *substring* is an explicit instruction: case-insensitive
+ * match on a port's own `name` (same convention as `config.midi.input`),
+ * and **null when it matches nothing** — an explicit ask that cannot be
+ * honoured must send nowhere, never to some other device instead.
+ *
+ * An empty one used to mean "the first available output", which was wrong
+ * on this machine and silently so (found live 2026-09-12, see
+ * web/tests/test_gx100.mjs): Windows enumerates `Microsoft GS Wavetable
+ * Synth` first, ahead of `GX-100`, so every Program Change went to the
+ * software synth and the pedal never moved. It now means "the pedal, if
+ * one is attached" — a GX-hinted port, preferring its playing port over
+ * its `DAW CTRL` companion (the pedal exposes both; only the first one
+ * selects memories) — and falls back to the first output only when nothing
+ * on the machine looks like a GX-100 at all, which is the one case the old
+ * behaviour was ever right about.
+ * @param {{name?: string}[]} outputs
+ * @param {string} substring
+ * @returns {{name?: string}|null}
+ */
+export function pickOutput(outputs, substring) {
+  const ports = [...(outputs || [])];
+  const nameOf = (port) => (port.name || '').toLowerCase();
+  const wanted = String(substring || '').trim().toLowerCase();
+  if (wanted) return ports.find((port) => nameOf(port).includes(wanted)) ?? null;
+  const pedals = ports.filter((port) => GX_HINTS.some((hint) => nameOf(port).includes(hint)));
+  return pedals.find((port) => !nameOf(port).includes('daw')) ?? pedals[0] ?? ports[0] ?? null;
+}
+
 let outputPromise = null;
 
-/** Lazily request MIDI access and pick the output port matching
- *  config.gx100.midi_output (case-insensitive substring, same convention
- *  as config.midi.input) — empty matches the first available output.
- *  Cached: every call after the first reuses the same port rather than
- *  re-requesting access and re-scanning ports on every section load. */
+/** Lazily request MIDI access and resolve the output port through
+ *  {@link pickOutput}. Cached: every call after the first reuses the same
+ *  port rather than re-requesting access and re-scanning ports on every
+ *  section load — so the one line it logs names, once per page, the device
+ *  every Program Change this session will actually reach. That line is not
+ *  noise: a Program Change sent to the wrong output makes no sound, raises
+ *  no error and leaves the pedal sitting on the previous patch, which is
+ *  exactly how this went unnoticed until 2026-09-12. */
 function findOutput() {
   if (!outputPromise) {
     outputPromise = (async () => {
@@ -108,15 +148,19 @@ function findOutput() {
       let outputSubstring = '';
       try {
         const config = await get('/api/config');
-        outputSubstring = ((config.gx100 && config.gx100.midi_output) || '').toLowerCase();
+        outputSubstring = (config.gx100 && config.gx100.midi_output) || '';
       } catch {
-        // No config reachable -- match the first output port, same
-        // degrade midi.js's own attach() makes for its input side.
+        // No config reachable -- fall through to the pedal-hint match, the
+        // same degrade midi.js's own attach() makes for its input side.
       }
       const access = await navigator.requestMIDIAccess({ sysex: false });
-      const outputs = [...access.outputs.values()];
-      if (!outputSubstring) return outputs[0] ?? null;
-      return outputs.find((o) => (o.name || '').toLowerCase().includes(outputSubstring)) ?? null;
+      const output = pickOutput([...access.outputs.values()], outputSubstring);
+      if (!output) {
+        console.warn(`gx100.js: no MIDI output matched ${JSON.stringify(outputSubstring)} — no patch changes this session`);
+        return null;
+      }
+      console.info(`gx100.js: sending Program Changes to MIDI output "${output.name}"`);
+      return output;
     })().catch((err) => {
       console.warn(`gx100.js: MIDI output unavailable (${err && err.message})`);
       return null;

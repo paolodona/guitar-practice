@@ -14,7 +14,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
-  MAX_PC, DEFAULT_MEMORY, memoryToIndex, indexToMemory, resolvePatchAt,
+  MAX_PC, DEFAULT_MEMORY, memoryToIndex, indexToMemory, resolvePatchAt, pickOutput,
 } from '../gx100.js';
 
 function test(name, fn) {
@@ -77,6 +77,37 @@ test('resolvePatchAt does not assume the list is pre-sorted', () => {
   assert.equal(resolvePatchAt(changes, 50), 'U01-1');
 });
 
+// ---- pickOutput ------------------------------------------------------------
+// Found live 2026-09-12, Paolo: "First run" is supposed to play through U30-1
+// HI-GAIN LEAD "but it has switched to the 25-4 LOOPER -1OCT instead". It had
+// not switched to anything -- SysEx CurrentPatchNum read 99 (U25-4), exactly
+// where the pedal had been left, while the app believed it had sent PC 116.
+// `midi_output: ""` meant "the first available output port", and on this
+// machine that is never the pedal. MEASURED with mido, same day, same session:
+const OUTPUTS_HERE = ['Microsoft GS Wavetable Synth 0', 'GX-100 1', 'GX-100 DAW CTRL 2']
+  .map((name) => ({ name }));
+
+test('an unset midi_output picks the pedal, not whatever Windows enumerates first', () => {
+  assert.equal(pickOutput(OUTPUTS_HERE, '').name, 'GX-100 1');
+});
+
+test('an unset midi_output prefers the pedal\'s own port over its DAW CTRL port', () => {
+  const dawFirst = [{ name: 'GX-100 DAW CTRL 2' }, { name: 'GX-100 1' }];
+  assert.equal(pickOutput(dawFirst, '').name, 'GX-100 1');
+});
+
+test('an unset midi_output still falls back to the first output when nothing looks like the pedal', () => {
+  const noPedal = [{ name: 'Some Other Interface' }, { name: 'And Another' }];
+  assert.equal(pickOutput(noPedal, '').name, 'Some Other Interface');
+  assert.equal(pickOutput([], ''), null);
+});
+
+test('an explicit midi_output wins, and matching nothing sends nowhere rather than to some other device', () => {
+  assert.equal(pickOutput(OUTPUTS_HERE, 'daw ctrl').name, 'GX-100 DAW CTRL 2');
+  assert.equal(pickOutput(OUTPUTS_HERE, 'wavetable').name, 'Microsoft GS Wavetable Synth 0');
+  assert.equal(pickOutput(OUTPUTS_HERE, 'no such port'), null);
+});
+
 // ---- sending: lint-style, no Web MIDI device to actually drive here -------
 
 const gx100JsPath = fileURLToPath(new URL('../gx100.js', import.meta.url));
@@ -96,6 +127,18 @@ test('sendProgramChange is gated on config.gx100.send_program_changes', () => {
 test('sendProgramChange range-checks the memory before sending -- never clamps or wraps', () => {
   const match = src.match(/export async function sendProgramChange\([\s\S]*?\n\}/);
   assert.ok(match[0].includes('memoryToIndex('), 'sendProgramChange must resolve through memoryToIndex, which refuses an unreachable memory');
+});
+
+test('findOutput resolves the port through pickOutput, not through outputs[0]', () => {
+  const match = src.match(/function findOutput\(\) \{[\s\S]*?\n\}/);
+  assert.ok(match, 'findOutput not found in gx100.js -- has it been renamed?');
+  assert.ok(match[0].includes('pickOutput('), 'the port choice must go through the tested pure function');
+  assert.ok(!/outputs\[0\]/.test(match[0]), 'never fall back to the first enumerated output inline -- that is the bug found live 2026-09-12');
+});
+
+test('the chosen output port is logged, so a wrong one is visible instead of silent', () => {
+  const match = src.match(/function findOutput\(\) \{[\s\S]*?\n\}/);
+  assert.ok(/console\.(info|log|warn)/.test(match[0]), 'name the port once: a Program Change going to the wrong device makes no sound and no error');
 });
 
 // ---- wiring into both load paths (#3's own ask: auto-apply on section AND

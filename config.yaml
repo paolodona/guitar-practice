@@ -3,5 +3,8 @@ gx100:
                                     # explicitly here so a section/song load
                                     # actually sends the Program Change.
   midi_output: ""                  # substring match on the output port name;
-                                    # empty matches the first available output
-                                    # (fine with one GX-100 attached).
+                                    # empty finds the GX-100 by name. It used to
+                                    # mean "the first available output", which on
+                                    # Windows is the GS Wavetable Synth -- every
+                                    # Program Change went there instead of to the
+                                    # pedal (found live 2026-09-12).
