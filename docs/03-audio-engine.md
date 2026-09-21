@@ -173,6 +173,20 @@ advance happens at the next loop boundary with no gap.
 
 Never render the whole song at every step. Render sections, on demand.
 
+**A cold cache doesn't mean silence.** The very first time `(section, speed,
+semitones, source)` is asked for, or any later press that lands on a combo
+nobody has visited yet, there is nothing pre-rendered to loop yet. Rather than
+block on the build, `web/player.js`'s `HybridEngine` plays that request
+straight away on the real-time stretcher — the same engine "exploring" already
+uses — while the render builds behind it, and hard-cuts to the sample-exact
+loop at the next loop boundary once it lands. Hard cut, not a crossfade: an
+`AudioWorkletNode` and a native-looping `AudioBufferSourceNode` are different
+graphs with no shared clock to blend across, and the two seams this repo
+already refuses to blend (Trap 3, above) don't get a third kind for this case.
+The common path — a rung the cache already has — never touches any of this;
+`HybridEngine` only reaches for the fallback once it hears the server answer
+202.
+
 ## Looping, precisely
 
 * **Crossfade the seam.** Even sample-exact, a loop from a musical end back to a

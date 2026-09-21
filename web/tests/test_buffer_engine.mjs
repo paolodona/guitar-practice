@@ -319,6 +319,31 @@ await test('restartSection while already paused has no swap left to adopt', asyn
   assert.equal(engine.pending, false);
 });
 
+await test('playFromLoopStart starts at loopStart, not sample 0, freshly qualified', () => {
+  // The primitive HybridEngine's hard-cut handoff (from RealtimeEngine, at
+  // its own natural wrap) uses: the incoming lap begins wherever an
+  // ORDINARY natural wrap would, never at the lead-in.
+  const engine = new BufferEngine({
+    currentTime: 3,
+    state: 'running',
+    sources: [],
+    createBufferSource() { const s = new FakeSource(this); this.sources.push(s); return s; },
+    createGain() { return new FakeGain(); },
+  });
+  engine._section = makeSection();
+  engine._buffer = { duration: 120 };
+  engine._speedPct = 50;
+  engine.playFromLoopStart();
+
+  const clock = renderClock(makeSection(), 50);
+  assert.equal(engine._position, clock.loopStart);
+  assert.equal(engine._qualified, true);
+  assert.equal(engine.playing, true);
+  const source = engine.ctx.sources[engine.ctx.sources.length - 1];
+  assert.equal(source.started.offset, clock.loopStart);
+  assert.notEqual(clock.loopStart, 0, 'a real lead-in makes this assertion meaningful');
+});
+
 // ---- J2: the boundary swap ---------------------------------------------
 
 await test('a speed change while playing starts the new buffer at the exact seam', async () => {

@@ -132,13 +132,14 @@ test('audibleSpeedPct reads the engine, falling back to the pressed value', () =
   assert.ok(body.includes('return speedPct'), 'should degrade to the pressed value with no engine');
 });
 
-test('both engines expose speedPct, so the screen never branches on which it holds', () => {
+test('all three engines expose speedPct, so the screen never branches on which it holds', () => {
   // RealtimeEngine gained the accessor BufferEngine already had; without it
   // audibleSpeedPct() silently falls back to the pressed value on the
-  // fallback engine and the guard above proves nothing there.
+  // fallback engine and the guard above proves nothing there. HybridEngine
+  // (Phase 1.5) makes it three: RealtimeEngine, BufferEngine, HybridEngine.
   const getters = playerSrc.match(/get speedPct\(\)/g) ?? [];
-  assert.equal(getters.length, 2, 'both RealtimeEngine and BufferEngine should expose speedPct');
-  assert.equal((playerSrc.match(/get pending\(\)/g) ?? []).length, 2);
+  assert.equal(getters.length, 3, 'RealtimeEngine, BufferEngine and HybridEngine should all expose speedPct');
+  assert.equal((playerSrc.match(/get pending\(\)/g) ?? []).length, 3);
 });
 
 // ---- 3. the ledger records what was played ----------------------------

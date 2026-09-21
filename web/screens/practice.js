@@ -718,6 +718,20 @@ export function mount(el, payload) {
   let engine = null;
   let engineReady = false;
   let engineInitPromise = null;
+  // FOUND LIVE 2026-09-21, Paolo, i-poohffi: navigated from the practice
+  // screen to the song page's preview WHILE ensureEngine()'s async
+  // construction was still in flight (a section whose render was still
+  // building). unmount() ran and saw `engine` still null -- there was
+  // nothing yet to destroy -- so when startEngine('hybrid') finally
+  // resolved, its `engine = await ...` assignment and the play_pause
+  // handler's queued `.then(() => { if (engineReady && playing)
+  // engine.play(); })` both fired against a fresh AudioContext nobody had
+  // told was unwanted, and it played audibly over the song page's own
+  // engine. Set the moment unmount() runs; ensureEngine()'s IIFE checks it
+  // the instant the engine exists and destroys it immediately rather than
+  // wiring it up, so a race lands on "never played" instead of "played
+  // over whatever the next screen is doing."
+  let unmounted = false;
 
   // Mirrors clock.pre_roll_seconds + manifest.effective_pre_roll_beats
   // (Phase 1, G2): SOURCE seconds, 0 with no tempo (never a divide-by-
@@ -947,12 +961,29 @@ export function mount(el, payload) {
   }
 
   function applyMetronome() {
+    // Phase 1.5: transparent recovery once HybridEngine hard-cuts back to
+    // the sample-exact render -- 'no-cache' only ever means "the toggle was
+    // on, but the engine that was audible when we last checked couldn't
+    // honour it"; once engineKind is 'buffer' again there is nothing left
+    // to recover FROM, so resume rather than making Paolo re-press the
+    // toggle after every uncached-rung excursion.
+    if (metronomeState === 'no-cache' && engineKind === 'buffer') {
+      metronomeState = 'on';
+    }
     if (metronomeState !== 'on') {
       if (metronome) metronome.stop();
+      renderMetronomeToggle();
       return;
     }
     if (engineKind === 'realtime') {
       metronomeState = 'no-cache';
+      // FOUND LIVE 2026-09-21 (Phase 1.5): this branch used to leave
+      // `metronome` still ticking -- unreachable before HybridEngine (the
+      // toggle was disabled while realtime, so 'on' + 'realtime' never
+      // occurred together), but a mid-session drop to realtime can now
+      // reach here with the metronome already running. Stop it explicitly;
+      // the toggle's own re-render already says why.
+      if (metronome) metronome.stop();
       renderMetronomeToggle();
       return;
     }
@@ -1061,12 +1092,18 @@ export function mount(el, payload) {
     }
     try {
       await engine.loadSection(sectionLoadParams());
+      // Same lifecycle guard as ensureEngine()'s (see `unmounted`'s own
+      // declaration): the screen may have been navigated away from during
+      // this await, and unmount() already destroyed `engine` -- touching it
+      // further here would resurrect nodes on a closed AudioContext.
+      if (unmounted) return;
       engine.setSpeedPct(speedPct);
       engine.setSemitones(shift);
       beginLap();
       elapsed = -cosmeticPreRoll;
       if (wasPlaying) engine.play();
     } catch (err) {
+      if (unmounted) return;
       console.warn(
         `practice.js: could not switch to ${guitarOnly ? 'guitar-only' : 'mix'} `
         + `source (${err && err.message}) -- reverting`, err,
@@ -1074,15 +1111,18 @@ export function mount(el, payload) {
       guitarOnly = previous;
       try {
         await engine.loadSection(sectionLoadParams());
+        if (unmounted) return;
         engine.setSpeedPct(speedPct);
         engine.setSemitones(shift);
         beginLap();
         elapsed = -cosmeticPreRoll;
         if (wasPlaying) engine.play();
       } catch (revertErr) {
+        if (unmounted) return;
         console.error('practice.js: could not revert source after a failed switch', revertErr);
       }
     } finally {
+      if (unmounted) return;
       if (wasPlaying) {
         playing = true;
         renderFootIcon();
@@ -1577,6 +1617,20 @@ export function mount(el, payload) {
       renderStatusBar();
     });
     e.addEventListener('rung', (event) => onRung(event.detail));
+    // Phase 1.5: HybridEngine's own signal for "which engine is audible
+    // right now" -- fired at first load (cache hit/miss decided) and again
+    // at every hard-cut swap in either direction (a mid-session press
+    // landing on an uncached combo, or the render finally landing). Kept
+    // as its OWN event rather than folded into 'rung', which only fires
+    // when the TARGET speed/semitones actually change -- the engine kind
+    // can flip with no such change (dropping to realtime to cover an
+    // uncached GUITAR-ONLY toggle at the same speed, say).
+    e.addEventListener('kind', (event) => {
+      engineKind = event.detail.kind;
+      renderEngineKind();
+      applyMetronome();
+      renderStatusBar();
+    });
     e.addEventListener('error', (err) => {
       // #6: surfaced in the one status bar rather than only console-logged
       // -- a render that will never build (player.js's own _changeRender
@@ -1620,23 +1674,29 @@ export function mount(el, payload) {
     if (!engineInitPromise) {
       engineInitPromise = (async () => {
         // Phase 2, Group J: PRACTISING plays the pre-rendered cache with a
-        // native, sample-exact loop (CLAUDE.md invariant 9). The real-time
-        // stretcher is the fallback, not the plan -- it cannot put the seam
-        // in the same place twice (docs/03-audio-engine.md, trap 3) -- but
-        // it is a real fallback rather than a failure, because the render
-        // needs the `rubberband` binary and a machine without it should
-        // still be able to practise, just with a seam you can hear.
-        try {
-          engine = await startEngine('buffer');
-          engineKind = 'buffer';
-        } catch (err) {
-          console.warn(
-            `practice.js: no render cache for this section (${err && err.message}) — `
-            + 'falling back to the live stretcher; the loop seam will not be sample-exact.',
-          );
-          engine = await startEngine('realtime');
-          engineKind = 'realtime';
+        // native, sample-exact loop (CLAUDE.md invariant 9). Phase 1.5:
+        // HybridEngine (player.js) is what actually holds that discipline
+        // now -- it plays instantly on the real-time stretcher whenever the
+        // cache is cold (the first load, or ANY later press landing on an
+        // uncached rung/shift/source), and hard-cuts to the sample-exact
+        // loop at the next loop boundary once the render lands. This one
+        // call replaces what used to be a try-buffer-catch-realtime
+        // fallback here: HybridEngine's own loadSection() never throws for
+        // "no render cache yet" (a real fallback, not a failure); the
+        // catch below still guards the genuinely rare case where NEITHER
+        // engine can load at all (the browser refuses AudioWorklet
+        // outright, or the audio isn't bound).
+        const e = await startEngine('hybrid');
+        if (unmounted) {
+          // The screen is already gone -- destroy immediately and never
+          // wire it up (no `engine` assignment, no engineReady, no
+          // renderEngineKind/applyMetronome/sendProgramChange below). See
+          // the `unmounted` declaration above for the bug this closes.
+          try { e.destroy(); } catch { /* already on its way out */ }
+          return;
         }
+        engine = e;
+        engineKind = engine.kind;
         engineReady = true;
         renderEngineKind();
         // A metronome switched on before the first play() has been waiting
@@ -1962,6 +2022,7 @@ export function mount(el, payload) {
   resizeObserver.observe(waveHost);
 
   return function unmount() {
+    unmounted = true;
     cancelAnimationFrame(rafId);
     clearTimeout(advanceTimer);
     clearTimeout(shiftPersistTimer);

@@ -1037,6 +1037,29 @@ export class BufferEngine extends EventTarget {
   }
 
   /**
+   * Start playing from exactly this render's own `loopStart` — the pre-roll-
+   * skipped position every ORDINARY natural wrap already begins from (see
+   * `_onBoundary`'s own "the lap that just began starts at exactly
+   * loopStartFrame... unconditionally eligible" rule) — freshly qualified,
+   * as if a natural wrap had just happened.
+   *
+   * The one caller (Group HybridEngine, below): a hard-cut handoff FROM
+   * RealtimeEngine, at the exact moment its own natural loop wrap fires —
+   * the incoming lap on this engine begins at loopStart by construction,
+   * never at sample 0 (that would replay the lead-in, which an ordinary
+   * wrap never does either, `preRollEveryPass` aside). Deliberately not
+   * folded into `restartSection()` (which starts at 0, the lead-in
+   * included, by design) or `play()` (which resumes from wherever
+   * `_position` already was) -- this is its own third starting position,
+   * used only for this one handoff.
+   */
+  playFromLoopStart() {
+    this._position = this._clock().loopStart;
+    this._qualified = true;
+    this.play();
+  }
+
+  /**
    * Jump to *sourceSeconds* (CLAUDE.md's SourceSeconds — absolute position
    * in the original recording) and disqualify the lap in flight, exactly
    * as pause() does and for the same reason. This is `clock.to_playback`,
@@ -1633,6 +1656,422 @@ export class BufferEngine extends EventTarget {
 }
 
 /**
+ * Phase 1.5: instant playback while the cache is cold. Wraps one
+ * `BufferEngine` (eager — owns the shared `AudioContext`) and one
+ * `RealtimeEngine` (lazy — created only the first time a fallback is
+ * actually needed) behind the SAME external surface every caller already
+ * uses (`loadSection`/`play`/`pause`/`restartSection`/`seek`/
+ * `setSpeedPct`/`setSemitones`/`destroy`, the `speedPct`/`semitones`/
+ * `targetSpeedPct`/`targetSemitones`/`pending`/`playing` getters, and the
+ * `'pass'`/`'rung'`/`'rendering'`/`'error'` events), plus one new getter,
+ * `kind` (`'buffer'|'realtime'` — whichever engine is audible right now),
+ * and a new `'kind'` event (`detail: {kind}`) fired whenever it changes.
+ *
+ * The trigger this whole class hangs off already exists and needed no
+ * changes: `BufferEngine._fetchRender` fires `'rendering'` with a non-null
+ * `stage` the INSTANT a fetch first comes back 202 — before any poll delay.
+ * A cache HIT never fires it at all. So:
+ *
+ *  - `loadSection()` races `_buffer.loadSection()` against that event. No
+ *    `'rendering'` before the buffer resolves -> cache hit, stay on
+ *    `_buffer`, `_realtime` is never even constructed (the common case
+ *    costs nothing extra). `'rendering'` fires first -> cache miss, load
+ *    `_realtime` instead and resolve `loadSection()` once IT is ready; the
+ *    still-building buffer promise is awaited separately in the
+ *    background and arms `_pendingBufferReady` on success.
+ *  - The swap back to the sample-exact loop is a HARD CUT (no crossfade —
+ *    the two node graphs are too different to blend) timed to
+ *    `_realtime`'s own next natural `'pass'` (its worklet's loop wrap): the
+ *    lap that just finished on realtime still counts, and the incoming
+ *    buffer lap starts at exactly `loopStart` via the new
+ *    `BufferEngine.playFromLoopStart()` — the same position every ORDINARY
+ *    natural wrap already begins from.
+ *  - The same `'rendering'` signal, still listened to after the initial
+ *    load, is also what triggers the reverse drop (buffer -> realtime)
+ *    for a MID-SESSION press that lands on an uncached rung/shift/source —
+ *    immediate, mid-phrase, not deferred to the old rung's own loop end
+ *    (that deferral is `BufferEngine`'s own `_scheduleSwap` behaviour,
+ *    unchanged for the common case of a rung that's already built).
+ *
+ * `_buffer.targetSpeedPct`/`targetSemitones`/`pending` are the source of
+ * truth for "what is this session building toward" regardless of which
+ * engine is currently audible — `_buffer` keeps tracking them even while
+ * paused mid-fallback, which is exactly what `screens/practice.js`'s
+ * pending-swap status text already expects to read.
+ * @extends EventTarget
+ */
+export class HybridEngine extends EventTarget {
+  /** @param {AudioContext} [audioContext] - reused if supplied, else created */
+  constructor(audioContext) {
+    super();
+    this._ownsContext = !audioContext;
+    this.ctx = audioContext || new AudioContext();
+    this._buffer = new BufferEngine(this.ctx);
+    /** @type {RealtimeEngine | null} */
+    this._realtime = null;
+    /** @type {'buffer' | 'realtime' | null} */
+    this._active = null;
+    this._section = null;
+    this._playing = false;
+    // A background render finished and is waiting for _realtime's next
+    // natural 'pass' to hard-cut in -- see _swapToBuffer().
+    this._pendingBufferReady = false;
+    // False once _buffer has failed OUTRIGHT for this section (no
+    // rubberband binary at all, or a build that ultimately errors) --
+    // permanently on realtime for the rest of this section once false,
+    // same degrade path this class replaces from ensureEngine()'s old
+    // try/catch.
+    this._bufferUsable = true;
+    // Set by loadSection() while its own race is undecided; consumed
+    // exactly once by _onBufferRendering() if a cache MISS is confirmed
+    // before the buffer promise itself settles. Kept as a field (not a
+    // closure-local) because _onBufferRendering is a permanent listener,
+    // not scoped to one loadSection() call.
+    this._loadDecision = null;
+    this._destroyed = false;
+
+    this._buffer.addEventListener('pass', (e) => {
+      if (this._active === 'buffer') this.dispatchEvent(new CustomEvent('pass', { detail: e.detail }));
+    });
+    this._buffer.addEventListener('rung', () => {
+      if (this._active === 'buffer') this._announceRung();
+    });
+    this._buffer.addEventListener('rendering', (e) => this._onBufferRendering(e));
+    this._buffer.addEventListener('error', (e) => {
+      if (this._active === 'buffer') {
+        this.dispatchEvent(new CustomEvent('error', { detail: e.detail }));
+      } else {
+        // The background build failed while realtime is already covering
+        // for it -- the room is still playing fine, nothing here is worth
+        // alarming the user about (statusBarState's "engine crashed"
+        // message would be actively wrong: nothing crashed).
+        console.warn(`HybridEngine: background render failed (${e.detail?.error?.message}) — staying on the live stretcher.`);
+        this._bufferUsable = false;
+      }
+    });
+  }
+
+  /** Whichever engine is audible right now — 'buffer' before anything has
+   *  been decided too (loadSection() always settles this before it
+   *  resolves, so callers never actually observe the null default). */
+  get kind() { return this._active === 'realtime' ? 'realtime' : 'buffer'; }
+
+  _activeEngine() {
+    if (this._active === 'realtime' && this._realtime) return this._realtime;
+    return this._buffer;
+  }
+
+  get speedPct() { return this._activeEngine().speedPct; }
+  get semitones() { return this._activeEngine().semitones; }
+  // What this SESSION is building toward, regardless of which engine is
+  // currently audible -- _buffer keeps tracking these even while paused
+  // mid-fallback (see the class doc).
+  get targetSpeedPct() { return this._buffer.targetSpeedPct; }
+  get targetSemitones() { return this._buffer.targetSemitones; }
+  get pending() { return this._buffer.pending; }
+  get playing() { return this._playing; }
+
+  /**
+   * Fetch/decode and prepare *section*, deciding within this one call
+   * whether the room starts on the sample-exact cache (a hit) or the
+   * live stretcher (a miss) -- see the class doc.
+   * @param {SectionLoad & {slug: string, crossfadeMs?: number, source?: string}} section
+   */
+  async loadSection(section) {
+    if (this._destroyed) {
+      throw new Error('HybridEngine.loadSection: engine already destroyed');
+    }
+    this._section = section;
+    this._pendingBufferReady = false;
+    this._bufferUsable = true;
+    this._active = null;
+    delete this.position;
+
+    const bufferPromise = this._buffer.loadSection(section);
+
+    await new Promise((resolve) => {
+      let settled = false;
+      const settle = (fn) => { if (settled) return; settled = true; fn(); };
+
+      // Triggered by _onBufferRendering the moment a cache MISS is
+      // confirmed (a 202) -- the earliest possible signal, before any poll
+      // delay.
+      this._loadDecision = () => settle(() => resolve(this._startRealtimeForLoad()));
+
+      bufferPromise.then(
+        () => settle(() => { this._setActive('buffer'); resolve(); }),
+        (err) => settle(() => resolve(this._startRealtimeForLoad().then(() => {
+          // Total, immediate failure -- no 'rendering' ever fired, so this
+          // is the "no rubberband binary at all" degrade path, not a
+          // mid-build failure. The section stays playable, just only on
+          // the fallback engine for its whole lifetime (see _bufferUsable).
+          this._bufferUsable = false;
+          console.warn(`HybridEngine: no render cache for this section (${err && err.message}) — falling back to the live stretcher; the loop seam will not be sample-exact.`);
+        }))),
+      );
+    });
+    this._loadDecision = null;
+
+    // Settled on realtime because of a genuine cache MISS (not the
+    // total-failure branch above, which already marked _bufferUsable
+    // false) -- the background render is still building; arm the swap-back
+    // watch on the SAME promise this loadSection() call kicked off.
+    if (this._active === 'realtime' && this._bufferUsable) {
+      this._armBackgroundBuffer(bufferPromise, this._buffer.targetSpeedPct, this._buffer.targetSemitones);
+    }
+  }
+
+  /** Lazily create `_realtime`, wiring its 'pass'/'rung'/'error' listeners
+   *  exactly once -- the swap-back trigger (its own 'pass') and the
+   *  rung-forwarding gate both live here so every call site that needs
+   *  `_realtime` shares the same wiring. */
+  _ensureRealtime() {
+    if (this._realtime) return this._realtime;
+    this._realtime = new RealtimeEngine(this.ctx);
+    this._realtime.addEventListener('pass', (e) => {
+      // The lap that just finished on realtime still counts, whether or
+      // not a swap is about to follow it.
+      this.dispatchEvent(new CustomEvent('pass', { detail: e.detail }));
+    });
+    // Hooked at the BOUNDARY itself, not the (conditional) 'pass' event
+    // above: the swap belongs at the very next loop boundary regardless of
+    // whether that lap also qualified as a pass. A mid-session drop
+    // (_dropToRealtime) seeks to carry position across, and a seek always
+    // disqualifies the lap it lands in (RealtimeEngine's own existing
+    // contract) -- that must not also delay the hard-cut by an extra lap.
+    const onBoundary = this._realtime._onBoundary.bind(this._realtime);
+    this._realtime._onBoundary = () => {
+      onBoundary();
+      if (this._pendingBufferReady && this._active === 'realtime') this._swapToBuffer();
+    };
+    this._realtime.addEventListener('rung', () => {
+      if (this._active === 'realtime') this._announceRung();
+    });
+    this._realtime.addEventListener('error', (e) => {
+      // A worklet crash matters regardless of which engine the room
+      // THOUGHT it was on -- always forward.
+      this.dispatchEvent(new CustomEvent('error', { detail: e.detail }));
+    });
+    return this._realtime;
+  }
+
+  /** Load `_realtime` at the session's current target speed/semitones and
+   *  make it the active engine -- shared by loadSection()'s cache-miss/
+   *  total-failure branches, both of which start fresh (nothing has played
+   *  yet, so there is no position to carry over). */
+  async _startRealtimeForLoad() {
+    this._ensureRealtime();
+    this._realtime.setSpeedPct(this._buffer.targetSpeedPct);
+    this._realtime.setSemitones(this._buffer.targetSemitones);
+    this._setActive('realtime');
+    await this._realtime.loadSection(this._section);
+  }
+
+  /**
+   * `'rendering'` always forwards outward (the status bar's existing
+   * listener needs no changes regardless of which engine is audible). A
+   * non-null `stage` additionally means "a build just started" -- during
+   * loadSection()'s own race that resolves the pending decision; once
+   * already settled on `_active === 'buffer'`, it means a MID-SESSION
+   * press just landed on an uncached combo, and triggers the drop.
+   */
+  _onBufferRendering(e) {
+    this.dispatchEvent(new CustomEvent('rendering', { detail: e.detail }));
+    if (!e.detail.stage) return;
+    if (this._loadDecision) { this._loadDecision(); return; }
+    if (this._active === 'buffer') this._dropToRealtime();
+  }
+
+  /**
+   * A MID-SESSION press (setSpeedPct/setSemitones) landed on a combo the
+   * cache doesn't have yet, discovered via `_buffer`'s own 'rendering'
+   * event. Drops to the live stretcher IMMEDIATELY -- mid-phrase, not
+   * deferred to the old rung's own loop end -- carrying position across
+   * through SOURCE seconds (the one clock both engines agree on).
+   */
+  async _dropToRealtime() {
+    const sourceSeconds = this._buffer.sourcePosition();
+    const wasPlaying = this._playing;
+    this._buffer.pause();
+    const targetSpeed = this._buffer.targetSpeedPct;
+    const targetSemi = this._buffer.targetSemitones;
+    this._ensureRealtime();
+    this._realtime.setSpeedPct(targetSpeed);
+    this._realtime.setSemitones(targetSemi);
+    // Set BEFORE the await: a second 'rendering' event (another poll tick
+    // on the same still-building render) must see _active !== 'buffer' so
+    // _onBufferRendering doesn't re-enter this method concurrently.
+    this._setActive('realtime');
+    try {
+      await this._realtime.loadSection(this._section);
+      this._realtime.seek(sourceSeconds);
+      if (wasPlaying) this._realtime.play();
+    } catch (err) {
+      this.dispatchEvent(new CustomEvent('error', { detail: { error: err } }));
+      return;
+    }
+    // Reuses the SAME in-flight render the 'rendering' event we just
+    // reacted to came from -- BufferEngine._render already dedupes two
+    // callers wanting the same (speed, semitones) into one shared
+    // promise/poll loop (its own doc), so this costs no extra fetch.
+    this._armBackgroundBuffer(this._buffer._render(targetSpeed, targetSemi), targetSpeed, targetSemi);
+  }
+
+  /** Watch *promise* (a render build) and arm `_pendingBufferReady` once it
+   *  resolves, guarded against a STALE resolve: if the target has moved
+   *  again by the time it lands, this specific build is no longer wanted
+   *  and must not trigger a swap to the wrong rung. */
+  _armBackgroundBuffer(promise, speedPct, semitones) {
+    promise.then(
+      () => {
+        if (this._buffer.targetSpeedPct === speedPct && this._buffer.targetSemitones === semitones) {
+          this._pendingBufferReady = true;
+        }
+      },
+      (err) => {
+        this._bufferUsable = false;
+        console.warn(`HybridEngine: background render failed (${err && err.message}) — staying on the live stretcher.`);
+      },
+    );
+  }
+
+  /** The hard-cut handoff, realtime -> buffer: triggered only from
+   *  `_realtime`'s own 'pass' listener (see _ensureRealtime), so realtime
+   *  is, by construction, playing at this exact moment. */
+  _swapToBuffer() {
+    this._pendingBufferReady = false;
+    this._realtime.pause();
+    this._setActive('buffer');
+    this._buffer.playFromLoopStart();
+  }
+
+  /** Set which engine is audible, keep the `position` duck-typing contract
+   *  `screens/practice.js` already relies on intact (`typeof engine.position
+   *  === 'function'` — present only while there is an honest one to give,
+   *  i.e. only while `_buffer` is active; RealtimeEngine has never had one,
+   *  deliberately, per its own module doc), and announce both the rung and
+   *  the kind change. */
+  _setActive(kind) {
+    this._active = kind;
+    if (kind === 'buffer') {
+      this.position = () => this._buffer.position();
+    } else {
+      delete this.position;
+    }
+    this._announceRung();
+    this.dispatchEvent(new CustomEvent('kind', { detail: { kind } }));
+  }
+
+  /** Re-derive the 'rung' detail off whichever engine is active right now,
+   *  rather than forwarding each sub-engine's own event verbatim -- a
+   *  single source of truth for "what is audible" that's correct exactly
+   *  when `_active` changes as well as when a sub-engine's own target
+   *  moves. */
+  _announceRung() {
+    const src = this._activeEngine();
+    this.dispatchEvent(new CustomEvent('rung', {
+      detail: {
+        speedPct: src.speedPct,
+        semitones: src.semitones,
+        targetSpeedPct: this._buffer.targetSpeedPct,
+        targetSemitones: this._buffer.targetSemitones,
+        pending: this._buffer.pending,
+      },
+    }));
+  }
+
+  /** `position()` converted to SOURCE seconds — passthrough to `_buffer`'s
+   *  own (RealtimeEngine has no honest position at all, see the class
+   *  doc; 0 matches BufferEngine.sourcePosition()'s own "nothing loaded"
+   *  default). */
+  sourcePosition() {
+    return this._active === 'buffer' ? this._buffer.sourcePosition() : 0;
+  }
+
+  /**
+   * @param {number} pct
+   * @param {{atSeam?: boolean}} [opts]
+   * @returns {Promise<void>}
+   */
+  setSpeedPct(pct, opts) {
+    return this._changeTarget(() => this._buffer.setSpeedPct(pct, opts));
+  }
+
+  /**
+   * @param {number} n
+   * @param {{atSeam?: boolean}} [opts]
+   * @returns {Promise<void>}
+   */
+  setSemitones(n, opts) {
+    return this._changeTarget(() => this._buffer.setSemitones(n, opts));
+  }
+
+  /** Always delegates the target/fetch bookkeeping to `_buffer` (so
+   *  `pending`/`targetSpeedPct`/a cache-miss `'rendering'` all keep working
+   *  exactly as today, whichever engine is currently audible — see
+   *  `_onBufferRendering` for what a cache miss triggers while `_buffer`
+   *  is the active one). Additionally, if a SECOND press arrives while
+   *  ALREADY in the realtime fallback, applies it live (instant — no
+   *  debounce needed at this layer, `screens/practice.js` already
+   *  debounces the press) and re-arms the background watch for the NEW
+   *  target, discarding whatever was pending for the superseded one. */
+  _changeTarget(applyToBuffer) {
+    const promise = applyToBuffer();
+    if (this._active === 'realtime' && this._realtime) {
+      const targetSpeed = this._buffer.targetSpeedPct;
+      const targetSemi = this._buffer.targetSemitones;
+      this._realtime.setSpeedPct(targetSpeed);
+      this._realtime.setSemitones(targetSemi);
+      this._pendingBufferReady = false; // whatever was pending is stale now
+      this._armBackgroundBuffer(promise, targetSpeed, targetSemi);
+    }
+    return promise;
+  }
+
+  /** Start (or resume) playback on whichever engine is audible. */
+  play() {
+    this._playing = true;
+    this._activeEngine().play();
+  }
+
+  /** Pause whichever engine is audible. */
+  pause() {
+    this._playing = false;
+    this._activeEngine().pause();
+  }
+
+  /**
+   * @param {boolean} [playing] - whether playback should be running after
+   *   the restart; forwarded to RealtimeEngine.restartSection() exactly as
+   *   screens/practice.js already calls it (BufferEngine.restartSection()
+   *   ignores the argument and reads its own `_playing` instead — same as
+   *   today).
+   */
+  restartSection(playing) {
+    if (playing !== undefined) this._playing = playing !== false;
+    this._activeEngine().restartSection(playing);
+  }
+
+  /** @param {number} sourceSeconds */
+  seek(sourceSeconds) {
+    this._activeEngine().seek(sourceSeconds);
+  }
+
+  /** Tear down both sub-engines. No further events fire after this. */
+  destroy() {
+    if (this._destroyed) return;
+    this._destroyed = true;
+    this._buffer.destroy();
+    if (this._realtime) this._realtime.destroy();
+    if (this._ownsContext) {
+      this.ctx.close().catch(() => {
+        // already closed or never resumed -- nothing left to clean up
+      });
+    }
+  }
+}
+
+/**
  * Factory, D0's judgement call per the plan's brief: routing construction
  * through one function rather than importing a class directly means a
  * caller never has to change its import to change engine.
@@ -1644,10 +2083,17 @@ export class BufferEngine extends EventTarget {
  * whole point and the speed is one of a handful of discrete rungs. The
  * table in that document is the decision; this parameter is only how it
  * gets expressed.
+ *
+ * A third kind, `"hybrid"`, is `"buffer"` with `"realtime"` standing in
+ * whenever the render cache is cold (Phase 1.5) — `screens/practice.js`'s
+ * own choice, since PRACTISING should never sit silent waiting for a
+ * build. `screens/song.js`'s preview transport has no cache to be cold and
+ * keeps using the plain `"realtime"` kind unchanged.
  * @param {AudioContext} [audioContext]
- * @param {{kind?: "realtime" | "buffer"}} [options]
- * @returns {RealtimeEngine | BufferEngine}
+ * @param {{kind?: "realtime" | "buffer" | "hybrid"}} [options]
+ * @returns {RealtimeEngine | BufferEngine | HybridEngine}
  */
 export function createEngine(audioContext, { kind = 'realtime' } = {}) {
+  if (kind === 'hybrid') return new HybridEngine(audioContext);
   return kind === 'buffer' ? new BufferEngine(audioContext) : new RealtimeEngine(audioContext);
 }
