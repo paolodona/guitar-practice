@@ -48,6 +48,9 @@ still run its core commands on a laptop with nothing installed:
 | `capture.py` | loopback recording, silence splitting, duration matching | **pyaudiowpatch** (optional) |
 | `analyze.py` | tempo refinement, beat grid, onset detection | **librosa** (optional) |
 | `render.py` | offline time-stretch / pitch-shift into the cache | **rubberband** (optional) |
+| `separate.py` | guitar-only isolation of one section | **demucs** (heavy, but core — see below) |
+| `beatfit.py` | onset envelope, per-section tempo + phase fit — **pure functions** | numpy |
+| `beats.py` | the metronome's cached beat list for one section | ffmpeg (a span decode) |
 
 **Never import librosa, open an audio device, or call the rubberband binary above
 the `capture.py` / `analyze.py` / `render.py` line.** Everything else must run from a
@@ -59,6 +62,16 @@ rule exists to prevent.
 Use a `require_module()`-style helper so a missing extra prints an install hint
 naming the installer that actually exists, not an `ImportError` traceback. Both
 other repos already have that helper; lift it.
+
+**`demucs` is installed by default and imported like an extra.** It sits in
+`dependencies`, not in the `separate` extra (2026-09-12), because `uv run
+--extra dev pytest` re-syncs the environment to exactly the extras on that
+command line — an extra-installed demucs was uninstalled again by the next test
+run, every time. `uv sync` therefore pulls torch, which is big; that is the
+price of never seeing "install demucs" in the practice screen again. It changes
+nothing above the line: `separate.py` is still the only module that imports it,
+still only inside a function, and the test suite still runs with pyyaml, numpy
+and pydantic alone.
 
 **Pydantic is scoped to the parsing boundary.** Only the modules that read YAML —
 `manifest.py` and `setlist.py` — import it. `sections`, `ladder`, `ledger`, `clock`

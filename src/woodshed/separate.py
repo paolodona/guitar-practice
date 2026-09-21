@@ -1,9 +1,17 @@
-"""Guitar-only isolation via Demucs (Phase 1.5, Group S). Optional heavy
+"""Guitar-only isolation via Demucs (Phase 1.5, Group S). Heavy
 dependency -- the third module CLAUDE.md's Layering section names, beside
 `analyze.py` (librosa) and `render.py` (rubberband); nothing above this
 line may import it at module top level, and this module's own top level
 does not import `demucs` either -- `require_module` (below) is the only
 place that does, exactly like the other two.
+
+Heavy but no longer *optional*: since 2026-09-12 `demucs` is a core
+dependency in `pyproject.toml` rather than the `separate` extra, because
+`uv run --extra dev pytest` re-syncs the environment to exactly the
+extras on that line and kept uninstalling it. The layering rule is
+untouched by that -- it is about imports, not about what `uv sync`
+installs, and this module is still the only one allowed to import
+`demucs`, still only inside a function.
 
 **Cross-referenced, never copied**, per CLAUDE.md's rule for the sibling
 repos: the demucs invocation (model list, `--two-stems`, the flatten-
@@ -17,7 +25,7 @@ split (drums/bass/other/vocals) has no guitar output, and nothing there
 suggests a six-stem alternative besides this one. Deliberately simpler
 than the sibling in one respect: `rambass-live`'s own `separate()` first
 looks for a `demucs` console script on PATH, falling back to `python -m
-demucs`; here `require_module("demucs", "separate")` already confirms the
+demucs`; here `require_module("demucs", "core")` already confirms the
 package imports in THIS interpreter, so the subprocess always runs via
 `sys.executable -m demucs` -- one invocation path, not two, because the
 fallback case is the only one this check can actually promise works.
@@ -142,7 +150,12 @@ def isolate_guitar(
     if not force and dest.is_file():
         return dest
 
-    require_module("demucs", "separate")
+    # "core", not "separate": demucs moved into `dependencies` on
+    # 2026-09-12, so a missing one means an incomplete install and the
+    # hint should reinstall the project, not name an extra that no longer
+    # carries it. The check itself stays -- it is what keeps the
+    # ImportError out of the CLI.
+    require_module("demucs", "core")
     ffmpeg = locate_tool("ffmpeg").path
     source_path = repo.song_dir(song.slug) / song.recording.file
     if not source_path.is_file():

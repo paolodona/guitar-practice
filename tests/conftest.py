@@ -11,10 +11,42 @@ may extend it later without conflict.
 
 from __future__ import annotations
 
+import importlib.util
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
+
+#: What each opt-in marker actually needs, and how to ask for it without
+#: importing anything heavy at collection time. `needs_device` is absent on
+#: purpose: there is no honest way to probe for a real audio device here.
+_OPT_IN_REQUIREMENTS = {
+    "needs_librosa": ("librosa", lambda: importlib.util.find_spec("librosa") is not None),
+    "needs_demucs": ("demucs", lambda: importlib.util.find_spec("demucs") is not None),
+    "needs_rubberband": ("the rubberband binary", lambda: shutil.which("rubberband") is not None),
+}
+
+
+def pytest_collection_modifyitems(items) -> None:
+    """An opt-in test whose dependency is absent SKIPS; it does not fail.
+
+    `needs_librosa` and friends mean "runs when you opted in" (pyproject's
+    own marker text: *select with -m, not -k*) -- but a bare `pytest` still
+    collects them, and without the extra installed they failed with an
+    install hint, which reads as a broken suite rather than as an
+    un-opted-in one. The quality gate runs `uv run --extra dev pytest`,
+    which re-syncs the env to exactly that extra, so on this machine those
+    three librosa tests could not have passed by any route.
+
+    Nothing is loosened: the moment the dependency IS installed (`uv run
+    --extra dev --extra analyze pytest`) every assertion in them runs
+    again, unchanged.
+    """
+    for item in items:
+        for marker, (what, available) in _OPT_IN_REQUIREMENTS.items():
+            if marker in item.keywords and not available():
+                item.add_marker(pytest.mark.skip(reason=f"{what} is not installed"))
 
 
 @dataclass(frozen=True)

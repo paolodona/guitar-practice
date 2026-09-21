@@ -28,7 +28,10 @@ from woodshed.tools import locate_tool
 _BROWSER_NOTE = "Web MIDI is Chrome/Edge only."
 
 #: Checks whose failure means the core commands (add, section, log) cannot
-#: run at all -- everything else here is an optional extra.
+#: run at all. Deliberately not the same list as `dependencies` in
+#: pyproject.toml: demucs is installed by default too (2026-09-12), but a
+#: missing one costs one feature, not the tool, so it stays a MISS that does
+#: not fail `doctor`.
 _CORE_CHECKS = ("python", "pyyaml", "pydantic", "numpy")
 
 
@@ -126,7 +129,7 @@ def _module_checks() -> list[Check]:
         present = _module(module)
         checks.append(Check(
             name, present, "installed" if present else "missing", needed,
-            "" if present else "uv sync  (these three are core, not an extra)",
+            "" if present else "uv sync  (core, not an extra)",
         ))
     for module, name, needed, extra in (
         ("librosa", "librosa", "tempo detection and the beat grid (Phase 1)", "analyze"),
@@ -143,11 +146,18 @@ def _module_checks() -> list[Check]:
 
 def _demucs_check() -> Check:
     """S4 (Phase 1.5, Group S): guitar-only isolation's own dependency.
-    Reported like the other optional extras above, but ALSO names Demucs's
-    own CPU cost when it IS installed -- `rambass-live`'s own docs already
-    measure `htdemucs_ft` at roughly 4x `htdemucs`'s own time on CPU, and
-    the first isolation of a section is exactly where that would otherwise
-    read as a hang rather than as slow-but-working."""
+    A CORE one since 2026-09-12, not the `separate` extra -- `uv run
+    --extra dev pytest` re-syncs the env to the extras named on that line,
+    which kept uninstalling an extra-installed demucs -- so a missing one
+    is an incomplete install, fixed by a bare `uv sync`, not a choice the
+    reader still has to make.
+
+    Still its own check rather than a fourth row in the core loop above,
+    because it ALSO names Demucs's own CPU cost when it IS installed --
+    `rambass-live`'s own docs already measure `htdemucs_ft` at roughly 4x
+    `htdemucs`'s own time on CPU, and the first isolation of a section is
+    exactly where that would otherwise read as a hang rather than as
+    slow-but-working."""
     present = _module("demucs")
     if present:
         detail = (
@@ -156,10 +166,10 @@ def _demucs_check() -> Check:
             "take a while, that is not a hang)"
         )
     else:
-        detail = "missing (optional)"
+        detail = "missing (core -- this install is incomplete)"
     return Check(
         "demucs", present, detail, "guitar-only isolation (Phase 1.5, Group S)",
-        "" if present else "uv sync --extra separate",
+        "" if present else "uv sync",
     )
 
 
@@ -242,7 +252,8 @@ def report(repo: Repo) -> tuple[str, bool]:
         "core commands (add, section, log, serve) work with the base install.",
         "analyze needs [analyze] (librosa); capture needs [capture] "
         "(pyaudiowpatch); render and reading non-wav audio need ffmpeg and "
-        "rubberband; guitar-only isolation needs [separate] (demucs).",
+        "rubberband. Guitar-only isolation (demucs) is part of the base "
+        "install -- a plain `uv sync` brings it back.",
         "",
         _BROWSER_NOTE,
     ]

@@ -55,13 +55,18 @@ def test_demucs_check_names_the_cpu_cost_when_installed(monkeypatch: pytest.Monk
     assert "htdemucs_ft" in check.detail
 
 
-def test_demucs_check_names_the_separate_extra_when_missing(
+def test_demucs_check_says_plain_uv_sync_when_missing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """demucs is a core dependency, not the `separate` extra: every
+    `uv run --extra dev pytest` re-syncs the env to the extras named on
+    that line, so an extra-installed demucs kept disappearing. A missing
+    one is now an incomplete install, fixed by a bare `uv sync`."""
     monkeypatch.setattr(doctor, "_module", lambda name: False)
     check = doctor._demucs_check()
     assert check.ok is False
-    assert check.fix == "uv sync --extra separate"
+    assert check.fix == "uv sync"
+    assert "optional" not in check.detail
 
 
 def test_core_deps_are_present_in_this_dev_env(repo: Repo) -> None:

@@ -11,15 +11,28 @@ dependencies = [
     "pyyaml",
     "pydantic>=2",
     "numpy",
+    # Guitar-only isolation (Phase 1.5, Group S). Core rather than an extra,
+    # Paolo's call 2026-09-12, and the reason is mechanical: `uv run --extra
+    # dev pytest` (the quality gate) re-syncs the env to exactly the extras on
+    # that line, so a demucs installed by `uv sync --extra separate` was
+    # uninstalled again by the next test run and the practice screen went back
+    # to asking for it. It pulls torch in, which is big -- that is the price,
+    # paid once. CLAUDE.md's layering rule is unaffected: it governs what the
+    # pure modules IMPORT, and `separate.py` is still the only module that may
+    # touch demucs, still never at module top level.
+    "demucs>=4.0.1",
 ]
 
 [project.optional-dependencies]
 analyze = ["librosa"]
 render = []
-capture = ["pyaudiowpatch"]
-# Guitar-only isolation (Phase 1.5, Group S). Pulls in torch -- big. Same
-# extra name rambass-live/pyproject.toml uses for the same dependency.
-separate = ["demucs>=4.0.1"]
+capture = [
+    "pyaudiowpatch",
+]
+# Kept, empty, so an old `uv sync --extra separate` in a note or a shell
+# history still works instead of erroring on an unknown extra. Demucs moved
+# to `dependencies` above; nothing is pinned in two places.
+separate = []
 # `woodshed gx100 sync` (#3, N2 follow-up) -- SysEx over MIDI, gx100_sync.py's
 # own module dependency. Same two packages the sibling gx100 repo uses for the
 # same job, because they talk to the same wire.

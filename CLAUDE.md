@@ -110,6 +110,17 @@ module top level. Use a `require_module()` helper so a missing extra prints
 an install hint naming the installer that actually exists, not an
 `ImportError` traceback.
 
+**Installed is a different question from imported, and `demucs` is the one
+case where they part company.** It is a *core* dependency in `pyproject.toml`
+(Paolo's call, 2026-09-12) even though it is heavy, because `uv run --extra dev
+pytest` re-syncs the environment to exactly the extras on that line — so a
+demucs installed by `uv sync --extra separate` was uninstalled again by the
+next test run, and the practice screen kept asking for it. `uv sync` now
+installs torch and that is the accepted price. The layering rule above is
+unchanged: `separate.py` is still the only module that may import `demucs`,
+still never at module top level, and the pure modules still run on pyyaml,
+numpy and pydantic alone. Everything else heavy stays an extra.
+
 `src/woodshed/` is **generic**: no song names, no artist names, no personal file
 paths in code. Those live in `songs/`, `setlists/` and `config.yaml`.
 
