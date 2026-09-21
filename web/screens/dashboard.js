@@ -68,6 +68,7 @@
  *    screen must not block.
  */
 import { get, post, postForm, setCurrentSetlist } from '../app.js';
+import { KNOWN_TUNINGS } from '../tuning.js';
 
 const STYLE_ID = 'dashboard-screen-style';
 
@@ -320,16 +321,14 @@ function nextUpHtml(nextUp) {
     </div>`;
 }
 
-// tuning.KNOWN_TUNINGS (Python, src/woodshed/tuning.py) mirrored here -- this
-// file has no way to import a Python module. A free-text tuning field let a
-// typo ("Eb" instead of "Eb standard") through unnoticed at creation time and
-// only surfaced later as a 400 the first time something needed the shift,
-// blanking the whole dashboard (app.js's router has no error UI) -- a
-// fixed-choice dropdown can't produce that typo in the first place.
-const KNOWN_TUNINGS = [
-  'E standard', 'Eb standard', 'D standard', 'C# standard', 'C standard',
-  'B standard', 'Drop D', 'Drop C#',
-];
+// KNOWN_TUNINGS is web/tuning.js's mirror of tuning.KNOWN_TUNINGS (Python,
+// src/woodshed/tuning.py) -- this file has no way to import a Python module,
+// and until 2026-09-12 it kept its own copy of the list (as did capture.js).
+// A free-text tuning field let a typo ("Eb" instead of "Eb standard") through
+// unnoticed at creation time and only surfaced later as a 400 the first time
+// something needed the shift, blanking the whole dashboard (app.js's router
+// has no error UI) -- a fixed-choice dropdown can't produce that typo in the
+// first place.
 
 /** `<option>`s for every fixed tuning choice (Phase 1's convention: a
  * dropdown, never free text) -- shared by the setlist form below and the

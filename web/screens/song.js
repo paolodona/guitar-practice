@@ -125,6 +125,7 @@ import { createEngine } from '../player.js';
 // ("back to the top of THIS section, without touching play/pause").
 import { FOOT_ICONS } from './practice.js';
 import { DEFAULT_MEMORY, resolvePatchAt, sendProgramChange } from '../gx100.js';
+import { playsInLabel } from '../tuning.js';
 
 /**
  * #2's target: the currently selected section's own start, or 0 when
@@ -444,7 +445,7 @@ export function mount(el, payload) {
           <div class="mono num" data-shift-val style="font-size:17px;width:34px;text-align:center;font-weight:600;font-variant-numeric:tabular-nums"></div>
           <button data-shift-plus style="width:28px;height:28px;border-radius:3px;border:none;background:var(--raised,#1B2422);display:flex;align-items:center;justify-content:center;font-size:17px;color:var(--ink-2,#9CAAA4);cursor:pointer">+</button>
         </div>
-        <div style="font-size:14px;color:var(--ink-2,#9CAAA4)">plays in ${escapeHtml(payload.recording.tuning)}</div>
+        <div data-tuning-caption style="font-size:14px;color:var(--ink-2,#9CAAA4)"></div>
         <div data-delete-song title="Delete this song" style="cursor:pointer;color:var(--ink-3,#6A7873);
                     font-size:13px;letter-spacing:.03em;margin-left:8px;padding-left:12px;border-left:1px solid var(--line,#26302E)">Delete</div>
       </div>
@@ -526,9 +527,21 @@ export function mount(el, payload) {
   });
 
   const shiftValEl = root.querySelector('[data-shift-val]');
+  const tuningCaptionEl = root.querySelector('[data-tuning-caption]');
+  // FOUND LIVE 2026-09-12, and the third of exactly this shape on this
+  // screen (see decision 1 above, and the rung/speed fix): the caption to the
+  // right of the stepper was interpolated into the header's innerHTML once,
+  // straight from payload.recording.tuning, so pressing "-" moved the number
+  // to -1 while the caption still read "plays in E standard". It is rendered
+  // here now, from the same `shift` the stepper shows, because renderShift is
+  // the one function EVERY path that moves the shift already goes through --
+  // click, `-`/`=` key and MIDI alike (bumpShift is the single entry point).
+  // textContent, not innerHTML: playsInLabel returns a tuning name that came
+  // off disk.
   function renderShift() {
     shiftValEl.textContent = `${shift > 0 ? '+' : ''}${shift}`;
     shiftValEl.style.color = shift === 0 ? 'var(--good,#5FA88F)' : 'var(--accent,#E0913F)';
+    tuningCaptionEl.textContent = playsInLabel(payload.recording.tuning, shift);
   }
   renderShift();
   function bumpShift(delta) {

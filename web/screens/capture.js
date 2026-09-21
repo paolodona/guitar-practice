@@ -59,6 +59,7 @@ import { currentSetlist, get, post } from '../app.js';
 import { drawWave, SONG_WAVE_OPTS } from '../wave.js';
 import { viewX, positionAt } from '../timeline.js';
 import { createEngine } from '../player.js';
+import { KNOWN_TUNINGS } from '../tuning.js';
 
 const POLL_MS = 300;
 
@@ -73,15 +74,12 @@ const POLL_MS = 300;
 // so an ordinary stop (even the force-close path) never trips it.
 const STOP_TIMEOUT_MS = 8000;
 
-// tuning.KNOWN_TUNINGS (Python, src/woodshed/tuning.py) mirrored here --
-// this file has no way to import a Python module, and there is no shared
-// JS module for it yet. Same duplication (and the same reasoning)
-// dashboard.js's own KNOWN_TUNINGS already accepts for its add-song form's
-// tuning dropdown — see that file's comment.
-const KNOWN_TUNINGS = [
-  'E standard', 'Eb standard', 'D standard', 'C# standard', 'C standard',
-  'B standard', 'Drop D', 'Drop C#',
-];
+// KNOWN_TUNINGS comes from web/tuning.js, which is tuning.KNOWN_TUNINGS
+// (Python, src/woodshed/tuning.py) mirrored for the browser -- this file has
+// no way to import a Python module. It used to keep its own copy, next to
+// dashboard.js's own copy, under a comment saying "there is no shared JS
+// module for it yet"; as of 2026-09-12 there is one, and the mirror is
+// checked against tuning.py's source in web/tests/test_tuning_label.mjs.
 
 /** `<option>`s for every fixed tuning choice, *selected* pre-selected when
  * it names one of them — the review row's tuning select starts on the
