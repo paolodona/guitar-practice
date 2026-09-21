@@ -85,12 +85,15 @@
  *    section's boundary by a fixed 10ms (`NUDGE_S`), debounced the same
  *    way the transpose stepper's persistence is.
  *
- * 5. The inspector's Full song toggle (`manifest.Section.full_song`) is
- *    this screen's only way to create one: a section spanning the whole
- *    recording so its reps count, but excluded from practice.js's next/
- *    prev cycling and from the readiness bar (both exclusions live where
- *    they take effect, not here — this toggle only ever writes the one
- *    field).
+ * 5. **Removed 2026-09-21** (Paolo's ask): the inspector no longer exposes
+ *    a Full song toggle. `manifest.Section.full_song` is now under-the-
+ *    hood only — true for the default "Whole song" entry every recording
+ *    is bound with (`manifest.whole_song_section`), which still counts its
+ *    reps while staying excluded from practice.js's next/prev cycling and
+ *    from the readiness bar (both exclusions live where they take effect,
+ *    not here). `patchSection` still round-trips `sec.full_song` on every
+ *    edit — see its own comment — so an existing whole-song entry keeps
+ *    the flag; there is just no UI path left to set or clear it by hand.
  *
  * Waveform semantics on THIS screen differ from practice.js's: there is no
  * "played so far" concept (nothing loops here), so the design's
@@ -971,6 +974,13 @@ export function mount(el, payload) {
       start_speed: current.start_speed, ladder_step: current.ladder_step, reps_to_advance: current.reps_to_advance,
       notes: current.notes,
       counts_toward_readiness: current.counts_toward_readiness,
+      // Found live 2026-09-21: the inspector no longer exposes a "full
+      // song" toggle (Paolo's ask -- it's under-the-hood now, true only
+      // for the default "Whole song" entry), but this upsert is a full
+      // replace server-side (server.py's POST /api/section defaults a
+      // missing `full_song` to False) -- so it must still be echoed back
+      // on every patch, or the first edit to the whole-song entry would
+      // silently strip its full_song flag.
       lead_in_beats: current.lead_in_beats, full_song: current.full_song,
       ...partial,
     };
@@ -1025,14 +1035,6 @@ export function mount(el, payload) {
           `).join('')}
         </div>
       </div>
-      <div>
-        <button data-full-song class="mono" style="width:100%;text-align:left;padding:8px 11px;border-radius:4px;
-                    border:1px solid var(--line,#26302E);cursor:pointer;font-size:12px;letter-spacing:.04em;
-                    background:${sec.full_song ? 'var(--accent-tint,#2A2118)' : 'var(--sunken,#0F1614)'};
-                    color:${sec.full_song ? 'var(--on-tint,#F0C48A)' : 'var(--ink-2,#9CAAA4)'}">
-          ${sec.full_song ? '&#9745;' : '&#9744;'} FULL SONG &mdash; reps count, excluded from next/prev and readiness
-        </button>
-      </div>
       <div style="display:flex;gap:6px">
         <div style="flex:1;min-width:0"><div class="flbl">Start</div>
           <select class="fld mono" data-f="start_speed" style="font-size:12px;padding:8px 4px">${
@@ -1086,9 +1088,6 @@ export function mount(el, payload) {
     inspector.querySelector('[data-delete]')?.addEventListener('click', () => deleteSection(sec.id));
     inspector.querySelectorAll('[data-snap]').forEach((btn) => {
       btn.addEventListener('click', () => patchSection(sec.id, { snapped: btn.dataset.snap }));
-    });
-    inspector.querySelector('[data-full-song]').addEventListener('click', () => {
-      patchSection(sec.id, { full_song: !sec.full_song });
     });
   }
 
