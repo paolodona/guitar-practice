@@ -55,9 +55,31 @@ test('the cancel_lead_in action is gone -- there is no overlay left to cancel ou
   assert.ok(!keysSrc.includes('cancel_lead_in'), 'Escape should no longer be bound to cancel_lead_in');
 });
 
-test('the metronome stub is gone from actions.js and its keybinding', () => {
-  assert.ok(!actionsSrc.includes('metronome'), 'metronome should no longer be an ACTIONS entry');
-  assert.ok(!keysSrc.includes('metronome'), '"m" should no longer be bound to metronome');
+// SUPERSEDED 2026-09-12, deliberately and in the open. This test used to
+// assert that `metronome` appears nowhere in actions.js or keys.js, and it
+// was right to: #5 removed an ACTIONS entry that was never wired to
+// anything, along with the count-in overlay. What exists now is the
+// opposite of a stub -- a click on the beats `beatfit.py` measures in THIS
+// section, scheduled over the track by web/metronome.js -- so the
+// regression worth guarding flipped with it: the action must exist AND be
+// implemented. The overlay/count-in guards above are untouched, because
+// that removal still stands: nothing plays before the music.
+test('the metronome action exists and is actually implemented, not a stub', () => {
+  assert.ok(actionsSrc.includes('metronome_toggle'), 'metronome_toggle should be an ACTIONS entry');
+  assert.ok(keysSrc.includes("m: 'metronome_toggle'"), '"m" should be bound to it');
+  assert.ok(
+    src.includes('metronome_toggle() {'),
+    'practice.js must handle the action -- an unhandled entry is the stub #5 removed',
+  );
+  assert.ok(src.includes("from '../metronome.js'"), 'and the click itself must be wired in');
+});
+
+test('the metronome does not resurrect the count-in: no overlay, nothing before the music', () => {
+  // The distinction #5 turned on, restated as a check rather than a
+  // comment: a click that plays WITH the track is not a count-in that
+  // plays BEFORE it.
+  assert.ok(!src.includes('countIn'), 'no count-in machinery');
+  assert.ok(!src.includes('data-leadin'), 'no lead-in overlay markup');
 });
 
 test('the BPM readout survives untouched -- #5 explicitly keeps it', () => {

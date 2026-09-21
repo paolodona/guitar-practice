@@ -43,6 +43,11 @@ export const ACTIONS = {
   nudge_end:       { label: 'Nudge end',       cc: null },
   transpose_up:    { label: 'Transpose up',    cc: null },
   transpose_down:  { label: 'Transpose down',  cc: null },
+  // A real toggle with a real implementation (screens/practice.js), not
+  // the unwired stub #5 removed along with the count-in overlay: this one
+  // clicks the beats `beatfit.py` measured in THIS section, over the
+  // track, while it plays. See web/metronome.js.
+  metronome_toggle: { label: 'Metronome',      cc: null },
   loop_toggle:     { label: 'Loop',            cc: null },
   fullscreen:      { label: 'Fullscreen',      cc: null },
   help:            { label: 'Help',            cc: null },

@@ -413,6 +413,8 @@ class WoodshedHandler(BaseHTTPRequestHandler):
                 self._audio(path.removeprefix("/api/audio/"))
             elif path.startswith("/api/stem/"):
                 self._stem(path.removeprefix("/api/stem/"))
+            elif path.startswith("/api/beats/"):
+                self._beats(path.removeprefix("/api/beats/"))
             elif path == "/api/library":
                 self._library()
             elif path.startswith("/api/progress/"):
@@ -1052,6 +1054,48 @@ class WoodshedHandler(BaseHTTPRequestHandler):
         pre_roll_s = pre_roll_seconds(effective_pre_roll_beats(song, section), song.tempo.bpm)
         clip_path = isolate_guitar(self.repo, song, section, pre_roll_s=pre_roll_s)
         self._send_file(clip_path, "audio/flac")
+
+    def _beats(self, rest: str) -> None:
+        """`GET /api/beats/<slug>/<section>` -- where this section's beats
+        actually are, in SOURCE seconds, for the metronome toggle on the
+        practice screen (2026-09-12).
+
+        Not to be confused with `tempo.bpm` + `grid_offset_s`, which the
+        bar ruler is drawn from: that is one tempo for a whole recording,
+        and a commercial take is not one tempo. MEASURED on
+        songs/tutti-in-fila -- the stored 116.04 against sections fitting
+        116.09 / 116.59 / 117.42, and a grid run out from t=0 arriving at
+        the solo 0.8s late. `beats.py` fits each section on its own; this
+        route only serves the answer.
+
+        Blocking, like `_stem` and for a smaller version of the same
+        reason: a cold fit is one ffmpeg span-decode and some numpy, about
+        a second for a 90-second section, and a warm one is a file read.
+        There is nothing here worth a 202/poll dance.
+
+        An empty `beats` list is a legitimate 200: a section with no pulse
+        in it (applause, a rubato intro, near-silence) has no beats to
+        click, and saying so is what lets the screen turn the toggle off
+        and name the reason rather than show a broken metronome.
+        """
+        raw_slug, _, raw_section = rest.partition("/")
+        slug = self._resolve_slug(raw_slug)
+        if slug is None:
+            self._error(404, f"no such song: {raw_slug!r}")
+            return
+        song = load_song(self.repo.song_dir(slug) / "song.yaml")
+        section = next((s for s in song.sections if s.id == raw_section), None)
+        if section is None:
+            self._error(404, f"no such section: {raw_section!r}")
+            return
+
+        # Imported here, not at module top: `beats.py` shells out to
+        # ffmpeg, and server.py is above CLAUDE.md's layering line -- the
+        # same deferred import `_stem`/`_render` already use for the same
+        # rule.
+        from woodshed import beats as beats_module
+
+        self._json(beats_module.section_beats(self.repo, song, section))
 
     def _render(self, rest: str, query: str) -> None:
         """`GET /api/render/<slug>/<section>?speed=&semitones=&source=` --

@@ -29,8 +29,21 @@ from woodshed.tempofit import find_grid_anchor, refine_tempo
 from woodshed.tools import locate_tool, require_module
 
 
-def load_mono_audio(path: str | Path, sample_rate: int = 22050) -> tuple[np.ndarray, int]:
+def load_mono_audio(
+    path: str | Path,
+    sample_rate: int = 22050,
+    *,
+    start_s: float | None = None,
+    duration_s: float | None = None,
+) -> tuple[np.ndarray, int]:
     """Decode any audio file to a mono float32 array via ffmpeg.
+
+    `start_s`/`duration_s` decode a SPAN instead of the whole file --
+    `beats.py` (the metronome's per-section fit) wants one section, not a
+    five-minute recording, and cutting it here keeps ffmpeg's argv in the
+    one module that already owns it rather than growing a second decoder
+    beside it. `-ss` goes before `-i` (ffmpeg's own fast-seek form, the
+    same ordering `separate.isolate_guitar` uses for the same reason).
 
     Not librosa's own loader: ffmpeg already has to be on this machine for
     `render.py`, decodes more formats reliably than librosa's audioread/
@@ -45,16 +58,14 @@ def load_mono_audio(path: str | Path, sample_rate: int = 22050) -> tuple[np.ndar
     if not path.is_file():
         raise WoodshedError(f"no such audio file: {path}")
     ffmpeg = locate_tool("ffmpeg").path
-    result = subprocess.run(
-        [
-            ffmpeg, "-v", "error", "-nostdin",
-            "-i", str(path),
-            "-ac", "1", "-ar", str(sample_rate),
-            "-f", "f32le", "-",
-        ],
-        capture_output=True,
-        check=False,
-    )
+    argv = [ffmpeg, "-v", "error", "-nostdin"]
+    if start_s is not None:
+        argv += ["-ss", f"{start_s:.6f}"]
+    argv += ["-i", str(path)]
+    if duration_s is not None:
+        argv += ["-t", f"{duration_s:.6f}"]
+    argv += ["-ac", "1", "-ar", str(sample_rate), "-f", "f32le", "-"]
+    result = subprocess.run(argv, capture_output=True, check=False)
     if result.returncode != 0:
         tail = result.stderr.decode("utf-8", "replace").strip().splitlines()[-6:]
         raise WoodshedError(f"ffmpeg could not decode {path}:\n" + "\n".join(tail))

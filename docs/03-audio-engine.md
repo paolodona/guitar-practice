@@ -222,6 +222,99 @@ Woodshed has the same two-clock hazard in a different costume:
 Write them as two functions with two names and convert at the boundary. Anything
 that takes a bare `float` called `t` will eventually take the wrong one.
 
+## The metronome
+
+Added 2026-09-12. A toggle on the practice screen (`m`, or the icon top
+right) that clicks over the track while it plays — for practising at 40 %,
+where everything smears, and against the isolated guitar, where the rest of
+the band is simply not there.
+
+**It is fitted per section, and that is the whole feature.** `tempo.bpm` +
+`grid_offset_s` is one tempo for a whole recording, which is fine for a bar
+ruler and wrong for a click. Measured on `tutti-in-fila` — a take Paolo
+flagged as not played in time:
+
+| | BPM | mean phase error of a click built on it |
+|---|---|---|
+| stored song tempo | 116.04 | 32 ms (full solo), 70 ms (second run), 35 ms (tapping) |
+| fitted per section | 116.09 / 115.60 / 116.59 | **11 ms**, **5 ms**, **5 ms** |
+
+A grid anchored at the song's own `t=0` and extended to a section 200 s in
+arrives about **0.8 s** late. That is not a tuning problem; it is a
+different question, and `src/woodshed/beatfit.py` answers it.
+
+Three measurements decided the shape of that module, and all three are
+reproducible from the tests:
+
+* **The band's wobble inside a section is real, not analysis noise.** Four
+  independent FFT parameterisations (n_fft 1024–4096, hop 128–256) agree on
+  the per-window phase curve to `r = +1.00`, rms 2–5 ms, while the curve
+  itself spans ±40–60 ms. So the click follows it — slowly, a
+  piecewise-linear correction sampled in ~4 s windows — rather than holding
+  one tempo and drifting away from the music.
+* **A window with nothing in it is not a measurement.** Following every
+  window made the click *worse* than a plain grid across the song's sparse
+  intro (144 ms mean error against the grid's 80 ms). Windows below an
+  energy or coherence floor are dropped and the correction interpolates
+  across them.
+* **The tempo that needs the least correction is the right one.** Where the
+  prior's eighth-note candidate and the bare sweep disagreed (233.07 vs
+  115.97), both looked plausible; the first needed 319 ms of dragging, the
+  second 80 ms. Scoring candidates by the rms correction they need picks
+  the grid the band actually stays on.
+
+**No new dependency.** The onset envelope is twenty lines of numpy
+(spectral flux over an rfft), and the pulse is found with `tempofit._comb`,
+the DFT-at-arbitrary-tempi this repo already uses because a tempogram bin
+centre is not a measurement. librosa's own beat tracker was tried and
+returned **one beat** on the 11-second "First run" section — dynamic
+programming needs a long span, and a drill is short.
+
+**The click is scheduled, never rendered**, and that is three decisions in
+one:
+
+* A click baked into audio is unremovable — `rambass-live`'s `click.py`
+  opens with that rule, and here the render cache *is* the audio.
+* It has to toggle instantly, without building a second cache entry per
+  `(section, speed, shift)`.
+* Beats are stored in **source seconds**, so a speed change costs one
+  multiplication: nothing is re-fetched and nothing is re-fitted when the
+  ladder moves. `web/metronome.js` schedules `AudioBufferSourceNode`s ahead
+  on the engine's own `AudioContext` (100 ms tick, 400 ms look-ahead), so
+  the clicks are sample-accurate against the music and survive the native
+  loop's wraps, which fire no event to listen for.
+
+Two deliberate refusals, both of the same kind as "the tool never judges the
+playing":
+
+* **No accent on beat 1.** The fit measures the phase of the pulse; *which*
+  beat is bar 1 beat 1 is a musical question it cannot answer
+  (`tempofit.find_grid_anchor` says so in as many words), and an accent in
+  the wrong place is worse than no accent.
+* **Not on the real-time engine.** That engine has no honest position — only
+  the worklet's read pointer, which leads the audible output by whatever the
+  stretcher is holding — so the toggle says it needs the render cache rather
+  than clicking confidently in the wrong place. It is also not offered on
+  the whole-song section, where "one tempo" is exactly the fiction this
+  feature exists to avoid.
+
+This is **not** the count-in overlay removed in #5. Nothing plays before the
+music, there is no overlay, and no click is ever written into a file.
+
+**The toggle cycles off → 1× → 2× → 4×.** A slow section — the whole reason
+the metronome exists — can put the fitted click far enough apart that it is
+hard to lock onto; 2×/4× subdivide the SAME fit (`web/metronome.js`'s
+`subdivideBeats`, one or three evenly-spaced midpoints per gap) rather than
+running a faster analysis. Nothing is re-fetched or re-fit stepping through
+the cycle, for the identical reason a speed change is free: the beats are
+still source seconds and only the multiplication changes. Only the internal
+gaps of the fitted list are subdivided, never the wrap from the last beat of
+a lap back to the first — that seam belongs to `clicksInWindow`'s own loop
+arithmetic, and the loss is one un-subdivided beat per lap, not a wrong one.
+
+**Click level was −9 dBFS, is −6 dBFS.** Paolo, 2026-09-12: at −9 dBFS the
+click was getting lost against the music, not just quiet against it.
+
 ## Decoding and formats
 
 * **Source files**: MP3, FLAC, WAV, M4A. Decode with `ffmpeg` (via

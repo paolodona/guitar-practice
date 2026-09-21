@@ -34,6 +34,10 @@ import { ACTIONS, dispatch } from './actions.js';
  *   r           restart_section — r = "restart"
  *   -           transpose_down  \ CLAUDE.md fixes these two literally:
  *   =           transpose_up    /  "shown ... as a number ... '-'/'='"
+ *   m           metronome_toggle — m = "metronome", and the key it had
+ *               before #5 removed the (unwired) stub; the feature that
+ *               replaced it, 2026-09-12, is a click on the section's own
+ *               measured beats, played over the track.
  *   l           loop_toggle     — l = "loop"
  *   f           fullscreen      — f = "fullscreen", browser-convention key
  *   ?           help            — '?' opens a help overlay, browser convention
@@ -60,6 +64,7 @@ export const KEY_MAP = {
   r: 'restart_section',
   '-': 'transpose_down',
   '=': 'transpose_up',
+  m: 'metronome_toggle',
   l: 'loop_toggle',
   f: 'fullscreen',
   '?': 'help',

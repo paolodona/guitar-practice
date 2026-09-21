@@ -85,6 +85,21 @@ pre-rendered, decoded `AudioBuffer` with a native sample-exact loop — never fr
 a real-time stretcher, which cannot put the seam in the same place twice. The
 real-time engine is for dragging the slider; the cache is for practising.
 
+**The metronome's beats are measured per section, and the click is never
+rendered into audio.** The song's `tempo.bpm` is one number for a whole
+recording and a commercial take is not one tempo — `tutti-in-fila` stores
+116.04 while its own sections fit 116.09, 115.60, 116.59 and 117.42, so a
+grid run out from the song's `t=0` reaches the solo about 0.8 s late.
+`beatfit.py` fits each section on its own (numpy only, no librosa: its beat
+tracker returns *one beat* on an 11-second drill), and the click is
+scheduled live in the browser against beats stored in **source seconds** —
+so a speed change costs one multiplication rather than a second cache entry,
+and no `cache/` file can ever be contaminated with a click that cannot be
+removed. That last part is `rambass-live/src/rambass/click.py`'s own opening
+rule and it applies here unchanged. The measurements are in
+`docs/03-audio-engine.md`; the count-in overlay #5 removed is a different
+thing and stays removed.
+
 **The tool never judges the playing.** No pitch detection, no "you played that
 wrong". A pass is counted; whether it was *clean* is something a human confirms.
 Inventing a measurement the tool cannot make is the failure mode `gx100/CLAUDE.md`

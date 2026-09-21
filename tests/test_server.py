@@ -612,10 +612,91 @@ def test_song_payload_reports_demucs_availability(served, monkeypatch):
 def test_click_endpoint_no_longer_exists(served):
     # #5: the lead-in/metronome-click feature was removed entirely --
     # this route must 404 like any other unrecognised path, not answer.
+    #
+    # Still true, and deliberately unchanged by the metronome that landed
+    # 2026-09-12: THAT feature is `/api/beats/<slug>/<section>` (a beat
+    # LIST, fitted per section, clicked live in the browser) and has
+    # nothing in common with this one, which rendered a count-in WAV
+    # server-side from the song-level grid -- the grid whose drift is the
+    # reason the new one measures each section on its own.
     base, _, slug = served
     with pytest.raises(urllib.error.HTTPError) as caught:
         _get(base, f"/api/click/{slug}/solo-full")
     assert caught.value.code == 404
+
+
+# ── GET /api/beats/<slug>/<section> (the metronome, 2026-09-12) ────────────
+
+
+def test_beats_serves_the_fitted_beat_list(served, monkeypatch):
+    import woodshed.beats as beats_module
+
+    base, repo, slug = served
+    calls = []
+
+    def fake_section_beats(repo_, song, section, **kwargs):
+        calls.append((song.slug, section.id, song.tempo.bpm))
+        return {"version": 1, "section_id": section.id, "bpm": 117.4,
+                "pulse_bpm": 117.4, "beats": [1.0, 1.51, 2.02], "wander_ms": 12.0,
+                "pulse_ratio": 9.5, "analysis_start_s": 0.0, "analysis_end_s": 64.0}
+
+    monkeypatch.setattr(beats_module, "section_beats", fake_section_beats)
+
+    status, data = _get_json(base, f"/api/beats/{slug}/solo-full")
+    assert status == 200
+    assert data["beats"] == [1.0, 1.51, 2.02]
+    assert data["bpm"] == 117.4
+    assert calls == [(slug, "solo-full", 120.0)]
+
+
+def test_beats_unknown_song_is_404(served):
+    base, _, _ = served
+    with pytest.raises(urllib.error.HTTPError) as caught:
+        _get(base, "/api/beats/no-such-song/solo-full")
+    assert caught.value.code == 404
+
+
+def test_beats_unknown_section_is_404(served):
+    base, _, slug = served
+    with pytest.raises(urllib.error.HTTPError) as caught:
+        _get(base, f"/api/beats/{slug}/no-such-section")
+    assert caught.value.code == 404
+
+
+def test_beats_missing_ffmpeg_surfaces_as_400(served, monkeypatch):
+    import woodshed.beats as beats_module
+
+    base, _, slug = served
+
+    def boom(*a, **kw):
+        raise WoodshedError("ffmpeg is not on PATH. Install it:")
+
+    monkeypatch.setattr(beats_module, "section_beats", boom)
+    with pytest.raises(urllib.error.HTTPError) as caught:
+        _get(base, f"/api/beats/{slug}/solo-full")
+    assert caught.value.code == 400
+
+
+def test_beats_answers_an_empty_list_rather_than_erroring_on_unfittable_audio(
+    served, monkeypatch
+):
+    """Twelve seconds of applause has no pulse, and that is an answer, not
+    a failure: the screen turns the toggle off and says so. An error here
+    would read as "the metronome is broken" instead."""
+    import woodshed.beats as beats_module
+
+    base, _, slug = served
+    monkeypatch.setattr(
+        beats_module, "section_beats",
+        lambda *a, **kw: {"version": 1, "section_id": "solo-full", "bpm": 0.0,
+                          "pulse_bpm": 0.0, "beats": [], "wander_ms": 0.0,
+                          "pulse_ratio": 0.0, "analysis_start_s": 0.0,
+                          "analysis_end_s": 64.0},
+    )
+    status, data = _get_json(base, f"/api/beats/{slug}/solo-full")
+    assert status == 200
+    assert data["beats"] == []
+    assert data["bpm"] == 0.0
 
 
 # ── GET /api/render/<slug>/<section> (Phase 2, Group I3 -- pulled forward

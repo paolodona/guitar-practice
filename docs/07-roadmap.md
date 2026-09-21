@@ -30,7 +30,13 @@ app counts. Everything after this is making that better, not making it work.
   the file, not a librosa tempogram bin — plus a **tap-tempo** fallback and a
   manual override, each recording which it was.
 * Beat grid, bar ruler, boundary snapping, millisecond nudge.
-* Lead-in bars and a generated click (`click.py`, also from `rambass-live`).
+* ~~Lead-in bars and a generated click (`click.py`, also from `rambass-live`).~~
+  Removed in #5 (the count-in overlay and its server-rendered click), and
+  replaced 2026-09-12 by something with a different shape: a **metronome
+  toggle** on the practice screen that clicks the beats *measured in that
+  section* over the track while it plays. Lead-in bars themselves stayed —
+  the render's own pre-roll audio was never part of what #5 removed.
+  See `docs/03-audio-engine.md`, "The metronome".
 * Setlists, per-song transpose with a `−`/`+` stepper, and the dashboard.
 * **Capture** — loopback recording, silence splitting, duration matching to an
   imported tracklist. Promoted out of phase 3 on 2026-09-05: without source audio
