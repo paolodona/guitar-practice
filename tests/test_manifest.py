@@ -21,6 +21,7 @@ import yaml
 
 from woodshed.errors import WoodshedError
 from woodshed.manifest import (
+    Loudness,
     PatchChange,
     PracticeDefaults,
     Recording,
@@ -278,6 +279,27 @@ def test_song_with_no_tempo_key_at_all_still_loads(tmp_path: Path, song_yaml_tex
 
 def test_tempo_bpm_defaults_to_zero_not_a_validation_error() -> None:
     assert Tempo().bpm == 0.0
+
+
+# --- the same degrade path for loudness: never-measured is not an error ----
+# Mirrors tempo.bpm exactly -- see woodshed.loudness's module docstring.
+
+
+def test_song_with_no_loudness_key_at_all_still_loads(tmp_path: Path, song_yaml_text: str) -> None:
+    data = yaml.safe_load(song_yaml_text)
+    data.pop("loudness", None)
+    path = tmp_path / "song.yaml"
+    path.write_text(yaml.safe_dump(data), encoding="utf-8")
+
+    song = load_song(path)
+    assert song.loudness.integrated_lufs == 0.0
+    assert song.loudness.peak_dbfs == 0.0
+    assert song.loudness.source == "manual"
+
+
+def test_loudness_defaults_to_the_sentinel_not_a_validation_error() -> None:
+    assert Loudness().integrated_lufs == 0.0
+    assert Loudness().peak_dbfs == 0.0
 
 
 def test_section_valid_span_does_not_raise() -> None:

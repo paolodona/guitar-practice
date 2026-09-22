@@ -24,11 +24,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from woodshed import ledger, practice, sections
+from woodshed import loudness as loudness_module
 from woodshed.clock import pre_roll_seconds
 from woodshed.errors import WoodshedError
 from woodshed.ledger import Rep
 from woodshed.library import Repo, find_root, slugify
 from woodshed.manifest import (
+    Loudness,
     Recording,
     Section,
     Song,
@@ -154,30 +156,42 @@ def _read_duration_s(path: Path) -> float:
 
 
 def analyze_after_bind(repo: Repo, slug: str, audio_path: Path, *, auto_tempo: bool = True) -> None:
-    """Peaks + best-effort tempo auto-detection for a freshly bound song --
-    called automatically by `bind_song_file` and `capture.py`'s
-    `bind_segment_to_song`/`bind_segment_as_new_song` so a waveform
-    renders and a real tempo grid exists without a separate, manual
-    `woodshed analyze` step (found live 2026-09-06: nothing about this
-    needs an optional dependency except the tempo GUESS itself).
+    """Peaks + loudness + best-effort tempo auto-detection for a freshly
+    bound song -- called automatically by `bind_song_file` and
+    `capture.py`'s `bind_segment_to_song`/`bind_segment_as_new_song` so a
+    waveform renders, a level-matched playback gain exists, and a real
+    tempo grid exists, all without a separate, manual `woodshed analyze`
+    step (found live 2026-09-06: nothing about this needs an optional
+    dependency except the tempo GUESS itself).
 
-    Peaks are ALWAYS written: decoding is ffmpeg (already a hard
-    requirement -- `_read_duration_s` already uses it for anything that
-    isn't a `.wav`) and bucketing is pure numpy (`peaks.py`, Tier 2), no
-    optional dependency involved. Tempo is auto-detected via librosa only
-    when *auto_tempo* is true (the caller's own signal that nothing more
-    specific was requested -- `bind_song_file` passes `bpm is None`, so an
-    explicit `--bpm`/upload-form tempo is never silently overridden) AND
-    librosa is actually installed; either being false leaves the song's
-    existing tempo alone entirely, same graceful degrade `doctor.py`'s own
-    optional checks use elsewhere -- never a hard failure just because the
-    optional analysis piece is missing or not asked for.
+    Peaks and loudness are ALWAYS written: decoding is ffmpeg (already a
+    hard requirement -- `_read_duration_s` already uses it for anything
+    that isn't a `.wav`), bucketing is pure numpy (`peaks.py`, Tier 2), and
+    loudness measurement is pure numpy too (`woodshed.loudness`, hand-rolled
+    K-weighting -- see its own module docstring for why that is
+    deliberate). No optional dependency involved in either. Tempo is
+    auto-detected via librosa only when *auto_tempo* is true (the caller's
+    own signal that nothing more specific was requested -- `bind_song_file`
+    passes `bpm is None`, so an explicit `--bpm`/upload-form tempo is never
+    silently overridden) AND librosa is actually installed; either being
+    false leaves the song's existing tempo alone entirely, same graceful
+    degrade `doctor.py`'s own optional checks use elsewhere -- never a hard
+    failure just because the optional analysis piece is missing or not
+    asked for. Loudness has no such gate: it is never skipped.
     """
     from woodshed import peaks as peaks_module
     from woodshed.analyze import load_mono_audio
 
     samples, sr = load_mono_audio(audio_path)
     peaks_module.write_peaks(repo, slug, peaks_module.multi_resolution(samples, sr))
+
+    path = repo.song_dir(slug) / "song.yaml"
+    integrated_lufs, peak_dbfs = loudness_module.measure(samples, sr)
+    song = load_song(path)
+    song.loudness = Loudness(
+        integrated_lufs=integrated_lufs, peak_dbfs=peak_dbfs, source="measured"
+    )
+    save_song(song, path)
 
     if not auto_tempo:
         return
@@ -189,7 +203,6 @@ def analyze_after_bind(repo: Repo, slug: str, audio_path: Path, *, auto_tempo: b
     except WoodshedError as exc:
         _say(f"  ({slug}: tempo auto-detect skipped -- {exc})")
         return
-    path = repo.song_dir(slug) / "song.yaml"
     song = load_song(path)
     song.tempo = tempo
     save_song(song, path)
@@ -958,15 +971,21 @@ def cmd_analyze(args: argparse.Namespace) -> int:
     song.tempo = tempo
     save_song(song, path)
 
-    # One decode serves both tempo detection and the peaks cache --
-    # docs/01-architecture.md:111 lists them together for exactly this
-    # reason -- and peaks are cached regardless of which tempo path was
-    # used above, since they have nothing to do with tempo at all. A second
-    # ffmpeg pass on the auto-detect path is the price of detect_tempo's
-    # fixed, audio-in-tempo-out signature (see analyze.py); it is a few
-    # seconds once per `woodshed analyze`, not a hot path.
+    # One decode serves tempo detection, the peaks cache, and loudness --
+    # docs/01-architecture.md:111 lists tempo+peaks together for exactly this
+    # reason, and loudness measurement (woodshed.loudness, pure numpy) rides
+    # along the same decode. Peaks and loudness are recomputed regardless of
+    # which tempo path was used above, since neither has anything to do with
+    # tempo. A second ffmpeg pass on the auto-detect path is the price of
+    # detect_tempo's fixed, audio-in-tempo-out signature (see analyze.py);
+    # it is a few seconds once per `woodshed analyze`, not a hot path.
     samples, sr = load_mono_audio(audio_path)
     peaks_module.write_peaks(repo, slug, peaks_module.multi_resolution(samples, sr))
+    integrated_lufs, peak_dbfs = loudness_module.measure(samples, sr)
+    song.loudness = Loudness(
+        integrated_lufs=integrated_lufs, peak_dbfs=peak_dbfs, source="measured"
+    )
+    save_song(song, path)
 
     grid = beat_grid(tempo, song.recording.duration_s)
     _say(f"{slug}: bpm {tempo.bpm:g} (source: {tempo.source}, "
@@ -974,6 +993,7 @@ def cmd_analyze(args: argparse.Namespace) -> int:
          else f"{slug}: bpm {tempo.bpm:g} (source: {tempo.source})")
     _say(f"  grid offset {tempo.grid_offset_s:.3f}s, {len(grid)} beats over "
          f"{song.recording.duration_s:.1f}s, peaks cached")
+    _say(f"  loudness {integrated_lufs:.1f} LUFS, peak {peak_dbfs:.1f} dBFS")
     return 0
 
 

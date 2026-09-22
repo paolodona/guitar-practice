@@ -84,6 +84,19 @@
  *   preview player. Never fires 'pass' by construction (see worklet.js's
  *   own module doc): this is the mechanism that lets that screen's
  *   transport never write a rep, not a check either file has to remember.
+ * @property {number} [loudnessGainDb] - 0 (default): unity gain. Otherwise
+ *   the per-song playback gain computed server-side (`payload.loudness_gain_db`,
+ *   `server.py`'s `_song` handler, derived from `woodshed.loudness.gain_db` —
+ *   never stored, only ever computed at request time) so songs measured at
+ *   different source loudness sound similarly loud without manual volume
+ *   riding. Applied at the SAME gain node(s) each engine already creates for
+ *   its own purposes (RealtimeEngine's otherwise-unused pass-through, or
+ *   BufferEngine's per-source/crossfade gain — see each engine's own note)
+ *   rather than a new master-gain node, so nothing about the audio graph or
+ *   the crossfade math changes shape. See CLAUDE.md's loudness-matching
+ *   invariant: gain is applied at PLAYBACK time only, never baked into a
+ *   stored file or the render cache — this field is the one place that
+ *   happens.
  * @property {number} [clipOffsetS] - Phase 1.5, S3. 0 (default): audioUrl
  *   is the whole recording (GET /api/audio/<slug>), and startS/endS/
  *   preRollS already are absolute positions into it — the ordinary case.
@@ -105,6 +118,17 @@
  *   named one — same rule, same discipline: convert once, at this one
  *   boundary, never re-derive it elsewhere.
  */
+
+/**
+ * `section.loudnessGainDb` (a dB value) to a linear gain multiplier a
+ * GainNode's `.gain` actually wants. Pure, exported for the same
+ * test-without-a-DOM reason `computeSliceFrames` is.
+ * @param {number} db
+ * @returns {number}
+ */
+export function dbToLinear(db) {
+  return 10 ** (db / 20);
+}
 
 /**
  * The one function that knows how a SectionLoad's absolute source-second
@@ -360,6 +384,7 @@ export class RealtimeEngine extends EventTarget {
       processorOptions: { module, source, channels, loopStartFrame, timeRatio, pitchScale, loop: section.loop },
     });
     const gain = this.ctx.createGain();
+    gain.gain.value = dbToLinear(section.loudnessGainDb || 0);
     node.connect(gain).connect(this.ctx.destination);
 
     const ready = new Promise((resolve, reject) => {
@@ -1451,6 +1476,12 @@ export class BufferEngine extends EventTarget {
       + `seamTime=${seamTime} ctxNow=${now}`,
     );
     const crossfadeS = clock.crossfadeS;
+    // The loudness gain is baked INTO the crossfade curve itself, not a
+    // second gain stage on top of it -- one curve, one writer of
+    // `gain.gain`, rather than a static loudness gain competing with the
+    // crossfade envelope's own scheduled values. See the SectionLoad
+    // typedef's `loudnessGainDb` doc.
+    const loudnessGain = dbToLinear(this._section?.loudnessGainDb || 0);
     const gain = this.ctx.createGain();
     const source = this.ctx.createBufferSource();
     source.buffer = buffer;
@@ -1459,7 +1490,9 @@ export class BufferEngine extends EventTarget {
     source.loopEnd = clock.loopEnd;
     source.connect(gain).connect(this.ctx.destination);
     gain.gain.value = 0;
-    gain.gain.setValueCurveAtTime(equalPowerCurve(CROSSFADE_POINTS, 'in'), seamTime, crossfadeS);
+    gain.gain.setValueCurveAtTime(
+      equalPowerCurve(CROSSFADE_POINTS, 'in').map((v) => v * loudnessGain), seamTime, crossfadeS,
+    );
     // The new node joins at its own loop start: a rung change mid-practice
     // is not a restart, so the lead-in does not replay for it.
     source.start(seamTime, clock.loopStart);
@@ -1468,7 +1501,7 @@ export class BufferEngine extends EventTarget {
     // window -- Web Audio refuses a value curve that overlaps another.
     this._active.gain.gain.cancelScheduledValues(seamTime);
     this._active.gain.gain.setValueCurveAtTime(
-      equalPowerCurve(CROSSFADE_POINTS, 'out'), seamTime, crossfadeS,
+      equalPowerCurve(CROSSFADE_POINTS, 'out').map((v) => v * loudnessGain), seamTime, crossfadeS,
     );
     // The FADE is what retires the old node: its gain reaches 0 at
     // seamTime + crossfadeS on the audio thread and holds there, so the
@@ -1520,7 +1553,11 @@ export class BufferEngine extends EventTarget {
     gain.disconnect();
     if (outgoing && !outgoing.retired) {
       outgoing.gain.gain.cancelScheduledValues(seamTime);
-      outgoing.gain.gain.setValueAtTime(1, seamTime);
+      // Not a bare 1 -- this node's own steady-state level already
+      // includes the loudness gain (see `_scheduleSwap`), and cancelling a
+      // swap must restore exactly that, or the still-playing node jumps to
+      // unity for an instant.
+      outgoing.gain.gain.setValueAtTime(dbToLinear(this._section?.loudnessGainDb || 0), seamTime);
     }
     this._pendingSwap = null;
   }
@@ -1569,6 +1606,7 @@ export class BufferEngine extends EventTarget {
       this._qualified = false;
     }
     const gain = this.ctx.createGain();
+    gain.gain.value = dbToLinear(this._section?.loudnessGainDb || 0);
     const source = this.ctx.createBufferSource();
     source.buffer = this._buffer;
     source.loop = true;

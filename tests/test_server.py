@@ -43,6 +43,7 @@ from woodshed.errors import WoodshedError
 from woodshed.ledger import read as read_ledger
 from woodshed.library import Repo
 from woodshed.manifest import (
+    Loudness,
     PatchChange,
     Recording,
     Section,
@@ -102,6 +103,7 @@ def _make_song(repo: Repo, slug: str) -> Song:
             tuning="E standard",
         ),
         tempo=Tempo(bpm=120.0, source="manual", grid_offset_s=0.0, time_signature="4/4"),
+        loudness=Loudness(integrated_lufs=-30.0, peak_dbfs=-10.0, source="measured"),
         sections=[
             Section(
                 id="solo-full", name="Solo (full)", start_s=0.0, end_s=60.0,
@@ -319,6 +321,11 @@ def test_api_song_payload_has_lanes_and_ancestors(served):
     assert status == 200
     assert data["slug"] == slug
     assert data["tempo"]["bpm"] == 120.0
+    assert data["loudness"]["integrated_lufs"] == -30.0
+    assert data["loudness"]["peak_dbfs"] == -10.0
+    # target -16 LUFS wants +14dB, but the peak ceiling (-1 dBTP) only
+    # allows +9dB of headroom above -10 dBFS -- the ceiling wins.
+    assert data["loudness_gain_db"] == pytest.approx(9.0)
     assert data["peaks_url"] == f"/api/peaks/{slug}"
     assert data["shift"] == 0  # no ?setlist= on this request -- unshifted
     # readiness is real as of F1 (practice.py); no reps yet, so the two

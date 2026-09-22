@@ -1198,3 +1198,62 @@ def test_binding_audio_does_auto_detect_when_no_tempo_was_ever_set(
     cli.bind_audio_to_song(repo, "no-tempo", source)
 
     assert called == [True]
+
+
+# --- loudness is always measured on bind, no optional dependency gate ------
+# Unlike tempo, there is no `auto_tempo`/`librosa_available` gate for
+# loudness -- woodshed.loudness is pure numpy (see its own module docstring)
+# so analyze_after_bind measures it unconditionally on every bind path.
+
+
+def test_bind_song_file_writes_a_measured_loudness(repo: Repo, tmp_path: Path) -> None:
+    source = tmp_path / "real.wav"
+    _write_wav(source, seconds=1.0)
+    song = cli.bind_song_file(repo, source, title="Loud Test", tuning="E standard")
+    assert song.loudness.source == "measured"
+    # Silence still produces a real (non-sentinel) measurement -- the
+    # silence floor, not the "never measured" 0.0 sentinel.
+    assert song.loudness.integrated_lufs != 0.0
+    assert song.loudness.peak_dbfs != 0.0
+
+
+def test_bind_audio_to_song_writes_a_measured_loudness(repo: Repo, tmp_path: Path) -> None:
+    from woodshed.sources import Track, import_tracks
+
+    import_tracks(repo, [Track(spotify_id="x", title="Loudness Bind", artist="Nobody",
+                                album=None, duration_s=100.0)])
+    source = tmp_path / "real.wav"
+    _write_wav(source, seconds=1.0)
+    cli.bind_audio_to_song(repo, "loudness-bind", source)
+
+    song = load_song(repo.song_dir("loudness-bind") / "song.yaml")
+    assert song.loudness.source == "measured"
+    assert song.loudness.integrated_lufs != 0.0
+
+
+def test_loudness_is_measured_even_when_librosa_is_unavailable(
+    repo: Repo, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The autouse `_no_auto_tempo_detection` fixture already forces
+    `librosa_available` to False for every test in this file -- this test
+    makes that assertion explicit rather than incidental: tempo stays at
+    `bind_song_file`'s own placeholder (never auto-detected, source stays
+    "manual") while loudness is measured regardless."""
+    source = tmp_path / "real.wav"
+    _write_wav(source, seconds=1.0)
+    song = cli.bind_song_file(repo, source, title="No Librosa", tuning="E standard")
+    assert song.tempo.source == "manual"  # never reached "detected"/"refined"
+    assert song.loudness.source == "measured"
+
+
+def test_cmd_analyze_with_explicit_bpm_still_measures_loudness(
+    repo: Repo, tmp_path: Path
+) -> None:
+    source = tmp_path / "real.wav"
+    _write_wav(source, seconds=1.0)
+    song = cli.bind_song_file(repo, source, title="Explicit Bpm", tuning="E standard")
+    rc = cli.main(["analyze", song.slug, "--bpm", "120"])
+    assert rc == 0
+    reloaded = load_song(repo.song_dir(song.slug) / "song.yaml")
+    assert reloaded.tempo.bpm == 120.0
+    assert reloaded.loudness.source == "measured"

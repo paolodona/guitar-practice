@@ -30,15 +30,24 @@ dependencies = [
     # CLAUDE.md's layering rule is unaffected: capture.py is still the only
     # module that may import it, still never at module top level.
     "pyaudiowpatch",
+    # Tempo auto-detection (analyze.py). Same mechanical reason as demucs
+    # and pyaudiowpatch above: a capture-bound song calls `analyze_after_bind`
+    # automatically (capture.py), but it only detects tempo when librosa is
+    # actually installed -- found live 2026-09-22 ("snow" bound with
+    # `bpm: 0.0` because librosa was only in the `[analyze]` extra and
+    # `uv run --extra dev pytest` had re-synced it away). CLAUDE.md's
+    # layering rule is unaffected: analyze.py is still the only module that
+    # may import librosa, still never at module top level.
+    "librosa",
 ]
 
 [project.optional-dependencies]
-analyze = ["librosa"]
 render = []
-# Kept, empty, so an old `uv sync --extra capture` or `--extra separate` in a
-# note or a shell history still works instead of erroring on an unknown
-# extra. pyaudiowpatch and demucs both moved to `dependencies` above; nothing
-# is pinned in two places.
+# Kept, empty, so an old `uv sync --extra analyze`, `--extra capture` or
+# `--extra separate` in a note or a shell history still works instead of
+# erroring on an unknown extra. librosa, pyaudiowpatch and demucs all moved
+# to `dependencies` above; nothing is pinned in two places.
+analyze = []
 capture = []
 separate = []
 # `woodshed gx100 sync` (#3, N2 follow-up) -- SysEx over MIDI, gx100_sync.py's

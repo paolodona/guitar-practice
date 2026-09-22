@@ -90,6 +90,14 @@ export const SONG_WAVE_OPTS = Object.freeze({
  * @property {number} [strokeWidth]
  * @property {string} [playedColor]
  * @property {string} [unplayedColor]
+ * @property {number} [loudnessGainDb] - 0 (default): draw true recorded
+ *   amplitude. Otherwise the SAME per-song playback gain player.js applies
+ *   to what you hear (`payload.loudness_gain_db`) — cosmetic only, applied
+ *   to the drawn tick heights so a quiet capture doesn't look short next to
+ *   a normally-mastered song it now sounds as loud as. Never written back
+ *   anywhere: peaks.json on disk stays the real, unaltered amplitude (the
+ *   same "gain is playback-only, never baked in" rule CLAUDE.md states for
+ *   audio — extended here to this drawing, not the stored peaks).
  */
 
 /**
@@ -120,6 +128,7 @@ export function drawWave(svgRoot, peaks, view, playedFraction, opts = {}) {
   const strokeWidth = opts.strokeWidth ?? PRACTICE_WAVE_OPTS.strokeWidth;
   const unplayedColor = opts.unplayedColor ?? PRACTICE_WAVE_OPTS.unplayedColor;
   const playedColor = opts.playedColor ?? PRACTICE_WAVE_OPTS.playedColor;
+  const visualGain = dbToLinear(opts.loudnessGainDb || 0);
 
   const ticks = peaks.peaks;
   const vbWidth = Math.max(ticks.length * tickSpacing, 1);
@@ -127,7 +136,7 @@ export function drawWave(svgRoot, peaks, view, playedFraction, opts = {}) {
   svgRoot.setAttribute('viewBox', `0 0 ${round1(vbWidth)} ${VBOX_HEIGHT}`);
   svgRoot.setAttribute('preserveAspectRatio', 'none');
 
-  const d = buildTickPath(ticks, tickSpacing);
+  const d = buildTickPath(ticks, tickSpacing, visualGain);
 
   const unplayedPath = makeTickPath(d, unplayedColor, strokeWidth);
   svgRoot.appendChild(unplayedPath);
@@ -143,13 +152,13 @@ export function drawWave(svgRoot, peaks, view, playedFraction, opts = {}) {
 }
 
 /** Build the shared `d` attribute once; both paths (played/unplayed) reuse it. */
-function buildTickPath(ticks, tickSpacing) {
+function buildTickPath(ticks, tickSpacing, visualGain = 1) {
   let d = '';
   for (let i = 0; i < ticks.length; i++) {
     const [mn, mx] = ticks[i];
     const x = round1((i + 0.5) * tickSpacing);
-    const top = round1(ampToY(mx));
-    const bottom = round1(ampToY(mn));
+    const top = round1(ampToY(mx * visualGain));
+    const bottom = round1(ampToY(mn * visualGain));
     d += `M${x} ${top}V${bottom}`;
   }
   return d;
@@ -157,13 +166,28 @@ function buildTickPath(ticks, tickSpacing) {
 
 /**
  * A bucket's min/max amplitude (assumed roughly in [-1, 1], the normalized
- * sample range peaks.py bucketed from) to a Y coordinate in the viewBox's
- * VBOX_HEIGHT-unit space, silence at the vertical centre.
+ * sample range peaks.py bucketed from, before any `visualGain` scaling by
+ * the caller) to a Y coordinate in the viewBox's VBOX_HEIGHT-unit space,
+ * silence at the vertical centre. Clamps to [-1, 1] same as before --
+ * a boosted quiet recording tops out at the trough's edge rather than
+ * drawing outside it, the same ceiling the real playback gain respects.
+ * Exported (pure, no DOM) so the loudness-gain scaling can be tested
+ * without a browser, same reason player.js exports `computeSliceFrames`/
+ * `dbToLinear`.
  */
-function ampToY(v) {
+export function ampToY(v) {
   const clamped = Math.max(-1, Math.min(1, v));
   const half = VBOX_HEIGHT / 2;
   return half - clamped * (half - VBOX_PAD);
+}
+
+/** dB to a linear multiplier -- same formula as player.js's own
+ *  `dbToLinear`, duplicated rather than imported: this module has no
+ *  other dependency on player.js and importing it just for one constant
+ *  formula would be backwards. Exported for the same DOM-free-testing
+ *  reason as `ampToY`. */
+export function dbToLinear(db) {
+  return 10 ** (db / 20);
 }
 
 function makeTickPath(d, color, strokeWidth) {

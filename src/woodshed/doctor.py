@@ -125,20 +125,19 @@ def _module_checks() -> list[Check]:
         ("yaml", "pyyaml", "reading song.yaml / setlist.yaml / config.yaml"),
         ("pydantic", "pydantic", "validating song.yaml / setlist.yaml / config.yaml"),
         ("numpy", "numpy", "peaks and the pure section maths"),
+        # librosa and pyaudiowpatch are core, not extras, same reasoning as
+        # demucs below (and the same `uv run --extra dev pytest` re-sync
+        # failure mode) -- see CLAUDE.md's "Installed is a different
+        # question from imported" paragraph. A missing one here means an
+        # incomplete install, not an unmade choice, so the fix is a bare
+        # `uv sync`, never `--extra analyze` / `--extra capture`.
+        ("librosa", "librosa", "tempo detection and the beat grid (Phase 1)"),
+        ("pyaudiowpatch", "pyaudiowpatch", "loopback capture (Phase 1)"),
     ):
         present = _module(module)
         checks.append(Check(
             name, present, "installed" if present else "missing", needed,
             "" if present else "uv sync  (core, not an extra)",
-        ))
-    for module, name, needed, extra in (
-        ("librosa", "librosa", "tempo detection and the beat grid (Phase 1)", "analyze"),
-        ("pyaudiowpatch", "pyaudiowpatch", "loopback capture (Phase 1)", "capture"),
-    ):
-        present = _module(module)
-        checks.append(Check(
-            name, present, "installed" if present else "missing (optional)", needed,
-            "" if present else f"uv sync --extra {extra}",
         ))
     checks.append(_demucs_check())
     return checks
@@ -250,9 +249,9 @@ def report(repo: Repo) -> tuple[str, bool]:
     lines += [
         "",
         "core commands (add, section, log, serve) work with the base install.",
-        "analyze needs [analyze] (librosa); render and reading non-wav audio "
-        "need ffmpeg and rubberband. Guitar-only isolation (demucs) and live "
-        "capture (pyaudiowpatch) are both part of the base install -- a "
+        "render and reading non-wav audio need ffmpeg and rubberband. "
+        "Guitar-only isolation (demucs), live capture (pyaudiowpatch) and "
+        "tempo detection (librosa) are all part of the base install -- a "
         "plain `uv sync` brings them back.",
         "",
         _BROWSER_NOTE,

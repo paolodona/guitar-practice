@@ -204,6 +204,15 @@ The common path — a rung the cache already has — never touches any of this;
   of tempo.
 * **Never `playbackRate` a stretched buffer.** It is right there and it is the
   wrong knob: it re-introduces trap 1 on top of a correct render.
+* **The loudness-matching gain rides the SAME crossfade curve, not a second
+  one.** `BufferEngine._scheduleSwap`'s per-source `gain` node already owns
+  the equal-power in/out curves above — a static per-song loudness
+  multiplier (`web/player.js`'s `dbToLinear(section.loudnessGainDb)`) scales
+  each curve's own values before `setValueCurveAtTime`, rather than adding a
+  second gain stage that would have to agree with the crossfade's schedule.
+  `_startAt`'s steady-state `gain.gain.value` gets the same multiplier
+  directly, no curve involved. See CLAUDE.md's loudness-matching invariant
+  for why this is a playback-time gain and never baked into the render.
 
 ## The grid under a speed change
 

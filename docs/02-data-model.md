@@ -40,6 +40,11 @@ tempo:
   time_signature: 4/4
   confidence: 0.86                # what the fit reported. null when typed by hand.
 
+loudness:
+  integrated_lufs: -18.3          # ITU-R BS.1770-4-style gated integrated loudness
+  peak_dbfs: -2.1                 # plain sample peak, no oversampling
+  source: measured                # measured | manual
+
 practice:
   start_speed: 50
   ladder_step: 5
@@ -213,6 +218,13 @@ re-detecting the tempo can offer to re-snap. But seconds are what is stored, and
 
 If `tempo.bpm` is 0 or absent, the app still works: no grid, no bar ruler,
 free-dragged boundaries. Degrade, do not refuse.
+
+`loudness.integrated_lufs` follows the identical shape: 0 or absent means
+"never measured," and playback falls back to unity gain (no correction)
+rather than refusing to play. Unlike `tempo.bpm`, there is no optional
+dependency involved (`woodshed.loudness` is pure numpy — see its own module
+docstring), so in practice this only happens for a `song.yaml` written before
+the field existed, until the next `woodshed analyze <slug>`.
 
 ### `sha256`, and why it is not fussy bookkeeping
 

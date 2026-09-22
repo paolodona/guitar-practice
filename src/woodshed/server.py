@@ -121,6 +121,7 @@ import numpy as np
 from pydantic import ValidationError
 
 from woodshed import gx100, ledger, practice, sections
+from woodshed import loudness as loudness_module
 from woodshed import render as render_module
 from woodshed.capture import (
     Segment,
@@ -564,6 +565,13 @@ class WoodshedHandler(BaseHTTPRequestHandler):
             "album": song.album,
             "recording": song.recording.model_dump(mode="json"),
             "tempo": song.tempo.model_dump(mode="json"),
+            "loudness": song.loudness.model_dump(mode="json"),
+            # Derived, never stored -- same "computed at serve time" shape
+            # as `shift` just below. woodshed.loudness is pure numpy, so
+            # this is cheap: two subtractions and a min.
+            "loudness_gain_db": loudness_module.gain_db(
+                song.loudness.integrated_lufs, song.loudness.peak_dbfs
+            ),
             "practice": song.practice.model_dump(mode="json"),
             "shift": shift,
             "setlist": setlist_payload,

@@ -797,6 +797,10 @@ export function mount(el, payload) {
       slug: payload.slug,
       source: guitarOnly ? 'guitar' : 'mix',
       crossfadeMs: payload.practice.loop_crossfade_ms,
+      // Derived server-side, never stored (server.py's `_song` handler,
+      // woodshed.loudness.gain_db) -- see the SectionLoad typedef in
+      // player.js. Same "harmless for the other shape" note above applies.
+      loudnessGainDb: payload.loudness_gain_db,
     };
   }
 
@@ -1443,7 +1447,9 @@ export function mount(el, payload) {
       drawGrid(ctx, v, grid);
     }
     const windowed = slicePeaksToWindow(peaks, section.start_s, section.end_s, durationS);
-    drawWave(waveSvg, windowed, v, currentP(), PRACTICE_WAVE_OPTS);
+    // Cosmetic only -- see wave.js's own `loudnessGainDb` doc. peaks.json
+    // itself stays the real, unaltered amplitude on disk.
+    drawWave(waveSvg, windowed, v, currentP(), { ...PRACTICE_WAVE_OPTS, loudnessGainDb: payload.loudness_gain_db });
   }
 
   /** Cheap, every-frame updates: ring, playhead. No DOM rebuild — direct

@@ -85,6 +85,22 @@ pre-rendered, decoded `AudioBuffer` with a native sample-exact loop — never fr
 a real-time stretcher, which cannot put the seam in the same place twice. The
 real-time engine is for dragging the slider; the cache is for practising.
 
+**Loudness matching is a playback-time gain, never a rendered one.** Sources
+vary — a commercial rip, a Spotify download, a live loopback capture off a
+mixer at whatever level it happened to land at (`snow`, 2026-09-22: -21.6
+dBFS peak) — and Paolo does not want to ride the volume knob between songs.
+`woodshed.loudness` measures each song's integrated loudness once
+(`analyze_after_bind`, pure numpy, no optional dependency — see that
+module's own docstring for why it is hand-rolled rather than another heavy
+dependency), stored as a *declaration* (`song.yaml`'s `loudness`, same tier
+as `tempo`). The gain that corrects it is *derived* (`server.py`'s
+`loudness_gain_db`, same "computed at serve time, never stored" shape as
+`shift`) and applied only in `web/player.js`'s two engines, at their
+existing gain nodes. **Never bake it into `audio/*.flac` or `cache/`** —
+the same "recorded audio is bit-exact" instinct `capture_runner.py`'s own
+monitor-vs-normalization note already states, extended from "never" to
+"never, and not the render cache either."
+
 **The metronome's beats are measured per section, and the click is never
 rendered into audio.** The song's `tempo.bpm` is one number for a whole
 recording and a commercial take is not one tempo — `tutti-in-fila` stores
@@ -125,21 +141,26 @@ module top level. Use a `require_module()` helper so a missing extra prints
 an install hint naming the installer that actually exists, not an
 `ImportError` traceback.
 
-**Installed is a different question from imported, and `demucs` and
-`pyaudiowpatch` are the two cases where they part company.** Both are *core*
-dependencies in `pyproject.toml` even though they are heavy or
-platform-specific, for the same mechanical reason: `uv run --extra dev
-pytest` re-syncs the environment to exactly the extras on that line, so a
+**Installed is a different question from imported, and `demucs`,
+`pyaudiowpatch` and `librosa` are the three cases where they part company.**
+All three are *core* dependencies in `pyproject.toml` even though they are
+heavy or platform-specific, for the same mechanical reason: `uv run --extra
+dev pytest` re-syncs the environment to exactly the extras on that line, so a
 package installed by `uv sync --extra <name>` was uninstalled again by the
 next test run and the relevant screen kept asking for it. `demucs` moved
 first (Paolo's call, 2026-09-12); `uv sync` now installs torch and that is
 the accepted price. `pyaudiowpatch` followed the same reasoning
-(2026-09-22) — it is Windows-only, which this repo already is. The layering
-rule above is unchanged: `separate.py` is still the only module that may
-import `demucs`, `capture.py` still the only one that may import
-`pyaudiowpatch`, neither ever at module top level, and the pure modules
-still run on pyyaml, numpy and pydantic alone. Everything else heavy stays
-an extra.
+(2026-09-22) — it is Windows-only, which this repo already is. `librosa`
+followed the same day, after "snow" was bound with `bpm: 0.0` because
+`capture.py`'s own automatic `analyze_after_bind` call silently skips tempo
+detection when librosa isn't installed — the same "install kept getting
+wiped by the test re-sync" mechanism, just discovered on the tempo path
+instead of the audio path. The layering rule above is unchanged:
+`separate.py` is still the only module that may import `demucs`,
+`capture.py` still the only one that may import `pyaudiowpatch`, `analyze.py`
+still the only one that may import `librosa`, none of them ever at module
+top level, and the pure modules still run on pyyaml, numpy and pydantic
+alone. Everything else heavy stays an extra.
 
 `src/woodshed/` is **generic**: no song names, no artist names, no personal file
 paths in code. Those live in `songs/`, `setlists/` and `config.yaml`.

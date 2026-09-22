@@ -40,6 +40,7 @@ if TYPE_CHECKING:
 __all__ = [
     "Recording",
     "Tempo",
+    "Loudness",
     "PracticeDefaults",
     "Section",
     "Song",
@@ -101,6 +102,26 @@ class Tempo(BaseModel):
     grid_offset_s: float = 0.0  # where bar 1 beat 1 lands in the FILE
     time_signature: str = "4/4"
     confidence: float | None = None  # null when typed by hand
+
+
+class Loudness(BaseModel):
+    """How loud the source recording actually is, measured once so playback
+    can correct for it -- see `woodshed.loudness` and CLAUDE.md's "gain is
+    applied at playback time only" invariant.
+
+    Same degrade shape as `Tempo`: every field defaults, so a song no
+    analysis has ever touched parses to the sentinel state. Real program
+    material is always quieter than digital full scale, so `0.0` can never
+    collide with a genuine measurement -- `integrated_lufs >= 0.0` (and
+    `peak_dbfs >= 0.0`) is what `woodshed.loudness.gain_db` checks, the same
+    "0 and 'never measured' collapse to one value" trick `Tempo.bpm` uses.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    integrated_lufs: float = 0.0  # sentinel: never measured
+    peak_dbfs: float = 0.0  # sentinel: never measured
+    source: Literal["measured", "manual"] = "manual"
 
 
 class PracticeDefaults(BaseModel):
@@ -267,6 +288,7 @@ class Song(BaseModel):
     album: str | None = None
     recording: Recording
     tempo: Tempo = Field(default_factory=Tempo)
+    loudness: Loudness = Field(default_factory=Loudness)
     practice: PracticeDefaults = Field(default_factory=PracticeDefaults)
     sections: list[Section] = Field(default_factory=list)
     patch_changes: list[PatchChange] = Field(default_factory=list)

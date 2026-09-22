@@ -367,6 +367,13 @@ export function mount(el, payload) {
       startS, endS,
       preRollS: 0,
       loop: !!sec,
+      slug,
+      // Same field practice.js's sectionLoadParams() threads through --
+      // this preview transport had no song-level fields at all until now
+      // (found live 2026-09-22: previewing "snow" here sounded quiet, same
+      // as its practice loop, while the fix only lived in practice.js).
+      // Derived server-side (server.py's `_song`, woodshed.loudness.gain_db).
+      loudnessGainDb: payload.loudness_gain_db,
     });
     // #3: auto-apply the patch that covers wherever playback is ABOUT to
     // actually start. For a SELECTED section that is always its own
@@ -701,7 +708,9 @@ export function mount(el, payload) {
     // pixels the zoom left it, which looks like a waveform but is the
     // wrong one.
     const windowed = slicePeaksToWindow(peaks, v.startS, v.endS, durationS);
-    drawWave(waveSvg, windowed, v, 0, SONG_WAVE_OPTS);
+    // Cosmetic only -- see wave.js's own `loudnessGainDb` doc. peaks.json
+    // itself stays the real, unaltered amplitude on disk.
+    drawWave(waveSvg, windowed, v, 0, { ...SONG_WAVE_OPTS, loudnessGainDb: payload.loudness_gain_db });
   }
 
   function renderSelectionHighlight() {

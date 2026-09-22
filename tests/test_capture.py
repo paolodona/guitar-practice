@@ -40,6 +40,7 @@ from woodshed.capture import (
     extract_segment,
     split_on_silence,
 )
+from woodshed.cli import analyze_after_bind as _real_analyze_after_bind
 from woodshed.errors import WoodshedError
 from woodshed.library import Repo
 from woodshed.manifest import load_song
@@ -444,6 +445,62 @@ def test_bind_segment_as_new_song_writes_song_yaml_and_returns_the_slug(
     assert song.recording.source == "capture"
     assert len(song.sections) == 1
     assert song.sections[0].full_song is True
+
+
+# ---------------------------------------------------------------------------
+# Loudness is measured on every capture bind, same chokepoint as peaks/tempo
+# (woodshed.loudness is pure numpy -- no optional-dependency gate, so this
+# needs real decodable audio rather than `_fake_extract`'s placeholder bytes)
+
+
+def _fake_extract_real_wav(monkeypatch: pytest.MonkeyPatch) -> None:
+    import wave as wave_module
+
+    def fake(raw_audio_path, segment, dest_path) -> None:
+        dest_path = Path(dest_path)
+        dest_path.parent.mkdir(parents=True, exist_ok=True)
+        rate = 44100
+        samples = (np.full(rate, 0.1, dtype=np.float32) * 32767).astype("<i2")
+        with wave_module.open(str(dest_path), "wb") as writer:
+            writer.setnchannels(1)
+            writer.setsampwidth(2)
+            writer.setframerate(rate)
+            writer.writeframes(samples.tobytes())
+
+    monkeypatch.setattr(capture_module, "extract_segment", fake)
+
+
+def test_bind_segment_to_song_writes_a_measured_loudness(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = Repo(root=tmp_path)
+    _fake_extract_real_wav(monkeypatch)
+    monkeypatch.setattr("woodshed.cli.analyze_after_bind", _real_analyze_after_bind)
+    monkeypatch.setattr("woodshed.analyze.librosa_available", lambda: False)
+
+    bind_segment_to_song(repo, "cant-stop", tmp_path / "raw.wav", _seg(1.0))
+
+    song = load_song(repo.song_dir("cant-stop") / "song.yaml")
+    assert song.loudness.source == "measured"
+    assert song.loudness.integrated_lufs != 0.0
+
+
+def test_bind_segment_as_new_song_writes_a_measured_loudness(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = Repo(root=tmp_path)
+    _fake_extract_real_wav(monkeypatch)
+    monkeypatch.setattr("woodshed.cli.analyze_after_bind", _real_analyze_after_bind)
+    monkeypatch.setattr("woodshed.analyze.librosa_available", lambda: False)
+
+    slug = bind_segment_as_new_song(
+        repo, tmp_path / "raw.wav", _seg(1.0),
+        title="Loudness New Song", artist="", tuning="E standard",
+    )
+
+    song = load_song(repo.song_dir(slug) / "song.yaml")
+    assert song.loudness.source == "measured"
+    assert song.loudness.integrated_lufs != 0.0
 
 
 # ---------------------------------------------------------------------------
