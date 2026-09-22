@@ -45,7 +45,7 @@ still run its core commands on a laptop with nothing installed:
 | `server.py` | the HTTP server, JSON endpoints, range-served media | stdlib |
 | `sources.py` | Spotify search/import, local folder scan, file binding | urllib |
 | `peaks.py` | multi-resolution waveform peaks | numpy |
-| `capture.py` | loopback recording, silence splitting, duration matching | **pyaudiowpatch** (optional) |
+| `capture.py` | loopback recording, silence splitting, duration matching | **pyaudiowpatch** (heavy, but core — see below) |
 | `analyze.py` | tempo refinement, beat grid, onset detection | **librosa** (optional) |
 | `render.py` | offline time-stretch / pitch-shift into the cache | **rubberband** (optional) |
 | `separate.py` | guitar-only isolation of one section | **demucs** (heavy, but core — see below) |
@@ -63,15 +63,17 @@ Use a `require_module()`-style helper so a missing extra prints an install hint
 naming the installer that actually exists, not an `ImportError` traceback. Both
 other repos already have that helper; lift it.
 
-**`demucs` is installed by default and imported like an extra.** It sits in
-`dependencies`, not in the `separate` extra (2026-09-12), because `uv run
---extra dev pytest` re-syncs the environment to exactly the extras on that
-command line — an extra-installed demucs was uninstalled again by the next test
-run, every time. `uv sync` therefore pulls torch, which is big; that is the
-price of never seeing "install demucs" in the practice screen again. It changes
-nothing above the line: `separate.py` is still the only module that imports it,
-still only inside a function, and the test suite still runs with pyyaml, numpy
-and pydantic alone.
+**`demucs` and `pyaudiowpatch` are installed by default and imported like
+extras.** They sit in `dependencies`, not in the `separate` / `capture`
+extras (2026-09-12 and 2026-09-22 respectively), because `uv run --extra dev
+pytest` re-syncs the environment to exactly the extras on that command
+line — an extra-installed demucs (or pyaudiowpatch) was uninstalled again by
+the next test run, every time. `uv sync` therefore pulls torch, which is
+big; that is the price of never seeing "install demucs" in the practice
+screen, or "install pyaudiowpatch" in the capture screen, again. It changes
+nothing above the line: `separate.py` and `capture.py` are still the only
+modules that import them, still only inside a function, and the test suite
+still runs with pyyaml, numpy and pydantic alone.
 
 **Pydantic is scoped to the parsing boundary.** Only the modules that read YAML —
 `manifest.py` and `setlist.py` — import it. `sections`, `ladder`, `ledger`, `clock`

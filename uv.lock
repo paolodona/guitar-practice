@@ -1797,6 +1797,7 @@ dependencies = [
     { name = "demucs", version = "4.0.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform == 'darwin'" },
     { name = "demucs", version = "4.1.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64' or sys_platform != 'darwin'" },
     { name = "numpy" },
+    { name = "pyaudiowpatch" },
     { name = "pydantic" },
     { name = "pyyaml" },
 ]
@@ -1804,9 +1805,6 @@ dependencies = [
 [package.optional-dependencies]
 analyze = [
     { name = "librosa" },
-]
-capture = [
-    { name = "pyaudiowpatch" },
 ]
 dev = [
     { name = "pytest" },
@@ -1823,7 +1821,7 @@ requires-dist = [
     { name = "librosa", marker = "extra == 'analyze'" },
     { name = "mido", marker = "extra == 'gx100'", specifier = ">=1.3" },
     { name = "numpy" },
-    { name = "pyaudiowpatch", marker = "extra == 'capture'" },
+    { name = "pyaudiowpatch" },
     { name = "pydantic", specifier = ">=2" },
     { name = "pytest", marker = "extra == 'dev'" },
     { name = "python-rtmidi", marker = "extra == 'gx100'", specifier = ">=1.5" },

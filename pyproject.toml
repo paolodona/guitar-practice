@@ -21,17 +21,25 @@ dependencies = [
     # pure modules IMPORT, and `separate.py` is still the only module that may
     # touch demucs, still never at module top level.
     "demucs>=4.0.1",
+    # Live capture (Phase 1.5, Group U). Same mechanical reason as demucs
+    # above: `uv run --extra dev pytest` re-syncs the env to exactly the
+    # extras on that line, so a pyaudiowpatch installed by `uv sync --extra
+    # capture` was uninstalled again by the next test run and the capture
+    # panel went back to degrading to "not installed" (see capture.js).
+    # Windows-only, which this repo already is (CLAUDE.md's Shell section).
+    # CLAUDE.md's layering rule is unaffected: capture.py is still the only
+    # module that may import it, still never at module top level.
+    "pyaudiowpatch",
 ]
 
 [project.optional-dependencies]
 analyze = ["librosa"]
 render = []
-capture = [
-    "pyaudiowpatch",
-]
-# Kept, empty, so an old `uv sync --extra separate` in a note or a shell
-# history still works instead of erroring on an unknown extra. Demucs moved
-# to `dependencies` above; nothing is pinned in two places.
+# Kept, empty, so an old `uv sync --extra capture` or `--extra separate` in a
+# note or a shell history still works instead of erroring on an unknown
+# extra. pyaudiowpatch and demucs both moved to `dependencies` above; nothing
+# is pinned in two places.
+capture = []
 separate = []
 # `woodshed gx100 sync` (#3, N2 follow-up) -- SysEx over MIDI, gx100_sync.py's
 # own module dependency. Same two packages the sibling gx100 repo uses for the

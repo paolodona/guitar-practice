@@ -250,10 +250,10 @@ def report(repo: Repo) -> tuple[str, bool]:
     lines += [
         "",
         "core commands (add, section, log, serve) work with the base install.",
-        "analyze needs [analyze] (librosa); capture needs [capture] "
-        "(pyaudiowpatch); render and reading non-wav audio need ffmpeg and "
-        "rubberband. Guitar-only isolation (demucs) is part of the base "
-        "install -- a plain `uv sync` brings it back.",
+        "analyze needs [analyze] (librosa); render and reading non-wav audio "
+        "need ffmpeg and rubberband. Guitar-only isolation (demucs) and live "
+        "capture (pyaudiowpatch) are both part of the base install -- a "
+        "plain `uv sync` brings them back.",
         "",
         _BROWSER_NOTE,
     ]
