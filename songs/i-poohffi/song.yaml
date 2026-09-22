@@ -7,11 +7,15 @@ recording:
   duration_s: 299.49387755102043
   tuning: Eb standard
 tempo:
-  bpm: 87.92
+  bpm: 87.93
   source: refined
-  grid_offset_s: 0.094
+  grid_offset_s: 0.112
   time_signature: 4/4
-  confidence: 0.185
+  confidence: 0.163
+loudness:
+  integrated_lufs: -10.505233938079224
+  peak_dbfs: 2.9259524443929297
+  source: measured
 practice:
   start_speed: 50.0
   ladder_step: 5.0

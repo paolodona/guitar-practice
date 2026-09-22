@@ -12,14 +12,18 @@ tempo:
   grid_offset_s: 0.212
   time_signature: 4/4
   confidence: 0.119
+loudness:
+  integrated_lufs: -9.44974939276055
+  peak_dbfs: 3.1372750650872723
+  source: measured
 practice:
   start_speed: 50.0
   ladder_step: 5.0
   reps_to_advance: 3
   pre_roll_beats: 4.0
   pre_roll_every_pass: false
-  click: lead-in
   loop_crossfade_ms: 10.0
+  click: lead-in
 sections:
 - id: whole-song
   name: Whole song
@@ -37,3 +41,4 @@ sections:
   target_speed: 100.0
   counts_toward_readiness: true
   full_song: false
+patch_changes: []

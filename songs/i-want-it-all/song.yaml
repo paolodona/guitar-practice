@@ -1,0 +1,48 @@
+slug: i-want-it-all
+title: I want it all
+artist: Queen
+recording:
+  file: audio/i-want-it-all.flac
+  sha256: 03befa908b599aec0e1b35cad426933851ce0c7c0bb9819ddeba80dfcf1f676d
+  duration_s: 238.31158333333335
+  tuning: E standard
+  source: capture
+tempo:
+  bpm: 92.31
+  source: refined
+  grid_offset_s: 0.27
+  time_signature: 4/4
+  confidence: 0.182
+loudness:
+  integrated_lufs: -18.83119568213973
+  peak_dbfs: -5.7327938192600705
+  source: measured
+practice:
+  start_speed: 50.0
+  ladder_step: 5.0
+  reps_to_advance: 3
+  pre_roll_beats: 4.0
+  pre_roll_every_pass: false
+  loop_crossfade_ms: 10.0
+sections:
+- id: whole-song
+  name: Whole song
+  start_s: 0.0
+  end_s: 238.31158333333335
+  snapped: free
+  target_speed: 100.0
+  counts_toward_readiness: true
+  full_song: true
+- id: c530096f
+  name: Intro solo
+  start_s: 7.560551921072936
+  end_s: 22.230675473189898
+  snapped: free
+  target_speed: 100.0
+  counts_toward_readiness: true
+  full_song: false
+patch_changes:
+- at_s: 0.010036707519092544
+  patch: U01-2
+- at_s: 10.987086003345617
+  patch: U01-3

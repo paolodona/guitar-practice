@@ -1,0 +1,35 @@
+slug: il-phurgone
+title: Il Phurgone
+artist: Ramba SS
+recording:
+  file: audio/06_Il Phurgone_MST1.mp3
+  sha256: 093a438bd74b2934c68cda3e63d2adf5efc52a10d3fcebbbde925f5262f0edc5
+  duration_s: 263.688
+  tuning: D standard
+tempo:
+  bpm: 120.14
+  source: refined
+  grid_offset_s: 0.18
+  time_signature: 4/4
+  confidence: 0.228
+loudness:
+  integrated_lufs: -8.303967402358218
+  peak_dbfs: 3.3437811328662086
+  source: measured
+practice:
+  start_speed: 50.0
+  ladder_step: 5.0
+  reps_to_advance: 3
+  pre_roll_beats: 4.0
+  pre_roll_every_pass: false
+  loop_crossfade_ms: 10.0
+sections:
+- id: whole-song
+  name: Whole song
+  start_s: 0.0
+  end_s: 263.688
+  snapped: free
+  target_speed: 100.0
+  counts_toward_readiness: true
+  full_song: true
+patch_changes: []

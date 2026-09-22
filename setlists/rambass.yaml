@@ -4,7 +4,7 @@ venue: ''
 songs:
 - slug: for-my-grana
 - slug: tutti-in-fila
-  shift: 0
+  shift: -1
 - slug: il-phurgone
 - slug: i-poohffi
 - slug: manlio
@@ -13,3 +13,4 @@ songs:
 - slug: i-want-it-all
   shift: -1
 - slug: superman
+- slug: john-holmes

@@ -1,21 +1,21 @@
-slug: can-t-stop
-title: Can't stop
+slug: snow
+title: Snow
 artist: Red Hot Chili Peppers
 recording:
-  file: audio/can-t-stop.flac
-  sha256: 1b5afc3079a1f5c3eff5c438194646957a347adb3ad5288c5ac10171a88374aa
-  duration_s: 267.1399546485261
+  file: audio/snow.flac
+  sha256: 6ddb18696bcf6837ca2c72b6e445b85aaebf19f945db1c8a6770fe072eb98468
+  duration_s: 332.3000625
   tuning: E standard
   source: capture
 tempo:
-  bpm: 182.66
+  bpm: 103.68
   source: refined
-  grid_offset_s: 0.016
+  grid_offset_s: 0.446
   time_signature: 4/4
-  confidence: 0.347
+  confidence: 0.164
 loudness:
-  integrated_lufs: -17.399547943899208
-  peak_dbfs: -5.179010967710581
+  integrated_lufs: -32.709829879134276
+  peak_dbfs: -21.565545316672853
   source: measured
 practice:
   start_speed: 50.0
@@ -24,20 +24,19 @@ practice:
   pre_roll_beats: 4.0
   pre_roll_every_pass: false
   loop_crossfade_ms: 10.0
-  click: lead-in
 sections:
 - id: whole-song
   name: Whole song
   start_s: 0.0
-  end_s: 267.1399546485261
+  end_s: 332.3000625
   snapped: free
   target_speed: 100.0
   counts_toward_readiness: true
   full_song: true
-- id: 21870fe8
-  name: Main riff
-  start_s: 21.494687895596382
-  end_s: 75.0
+- id: f4305b4a
+  name: Intro riff
+  start_s: 0.0
+  end_s: 18.46364060852528
   snapped: free
   target_speed: 100.0
   counts_toward_readiness: true

@@ -1,0 +1,55 @@
+slug: for-my-grana
+title: For My Grana
+artist: Ramba SS
+recording:
+  file: audio/02_ForMayGrana_MST1.mp3
+  sha256: c49b0b487b248d0a5cfdf3f64165305a2d5df5dc106bda2ff2fa3779831476f0
+  duration_s: 267.984
+  tuning: D standard
+tempo:
+  bpm: 111.99
+  source: refined
+  grid_offset_s: 0.119
+  time_signature: 4/4
+  confidence: 0.458
+loudness:
+  integrated_lufs: -9.289030505080197
+  peak_dbfs: 3.3283425761969
+  source: measured
+practice:
+  start_speed: 50.0
+  ladder_step: 5.0
+  reps_to_advance: 3
+  pre_roll_beats: 4.0
+  pre_roll_every_pass: false
+  loop_crossfade_ms: 10.0
+sections:
+- id: whole-song
+  name: Whole song
+  start_s: 0.0
+  end_s: 267.984
+  snapped: free
+  target_speed: 100.0
+  counts_toward_readiness: true
+  full_song: true
+patch_changes:
+- at_s: 0.008551225323349216
+  patch: U02-4
+- at_s: 17.675823030532275
+  patch: U02-1
+- at_s: 34.24565112732738
+  patch: U02-4
+- at_s: 43.58934855514781
+  patch: U02-1
+- at_s: 68.64814284196035
+  patch: U02-2
+- at_s: 87.90968378813703
+  patch: U02-4
+- at_s: 97.50792547046018
+  patch: U02-1
+- at_s: 113.53918900661145
+  patch: U02-3
+- at_s: 122.90887493436495
+  patch: U02-1
+- at_s: 147.89261417727857
+  patch: U02-2

@@ -1,21 +1,21 @@
-slug: can-t-stop
-title: Can't stop
-artist: Red Hot Chili Peppers
+slug: john-holmes
+title: John Holmes
+artist: Elio e le storie tese
 recording:
-  file: audio/can-t-stop.flac
-  sha256: 1b5afc3079a1f5c3eff5c438194646957a347adb3ad5288c5ac10171a88374aa
-  duration_s: 267.1399546485261
+  file: audio/john-holmes.flac
+  sha256: 96cdd2f4a357465322db4f5f2f6691a8bd9ebc85e3e402faf589822ca2aed3cd
+  duration_s: 209.40397916666666
   tuning: E standard
   source: capture
 tempo:
-  bpm: 182.66
+  bpm: 141.05
   source: refined
-  grid_offset_s: 0.016
+  grid_offset_s: 0.224
   time_signature: 4/4
-  confidence: 0.347
+  confidence: 0.478
 loudness:
-  integrated_lufs: -17.399547943899208
-  peak_dbfs: -5.179010967710581
+  integrated_lufs: -22.935989786619018
+  peak_dbfs: -5.72063178300975
   source: measured
 practice:
   start_speed: 50.0
@@ -24,22 +24,23 @@ practice:
   pre_roll_beats: 4.0
   pre_roll_every_pass: false
   loop_crossfade_ms: 10.0
-  click: lead-in
 sections:
 - id: whole-song
   name: Whole song
   start_s: 0.0
-  end_s: 267.1399546485261
+  end_s: 209.40397916666666
   snapped: free
   target_speed: 100.0
   counts_toward_readiness: true
   full_song: true
-- id: 21870fe8
-  name: Main riff
-  start_s: 21.494687895596382
-  end_s: 75.0
+- id: d8425c44
+  name: Riff
+  start_s: 3.003209950323808
+  end_s: 21.6898496412275
   snapped: free
   target_speed: 100.0
   counts_toward_readiness: true
   full_song: false
-patch_changes: []
+patch_changes:
+- at_s: 0.4488831279028224
+  patch: U01-2

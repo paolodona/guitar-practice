@@ -4,3 +4,5 @@ venue: ''
 songs:
 - slug: can-t-stop
   shift: -1
+- slug: snow
+  shift: -1

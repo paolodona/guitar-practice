@@ -12,6 +12,10 @@ tempo:
   grid_offset_s: 0.417
   time_signature: 4/4
   confidence: 0.276
+loudness:
+  integrated_lufs: -9.757728813249656
+  peak_dbfs: 2.527001988532154
+  source: measured
 practice:
   start_speed: 50.0
   ladder_step: 5.0

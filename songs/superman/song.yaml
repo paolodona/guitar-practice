@@ -1,0 +1,35 @@
+slug: superman
+title: Superman
+artist: Ramba SS
+recording:
+  file: audio/10_Superman_MST1.mp3
+  sha256: 813abc41f1e793038f87a56f38c27fc0c75412704d16efca659e6870a6b5ca60
+  duration_s: 230.808
+  tuning: D standard
+tempo:
+  bpm: 115.0
+  source: refined
+  grid_offset_s: 0.382
+  time_signature: 4/4
+  confidence: 0.508
+loudness:
+  integrated_lufs: -9.034158329863454
+  peak_dbfs: 3.017126034986392
+  source: measured
+practice:
+  start_speed: 50.0
+  ladder_step: 5.0
+  reps_to_advance: 3
+  pre_roll_beats: 4.0
+  pre_roll_every_pass: false
+  loop_crossfade_ms: 10.0
+sections:
+- id: whole-song
+  name: Whole song
+  start_s: 0.0
+  end_s: 230.808
+  snapped: free
+  target_speed: 100.0
+  counts_toward_readiness: true
+  full_song: true
+patch_changes: []
