@@ -29,6 +29,7 @@ import pytest
 
 import woodshed.capture as capture_module
 from woodshed.capture import (
+    SCRATCH_FILENAME,
     Device,
     Segment,
     TracklistEntry,
@@ -38,6 +39,7 @@ from woodshed.capture import (
     bind_segments,
     capture,
     extract_segment,
+    recover_scratch,
     split_on_silence,
 )
 from woodshed.cli import analyze_after_bind as _real_analyze_after_bind
@@ -266,6 +268,78 @@ def test_finish_capture_raw_path_mode_flags_an_overflowed_segment(tmp_path: Path
 
     assert segments[0].overflowed is True
     assert segments[1].overflowed is False
+
+
+# ---------------------------------------------------------------------------
+# recover_scratch() -- finishing an interrupted capture off its own
+# ring-buffer file (found live 2026-09-25: three native crashes inside
+# PyAudioWPatch/PortAudio in one evening, each one leaving a real,
+# unrepeatable recording stranded under capture/ with no session for it).
+# ---------------------------------------------------------------------------
+
+
+def test_recover_scratch_returns_nothing_for_all_silence_but_still_writes_the_raw_wav(
+    tmp_path: Path,
+) -> None:
+    # Same contract as `_finish_capture`'s own raw-path mode: the raw file
+    # is written unconditionally once there is SOME scratch content, and
+    # it is the CALLER's job (`CaptureRunner._run`, same as its existing
+    # "zero segments" branch) to delete it when nothing was recovered --
+    # recover_scratch itself only ever deletes the scratch file, never
+    # raw_path.
+    out_dir = tmp_path / "capture"
+    out_dir.mkdir()
+    (out_dir / SCRATCH_FILENAME).write_bytes(_silence(500).tobytes())
+
+    segments = recover_scratch(out_dir, out_dir / "one.wav", SR)
+
+    assert segments == []
+    assert not (out_dir / SCRATCH_FILENAME).exists()
+    assert (out_dir / "one.wav").is_file()
+
+
+def test_recover_scratch_returns_nothing_when_there_is_no_scratch_file(tmp_path: Path) -> None:
+    out_dir = tmp_path / "capture"
+    out_dir.mkdir()
+
+    assert recover_scratch(out_dir, out_dir / "one.wav", SR) == []
+
+
+def test_recover_scratch_splits_the_scratch_file_and_writes_the_raw_wav(
+    tmp_path: Path,
+) -> None:
+    gap_frames = int(1.2 * SR)
+    samples = np.concatenate([_tone(300), _silence(gap_frames), _tone(150)])
+    out_dir = tmp_path / "capture"
+    out_dir.mkdir()
+    (out_dir / SCRATCH_FILENAME).write_bytes(samples.tobytes())
+    raw_path = out_dir / "one.wav"
+
+    segments = recover_scratch(out_dir, raw_path, SR)
+
+    assert len(segments) == 2
+    assert (segments[0].start_frame, segments[0].end_frame) == (0, 300)
+    assert segments[1].start_frame == 300 + gap_frames
+    assert raw_path.is_file()
+    assert not (out_dir / SCRATCH_FILENAME).exists()  # consumed, not left behind
+
+
+def test_recover_scratch_marks_every_segment_with_the_one_overflow_flag_it_was_given(
+    tmp_path: Path,
+) -> None:
+    # A crashed capture has no per-position overflow log -- only the one
+    # "was an overflow ever seen" flag the caller already tracked -- so
+    # every recovered segment inherits it, the same conservative reading
+    # split_segment already gives its own two halves.
+    gap_frames = int(1.2 * SR)
+    samples = np.concatenate([_tone(300), _silence(gap_frames), _tone(150)])
+    out_dir = tmp_path / "capture"
+    out_dir.mkdir()
+    (out_dir / SCRATCH_FILENAME).write_bytes(samples.tobytes())
+
+    segments = recover_scratch(out_dir, out_dir / "one.wav", SR, overflowed=True)
+
+    assert [s.overflowed for s in segments] == [True, True]
 
 
 # ---------------------------------------------------------------------------

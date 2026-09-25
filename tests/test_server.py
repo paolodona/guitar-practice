@@ -151,9 +151,59 @@ def _serve(server: WoodshedServer) -> None:
     threading.Thread(target=lambda: server.serve_forever(POLL), daemon=True).start()
 
 
+class _ThreadProcess:
+    """Stand-in for `multiprocessing.Process`, passed to `make_server` as
+    `capture_process_factory` below -- same double as `test_capture_
+    runner.py`'s own (duplicated rather than imported, matching this
+    repo's existing per-file test convention: see that file's copy of
+    `_blocking_fake_capture` for the same choice). Runs `capture_runner.
+    _capture_worker` on a plain thread in THIS process instead of a real
+    OS process, so this file's own `monkeypatch.setattr(capture_runner_
+    module, "capture", ...)` calls actually reach it -- a genuinely
+    separate process re-imports that module fresh on Windows and would
+    never see the patch (`capture_runner.py`'s own module doc has the
+    full reasoning, and the crash history that made a real process the
+    production default in the first place)."""
+
+    def __init__(self, target, args=(), kwargs=None, daemon=None) -> None:
+        self._target = target
+        self._args = args
+        self._kwargs = kwargs or {}
+        self._thread: threading.Thread | None = None
+        self._exitcode: int | None = None
+        self._terminated = False
+
+    def start(self) -> None:
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def _run(self) -> None:
+        try:
+            self._target(*self._args, **self._kwargs)
+            self._exitcode = 0
+        except Exception:  # noqa: BLE001 -- mirrors a real process's own exit code, not a raise
+            self._exitcode = 1
+
+    def is_alive(self) -> bool:
+        return not self._terminated and self._thread is not None and self._thread.is_alive()
+
+    def join(self, timeout: float | None = None) -> None:
+        if self._thread is not None:
+            self._thread.join(timeout=timeout)
+
+    def terminate(self) -> None:
+        self._terminated = True
+        if self._exitcode is None:
+            self._exitcode = -9
+
+    @property
+    def exitcode(self) -> int | None:
+        return self._exitcode if self._terminated or not self.is_alive() else None
+
+
 @pytest.fixture
 def served(real_repo: Repo):
-    server = make_server(real_repo, port=0)
+    server = make_server(real_repo, port=0, capture_process_factory=_ThreadProcess)
     _serve(server)
     port = server.server_address[1]
     yield f"http://127.0.0.1:{port}", real_repo, "test-song"

@@ -1971,16 +1971,32 @@ class WoodshedServer(ThreadingHTTPServer):
     allow_reuse_address = False
 
 
-def make_server(repo: Repo, *, port: int = DEFAULT_PORT) -> WoodshedServer:
+def make_server(
+    repo: Repo, *, port: int = DEFAULT_PORT, capture_process_factory=None,
+) -> WoodshedServer:
     """A configured server, not yet serving. Tests bind port 0.
 
     `capture_runner` is ONE `CaptureRunner` shared across every request
     (a class attribute, same binding trick as `repo`) -- there is exactly
-    one background capture thread per running server, matching
+    one background capture worker per running server, matching
     `CaptureRunner`'s own "one capture at a time" contract.
+
+    `capture_process_factory`, passed straight through to `CaptureRunner`,
+    exists for tests: production leaves it `None` and gets a real
+    `multiprocessing.Process` per capture (see `capture_runner.py`'s own
+    module doc for why -- a native crash in the real thing must not take
+    this whole server down with it). A test that monkeypatches
+    `capture_runner.capture` needs its fake to actually run -- a genuinely
+    separate process re-imports that module fresh and would never see the
+    patch -- so `tests/test_server.py`'s own `served` fixture passes a
+    thread-backed stand-in here instead.
     """
     handler = type(
         "BoundWoodshedHandler", (WoodshedHandler,),
-        {"repo": repo, "capture_runner": CaptureRunner(), "render_runner": RenderRunner()},
+        {
+            "repo": repo,
+            "capture_runner": CaptureRunner(process_factory=capture_process_factory),
+            "render_runner": RenderRunner(),
+        },
     )
     return WoodshedServer(("127.0.0.1", port), handler)

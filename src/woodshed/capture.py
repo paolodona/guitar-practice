@@ -74,15 +74,22 @@ __all__ = [
     "Segment",
     "TracklistEntry",
     "Binding",
+    "SCRATCH_FILENAME",
     "split_on_silence",
     "bind_segments",
     "list_devices",
     "default_device",
     "capture",
+    "recover_scratch",
     "extract_segment",
     "bind_segment_to_song",
     "bind_segment_as_new_song",
 ]
+
+#: Name of the scratch file `capture()` streams raw chunks into during a
+#: live recording. Shared with `recover_scratch` below so the writer and
+#: the recoverer can never drift onto two different filenames.
+SCRATCH_FILENAME = "_capture_scratch.f32"
 
 #: `bind_segment_to_song`'s fallback when no explicit tuning is supplied --
 #: the same literal default `cli.py`'s `add`/`capture` subcommands already
@@ -365,7 +372,7 @@ def capture(
     if on_stream_ready is not None:
         on_stream_ready(stream)
 
-    scratch_path = out_dir / "_capture_scratch.f32"
+    scratch_path = out_dir / SCRATCH_FILENAME
     overflow_positions: list[int] = []
     frame_position = 0
 
@@ -426,6 +433,61 @@ def capture(
         samples, device.sample_rate, floor_db, gap_s, overflow_positions,
         out_dir, raw_path,
     )
+
+
+def recover_scratch(
+    out_dir: str | Path,
+    raw_path: str | Path,
+    sample_rate: int,
+    *,
+    overflowed: bool = False,
+    floor_db: float = -50.0,
+    gap_s: float = 1.2,
+) -> list[Segment]:
+    """Finish an interrupted capture straight off its own scratch file.
+
+    `capture()`'s "ring buffer to disk, not memory" design (its own doc
+    above) means the real audio can survive even when the code reading it
+    does not: found live three times on 2026-09-25, all native access
+    violations inside PyAudioWPatch/PortAudio that took the whole server
+    process down with them, before `capture_runner.py` ran capture() in
+    its own child process specifically so a crash there could be noticed
+    instead of fatal. This is the same split `capture()` would have run
+    itself; `CaptureRunner._run` calls it the moment a capture process
+    ends without reporting a result back, turning "someone has to
+    recover this by hand in a Python shell" into "it just shows up in
+    Capture Review."
+
+    *overflowed* applies to every segment this recovers, uniformly: a
+    crashed or forcibly-terminated capture has no per-position overflow
+    log the way a clean run does (`capture()`'s own local
+    `overflow_positions` list dies with the process) -- only the one "was
+    an overflow ever seen at all" flag the caller already tracks via
+    `on_overflow`. Marking every recovered segment with it is the same
+    conservative reading `capture_session.split_segment` already gives a
+    split segment's two halves, for the same reason: a real dropout
+    somewhere in the span is not safely narrowed to one part of it after
+    the fact.
+
+    Deletes the scratch file either way. Returns `[]`, leaving nothing
+    behind, when there is no scratch file at all or nothing in it ever
+    crossed the noise floor -- the caller's existing "zero segments"
+    handling (delete `raw_path` if one happens to exist, otherwise do
+    nothing) covers that case unchanged.
+    """
+    out_dir = Path(out_dir)
+    scratch_path = out_dir / SCRATCH_FILENAME
+    if not scratch_path.is_file():
+        return []
+    samples = np.fromfile(scratch_path, dtype=np.float32)
+    scratch_path.unlink(missing_ok=True)
+    if samples.size == 0:
+        return []
+    _write_wav_mono_16bit(Path(raw_path), samples, sample_rate)
+    return [
+        Segment(start_frame=start, end_frame=end, sample_rate=sample_rate, overflowed=overflowed)
+        for start, end in split_on_silence(samples, sample_rate, floor_db, gap_s)
+    ]
 
 
 def _finish_capture(
