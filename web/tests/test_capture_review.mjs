@@ -17,7 +17,9 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { boundaryMoveOrder, formatElapsed, onceGuard } from '../screens/capture.js';
+import {
+  boundaryMoveOrder, discardDeletesRawRecording, formatElapsed, onceGuard,
+} from '../screens/capture.js';
 
 function test(name, fn) {
   try {
@@ -75,6 +77,17 @@ test("onceGuard: two INDEPENDENT guards (two different rows) never interfere wit
   guardA.run(() => 'a');
   const b = guardB.run(() => 'b');
   assert.equal(b, 'b', "row B's own guard must still be fresh after row A's guard was used");
+});
+
+test('discardDeletesRawRecording: true when this is the only pending segment left -- '
+     + "resolve() deletes the shared raw file once nothing else is pending", () => {
+  assert.equal(discardDeletesRawRecording(1), true);
+});
+
+test('discardDeletesRawRecording: false while another segment is still pending -- the raw '
+     + 'file stays alive for it', () => {
+  assert.equal(discardDeletesRawRecording(2), false);
+  assert.equal(discardDeletesRawRecording(3), false);
 });
 
 test("U3's own test contract, enforced as a lint-style check (same pattern R1's test already "

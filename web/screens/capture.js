@@ -434,6 +434,27 @@ export function onceGuard() {
 }
 
 /**
+ * True when discarding a segment would resolve the LAST pending entry in
+ * the session -- the case where `POST /api/capture/discard` doesn't just
+ * drop that one segment, it also deletes the shared raw recording
+ * underneath it (`capture_session.resolve`'s own "deletes the sidecar AND
+ * the raw file once every entry has resolved"). Found live 2026-09-25:
+ * two segments meant for "recut later" were Discarded thinking that meant
+ * "set aside", and because they were the last two pending, the raw
+ * recording -- the one thing under `capture/` that CLAUDE.md says is real,
+ * unrepeatable audio, never cache -- was gone with them, unrecoverable.
+ * `pendingCount` is the row's own segments list length at render time, not
+ * re-derived here, so this stays a plain predicate with a plain unit test
+ * (web/tests/test_capture_review.mjs) rather than something that has to
+ * fetch to answer.
+ * @param {number} pendingCount
+ * @returns {boolean}
+ */
+export function discardDeletesRawRecording(pendingCount) {
+  return pendingCount <= 1;
+}
+
+/**
  * Mounts Group U's segment-review UI (design/CaptureReview.dc.html) into
  * *container* — the whole-pass waveform strip (peaks from `GET /api/
  * capture/raw-peaks`, fetched ONCE per mount: the raw pass itself never
@@ -794,7 +815,7 @@ async function mountSegmentReview(container, activeSetlistSlug, defaultTuning) {
     mergeAtPlayheadBtn.style.pointerEvents = ordered.length > 1 ? '' : 'none';
   }
 
-  function buildRowCard(entry) {
+  function buildRowCard(entry, pendingCount) {
     const card = document.createElement('div');
     card.style.cssText = 'background:var(--surface,#131B19);border:1px solid var(--hairline,#1C2523);' +
       'border-radius:5px;padding:16px 20px 18px;display:flex;flex-direction:column;gap:14px' +
@@ -878,6 +899,13 @@ async function mountSegmentReview(container, activeSetlistSlug, defaultTuning) {
     const guard = onceGuard();
 
     discardBtn.addEventListener('click', () => {
+      if (discardDeletesRawRecording(pendingCount) && !window.confirm(
+        'This is the last pending segment from this recording -- discarding it '
+        + 'deletes the raw capture underneath it too, permanently. There will be '
+        + 'nothing left to recut from. Discard anyway?',
+      )) {
+        return; // the guard is never consumed for a cancelled confirm
+      }
       guard.run(async () => {
         lockRow();
         try {
@@ -919,7 +947,8 @@ async function mountSegmentReview(container, activeSetlistSlug, defaultTuning) {
 
   function renderRows() {
     rowsHost.innerHTML = '';
-    for (const entry of sortedPending()) rowsHost.appendChild(buildRowCard(entry));
+    const pending = sortedPending();
+    for (const entry of pending) rowsHost.appendChild(buildRowCard(entry, pending.length));
     // A refresh mid-preview (another row resolved, or a split/merge/adjust
     // landed) rebuilds every card fresh -- including the one still actively
     // playing, whose new card otherwise shows the default "not playing"
