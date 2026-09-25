@@ -1,0 +1,35 @@
+slug: 18-and-life
+title: 18 and life
+artist: Skid Row
+recording:
+  file: audio/18-and-life.flac
+  sha256: f55a127c1bae10aa2b4e562ce4334dc3c4c007a6b2dcd54d5bdafe77551d6ae3
+  duration_s: 228.528625
+  tuning: E standard
+  source: capture
+tempo:
+  bpm: 0.0
+  source: manual
+  grid_offset_s: 0.0
+  time_signature: 4/4
+loudness:
+  integrated_lufs: -19.505176004859827
+  peak_dbfs: -3.949190427912381
+  source: measured
+practice:
+  start_speed: 50.0
+  ladder_step: 5.0
+  reps_to_advance: 3
+  pre_roll_beats: 4.0
+  pre_roll_every_pass: false
+  loop_crossfade_ms: 10.0
+sections:
+- id: whole-song
+  name: Whole song
+  start_s: 0.0
+  end_s: 228.528625
+  snapped: free
+  target_speed: 100.0
+  counts_toward_readiness: true
+  full_song: true
+patch_changes: []

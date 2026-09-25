@@ -1,0 +1,35 @@
+slug: mothersacher
+title: Mothersacher
+artist: Ramba SS
+recording:
+  file: audio/03_Mother Sacher_MST1.mp3
+  sha256: 01b81cd55866c1ac525b8a7e2ce2f79064f65b3cd5d854e29366bc09c95ab154
+  duration_s: 236.88
+  tuning: Drop C
+tempo:
+  bpm: 120.02
+  source: refined
+  grid_offset_s: 0.378
+  time_signature: 4/4
+  confidence: 0.516
+loudness:
+  integrated_lufs: -8.828777580531751
+  peak_dbfs: 3.0847035960701663
+  source: measured
+practice:
+  start_speed: 50.0
+  ladder_step: 5.0
+  reps_to_advance: 3
+  pre_roll_beats: 4.0
+  pre_roll_every_pass: false
+  loop_crossfade_ms: 10.0
+sections:
+- id: whole-song
+  name: Whole song
+  start_s: 0.0
+  end_s: 236.88
+  snapped: free
+  target_speed: 100.0
+  counts_toward_readiness: true
+  full_song: true
+patch_changes: []

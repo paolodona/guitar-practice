@@ -1,0 +1,35 @@
+slug: la-canzone-del-tonno
+title: La canzone del tonno
+artist: Ramba SS
+recording:
+  file: audio/07 - La_Canzone_Del_Tonno.wav
+  sha256: 3e78a83b37f144a2d7a55381dea9e3a2c440f3fb3933f1d6dd48987d35fa2161
+  duration_s: 60.81306122448979
+  tuning: D standard
+tempo:
+  bpm: 114.01
+  source: refined
+  grid_offset_s: 0.105
+  time_signature: 4/4
+  confidence: 0.169
+loudness:
+  integrated_lufs: -14.13753145794741
+  peak_dbfs: 2.7740130277993384
+  source: measured
+practice:
+  start_speed: 50.0
+  ladder_step: 5.0
+  reps_to_advance: 3
+  pre_roll_beats: 4.0
+  pre_roll_every_pass: false
+  loop_crossfade_ms: 10.0
+sections:
+- id: whole-song
+  name: Whole song
+  start_s: 0.0
+  end_s: 60.81306122448979
+  snapped: free
+  target_speed: 100.0
+  counts_toward_readiness: true
+  full_song: true
+patch_changes: []

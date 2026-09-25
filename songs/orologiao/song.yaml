@@ -1,0 +1,35 @@
+slug: orologiao
+title: Orologiao
+artist: Ramba SS
+recording:
+  file: audio/07_Orologiaio_MST1.mp3
+  sha256: 415aefe48b25dafa83f35c4f36bb6b31baa062d383e03cb9b7a6517b802c3aed
+  duration_s: 104.112
+  tuning: Drop B
+tempo:
+  bpm: 122.11
+  source: refined
+  grid_offset_s: 0.177
+  time_signature: 4/4
+  confidence: 0.16
+loudness:
+  integrated_lufs: -9.214136252322461
+  peak_dbfs: 2.66932319322188
+  source: measured
+practice:
+  start_speed: 50.0
+  ladder_step: 5.0
+  reps_to_advance: 3
+  pre_roll_beats: 4.0
+  pre_roll_every_pass: false
+  loop_crossfade_ms: 10.0
+sections:
+- id: whole-song
+  name: Whole song
+  start_s: 0.0
+  end_s: 104.112
+  snapped: free
+  target_speed: 100.0
+  counts_toward_readiness: true
+  full_song: true
+patch_changes: []

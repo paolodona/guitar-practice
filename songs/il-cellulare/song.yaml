@@ -1,0 +1,35 @@
+slug: il-cellulare
+title: Il Cellulare
+artist: Ramba SS
+recording:
+  file: audio/08_Il Cellulare_MST1.mp3
+  sha256: f9391519f3cc83aabcdae82b31bb335da916d03436193bc6171a1aac3da117b7
+  duration_s: 192.048
+  tuning: D standard
+tempo:
+  bpm: 179.17
+  source: refined
+  grid_offset_s: 0.01
+  time_signature: 4/4
+  confidence: 0.279
+loudness:
+  integrated_lufs: -9.106313270640443
+  peak_dbfs: 2.58441269603784
+  source: measured
+practice:
+  start_speed: 50.0
+  ladder_step: 5.0
+  reps_to_advance: 3
+  pre_roll_beats: 4.0
+  pre_roll_every_pass: false
+  loop_crossfade_ms: 10.0
+sections:
+- id: whole-song
+  name: Whole song
+  start_s: 0.0
+  end_s: 192.048
+  snapped: free
+  target_speed: 100.0
+  counts_toward_readiness: true
+  full_song: true
+patch_changes: []

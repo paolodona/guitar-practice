@@ -2,15 +2,25 @@ name: RambaSS
 tuning: D standard
 venue: ''
 songs:
+- slug: intro-porta-mistica-zzi
 - slug: for-my-grana
 - slug: tutti-in-fila
   shift: -1
 - slug: il-phurgone
-- slug: i-poohffi
 - slug: manlio
-- slug: ampiamente-contestabile
-  shift: -1
+- slug: superman
+- slug: orologiao
+- slug: itturfiatrugoy
+- slug: the-final-countdown
 - slug: i-want-it-all
   shift: -1
-- slug: superman
+- slug: la-canzone-del-tonno
+- slug: ampiamente-contestabile
+  shift: -1
 - slug: john-holmes
+- slug: i-poohffi
+- slug: la-ragazza-da-milano
+- slug: l-esercito-del-surf
+- slug: mothersacher
+- slug: il-cellulare
+- slug: 18-and-life

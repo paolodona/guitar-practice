@@ -1,0 +1,35 @@
+slug: itturfiatrugoy
+title: Itturfiatrugoy
+artist: Ramba SS
+recording:
+  file: audio/05_Itturfiatrugoy_MST1.mp3
+  sha256: 4fe39bc69bb674ead13a01ea84270b2a8191edfe7adfe87eb5cdd0f13a14dc50
+  duration_s: 253.68
+  tuning: D standard
+tempo:
+  bpm: 110.03
+  source: refined
+  grid_offset_s: 0.346
+  time_signature: 4/4
+  confidence: 0.266
+loudness:
+  integrated_lufs: -9.342078387312128
+  peak_dbfs: 3.184951800747711
+  source: measured
+practice:
+  start_speed: 50.0
+  ladder_step: 5.0
+  reps_to_advance: 3
+  pre_roll_beats: 4.0
+  pre_roll_every_pass: false
+  loop_crossfade_ms: 10.0
+sections:
+- id: whole-song
+  name: Whole song
+  start_s: 0.0
+  end_s: 253.68
+  snapped: free
+  target_speed: 100.0
+  counts_toward_readiness: true
+  full_song: true
+patch_changes: []

@@ -1,0 +1,38 @@
+slug: the-final-countdown
+title: The Final Countdown
+artist: Europe
+recording:
+  file: audio/the-final-countdown.flac
+  sha256: 1684a9eb6041f875712c1c527ad472cab2eb83cb60fa8ab9cebb929c89fb1d4d
+  duration_s: 306.81554166666666
+  tuning: E standard
+  source: capture
+tempo:
+  bpm: 117.79
+  source: refined
+  grid_offset_s: 0.488
+  time_signature: 4/4
+  confidence: 0.441
+loudness:
+  integrated_lufs: -19.9819408868908
+  peak_dbfs: -4.582641630045247
+  source: measured
+practice:
+  start_speed: 50.0
+  ladder_step: 5.0
+  reps_to_advance: 3
+  pre_roll_beats: 4.0
+  pre_roll_every_pass: false
+  loop_crossfade_ms: 10.0
+sections:
+- id: whole-song
+  name: Whole song
+  start_s: 0.0
+  end_s: 306.81554166666666
+  snapped: free
+  target_speed: 100.0
+  counts_toward_readiness: true
+  full_song: true
+patch_changes:
+- at_s: 1.2531608236895846
+  patch: U01-2

@@ -1,0 +1,35 @@
+slug: la-ragazza-da-milano
+title: La Ragazza da Milano
+artist: Ramba SS
+recording:
+  file: audio/13_La Ragazza da Milano_MST1.mp3
+  sha256: 504af0965c95b7e7c4c5a13f4e57f9f866aaca16518ac7bfd55ceb4040b7d168
+  duration_s: 394.056
+  tuning: D standard
+tempo:
+  bpm: 120.01
+  source: refined
+  grid_offset_s: 0.436
+  time_signature: 4/4
+  confidence: 0.578
+loudness:
+  integrated_lufs: -8.243624183465238
+  peak_dbfs: 3.325414957570173
+  source: measured
+practice:
+  start_speed: 50.0
+  ladder_step: 5.0
+  reps_to_advance: 3
+  pre_roll_beats: 4.0
+  pre_roll_every_pass: false
+  loop_crossfade_ms: 10.0
+sections:
+- id: whole-song
+  name: Whole song
+  start_s: 0.0
+  end_s: 394.056
+  snapped: free
+  target_speed: 100.0
+  counts_toward_readiness: true
+  full_song: true
+patch_changes: []

@@ -1,0 +1,35 @@
+slug: l-esercito-del-surf
+title: L'Esercito Del Surf
+artist: Catherine Spaak
+recording:
+  file: audio/11 L'Esercito Del Surf.mp3
+  sha256: 615f79c7edc9b3bfe208d2cabca0f63719636f84c707ea8cef1e9e62df3bac8e
+  duration_s: 335.576938
+  tuning: Eb standard
+tempo:
+  bpm: 154.32
+  source: refined
+  grid_offset_s: 0.224
+  time_signature: 4/4
+  confidence: 0.411
+loudness:
+  integrated_lufs: -11.771960750545137
+  peak_dbfs: 2.5926136269248174
+  source: measured
+practice:
+  start_speed: 50.0
+  ladder_step: 5.0
+  reps_to_advance: 3
+  pre_roll_beats: 4.0
+  pre_roll_every_pass: false
+  loop_crossfade_ms: 10.0
+sections:
+- id: whole-song
+  name: Whole song
+  start_s: 0.0
+  end_s: 335.576938
+  snapped: free
+  target_speed: 100.0
+  counts_toward_readiness: true
+  full_song: true
+patch_changes: []

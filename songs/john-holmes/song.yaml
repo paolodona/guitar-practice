@@ -41,6 +41,14 @@ sections:
   target_speed: 100.0
   counts_toward_readiness: true
   full_song: false
+- id: 3e977d71
+  name: New section
+  start_s: 0.0
+  end_s: 0.2850973167687769
+  snapped: free
+  target_speed: 100.0
+  counts_toward_readiness: true
+  full_song: false
 patch_changes:
 - at_s: 0.4488831279028224
   patch: U01-2
