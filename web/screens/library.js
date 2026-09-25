@@ -53,7 +53,7 @@ function ensureStyle() {
       text-transform:uppercase;color:var(--ink-3,#6A7873) }
     .ws-lib .entry { flex:1;min-width:0;display:flex;flex-direction:column;gap:6px;padding:16px 18px;
       border:1px solid var(--line,#26302E);border-radius:6px;background:var(--raised-dim,#131B19) }
-    .ws-lib .irow { display:grid;grid-template-columns:42px 300px 1fr 66px 280px;align-items:center;
+    .ws-lib .irow { display:grid;grid-template-columns:34px 42px 300px 1fr 66px 280px;align-items:center;
       gap:18px;padding:13px 12px;border-bottom:1px solid var(--line-dim,#1C2523) }
     .ws-lib .art { width:42px;height:42px;border-radius:3px;background:var(--raised,#1B2422);
       display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--ink-4,#5B6A64) }
@@ -164,12 +164,13 @@ function render(el, payload) {
       </div>
 
       <div class="irow" style="border-bottom:1px solid var(--line,#26302E);padding-bottom:9px">
+        <div class="lbl" style="font-size:10px">#</div>
         <div></div><div class="lbl" style="font-size:10px">Track</div>
         <div class="lbl" style="font-size:10px">Album</div>
         <div class="lbl" style="font-size:10px">Length</div>
         <div class="lbl" style="font-size:10px">Audio</div>
       </div>
-      <div data-rows>${songs.map(rowHtml).join('')}</div>
+      <div data-rows>${songs.map((row, i) => rowHtml(row, i + 1)).join('')}</div>
       ${songs.length === 0
         ? `<div style="padding:24px 12px;font-size:15px;color:var(--ink-3,#6A7873)">
              Nothing in the library yet &mdash; capture something, or
@@ -180,9 +181,10 @@ function render(el, payload) {
   wire(el, payload);
 }
 
-function rowHtml(row) {
+function rowHtml(row, number) {
   return `
     <div class="irow" data-song="${escapeHtml(row.slug)}">
+      <div class="mono num" style="font-size:13px;color:var(--ink-3,#6A7873)">${number}</div>
       <div class="art">${escapeHtml(initials(row))}</div>
       <div>
         <a href="#/song/${encodeURIComponent(row.slug)}"

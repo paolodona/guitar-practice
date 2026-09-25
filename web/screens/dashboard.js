@@ -86,7 +86,7 @@ function ensureStyle() {
     .ws-dash .pill { font-size:15px;padding:7px 14px;border-radius:4px;color:var(--ink-2,#9CAAA4);
       background:none;border:none;cursor:pointer;font-family:inherit }
     .ws-dash .pill.sel { background:var(--raised,#1B2422);color:var(--ink,#E8EEEB) }
-    .ws-dash .row { display:grid;grid-template-columns:18px 380px 1fr 210px 130px 80px 96px 20px;
+    .ws-dash .row { display:grid;grid-template-columns:28px 18px 380px 1fr 210px 130px 80px 96px 20px;
       align-items:center;gap:24px;padding:17px 12px;border-bottom:1px solid var(--hairline,#1C2523);
       text-decoration:none;color:inherit }
     .ws-dash a.row:hover { background:#111917 }
@@ -141,11 +141,12 @@ function relativeLabel(iso) {
   return `${weeks} week${weeks === 1 ? '' : 's'}`;
 }
 
-function rowHtml(row) {
+function rowHtml(row, number) {
   if (row.needs_audio && row.readiness === null) {
     // No song.yaml at all yet -- nothing to link to, nothing measured.
     return `
       <div class="row" style="background:none">
+        <div class="mono num" style="font-size:13px;color:var(--ink-4,#5B6A64)">${number}</div>
         <div><div style="font-size:17px;font-weight:500;color:var(--ink-3,#6A7873)">${escapeHtml(row.title)}</div></div>
         <div style="display:flex;align-items:center;gap:9px">
           <div class="badge" style="background:var(--raised,#1B2422);color:var(--ink-2,#9CAAA4)">needs audio</div>
@@ -173,6 +174,7 @@ function rowHtml(row) {
   return `
     <a class="row" draggable="false" data-song="${escapeHtml(row.slug)}"
        href="#/song/${encodeURIComponent(row.slug)}">
+      <div class="mono num" style="font-size:13px;color:var(--ink-4,#5B6A64)">${number}</div>
       <div class="grip" draggable="true" data-grip title="Drag to reorder">&#8942;&#8942;</div>
       <div>
         <div style="font-size:17px;font-weight:500">${escapeHtml(row.title)}</div>
@@ -249,6 +251,7 @@ function wireReorder(el, setlists, currentSetlist) {
       orderBeforeDrag = null;
       if (e.dataTransfer && e.dataTransfer.dropEffect === 'none') {
         restoreOrder(rowsHost, before);
+        renumberRows(rowsHost);
         return;
       }
       // Nothing moved: no write. A stray click on the grip is not an edit.
@@ -265,6 +268,17 @@ function wireReorder(el, setlists, currentSetlist) {
     const box = target.getBoundingClientRect();
     const after = e.clientY > box.top + box.height / 2;
     target.parentNode.insertBefore(dragging, after ? target.nextSibling : target);
+    renumberRows(rowsHost);
+  });
+}
+
+/** Re-stamps each row's "#" cell (always the row's first child, in both
+ * `rowHtml` branches) from its current DOM position -- called live during a
+ * drag, and after a reorder commits, so the ascending counter never shows a
+ * stale position while the underlying order has already moved. */
+function renumberRows(rowsHost) {
+  [...rowsHost.querySelectorAll('[data-song]')].forEach((row, i) => {
+    row.firstElementChild.textContent = String(i + 1);
   });
 }
 
@@ -464,6 +478,7 @@ function render(el, payload) {
       </div>
 
       <div class="row" style="border-bottom:1px solid var(--line,#26302E);padding-top:0;padding-bottom:10px">
+        <div class="lbl" style="font-size:10px">#</div>
         <div></div>
         <div class="lbl" style="font-size:10px">Song</div>
         <div class="lbl" style="font-size:10px">Readiness</div>
@@ -473,7 +488,7 @@ function render(el, payload) {
         <div class="lbl" style="font-size:10px;text-align:right">Full song</div>
         <div></div>
       </div>
-      <div data-rows>${payload.rows.map(rowHtml).join('')}</div>
+      <div data-rows>${payload.rows.map((row, i) => rowHtml(row, i + 1)).join('')}</div>
 
       <div style="display:flex;gap:8px;align-items:center;padding:14px 12px 0">
         <form data-add-song style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
