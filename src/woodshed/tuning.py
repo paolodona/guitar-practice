@@ -48,6 +48,8 @@ MAX_SHIFT = 6
 _DROP_PARENTS: dict[str, str] = {
     "Drop D": "E standard",
     "Drop C#": "Eb standard",
+    "Drop C": "D standard",
+    "Drop B": "C# standard",
 }
 
 # Every name pitch_of accepts, in the order the error message below lists

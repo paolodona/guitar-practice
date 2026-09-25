@@ -38,6 +38,8 @@ export const TUNINGS = {
 export const DROP_PARENTS = {
   'Drop D': 'E standard',
   'Drop C#': 'Eb standard',
+  'Drop C': 'D standard',
+  'Drop B': 'C# standard',
 };
 
 /** Every name the app offers, in tuning.py's KNOWN_TUNINGS order. */

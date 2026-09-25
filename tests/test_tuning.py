@@ -80,6 +80,20 @@ def test_drop_c_sharp_resolves_to_same_shift_as_eb_standard() -> None:
     assert pitch_of("Drop C#") == pitch_of("Eb standard")
 
 
+def test_drop_b_resolves_to_same_shift_as_c_sharp_standard() -> None:
+    # "Drop B" is C# standard with the low string dropped a further whole
+    # step (C# -> B); the pitch centre is still C# standard.
+    assert pitch_of("Drop B") == pitch_of("C# standard")
+    assert default_shift("Eb standard", "Drop B") == default_shift("Eb standard", "C# standard")
+
+
+def test_drop_c_resolves_to_same_shift_as_d_standard() -> None:
+    # "Drop C" is D standard with the low string dropped a further whole
+    # step (D -> C); the pitch centre is still D standard.
+    assert pitch_of("Drop C") == pitch_of("D standard")
+    assert default_shift("Eb standard", "Drop C") == default_shift("Eb standard", "D standard")
+
+
 def test_tuning_label_renders_flat_as_unicode_flat_character() -> None:
     assert tuning_label("Eb standard", -1) == "E♭ standard  -1"
 
@@ -92,6 +106,6 @@ def test_known_tunings_is_the_single_source_every_valid_name_comes_from() -> Non
     # cli.py's `--tuning` choices and manifest.py's Recording/Setlist
     # validators both read this constant rather than keeping their own
     # list -- it must actually cover every name pitch_of accepts.
-    assert set(KNOWN_TUNINGS) == set(TUNINGS) | set(["Drop D", "Drop C#"])
+    assert set(KNOWN_TUNINGS) == set(TUNINGS) | set(["Drop D", "Drop C#", "Drop C", "Drop B"])
     for name in KNOWN_TUNINGS:
         assert pitch_of(name) is not None  # doesn't raise for any listed name

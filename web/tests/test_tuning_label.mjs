@@ -64,6 +64,10 @@ test('a drop tuning stays in its own family -- shifting Drop D down one is '
   assert.equal(shiftedTuning('Drop D', -1), 'Drop C#');
   assert.equal(playsInLabel('Drop D', -1), 'plays in Drop C#');
   assert.equal(playsInLabel('Drop C#', 1), 'plays in Drop D');
+  // The chain keeps going: Drop C# down one more is Drop C, not Drop D's
+  // family collapsing back into a standard tuning name.
+  assert.equal(shiftedTuning('Drop D', -2), 'Drop C');
+  assert.equal(playsInLabel('Drop D', -2), 'plays in Drop C');
 });
 
 // ---- and refusing to name one that has no name ----
@@ -74,9 +78,12 @@ test('a shift that lands on no known tuning says the shift instead of '
   // this repo, and making one up here would be a name nothing else recognises.
   assert.equal(playsInLabel('E standard', 1), 'shifted +1');
   assert.equal(playsInLabel('B standard', -1), 'shifted -1');
-  // Drop D's family is two names deep and that is all it is.
-  assert.equal(playsInLabel('Drop D', -2), 'shifted -2');
-  assert.equal(shiftedTuning('Drop D', -2), null);
+  // Drop D, Drop C#, Drop C and Drop B happen to cover four consecutive
+  // semitones (0 down to -3) between them, so shiftedTuning finds a name
+  // at every one of those -- the ladder only runs dry one step further.
+  assert.equal(playsInLabel('Drop D', -3), 'plays in Drop B');
+  assert.equal(playsInLabel('Drop D', -4), 'shifted -4');
+  assert.equal(shiftedTuning('Drop D', -4), null);
 });
 
 test('an unrecognised recording tuning degrades rather than throwing -- '
