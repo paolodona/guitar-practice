@@ -116,7 +116,7 @@
  */
 import { currentSetlist, get, post } from '../app.js';
 import { drawWave, PRACTICE_WAVE_OPTS } from '../wave.js';
-import { computeGrid, drawGrid, sizeCanvas, computeSeekPosition, slicePeaksToWindow } from '../timeline.js';
+import { computeGrid, drawGrid, sizeCanvas, computeSeekPosition, slicePeaksToWindow, viewX } from '../timeline.js';
 import { createEngine, renderClock } from '../player.js';
 import { Metronome } from '../metronome.js';
 import { Ladder, nextRung, rungs } from '../ladder.js';
@@ -1308,6 +1308,7 @@ export function mount(el, payload) {
           <div data-playhead-cap style="position:absolute;top:0;width:0;height:0;margin-left:-6px;
                       border-left:6px solid transparent;border-right:6px solid transparent;border-top:8px solid var(--accent-hi,#F6C98A)"></div>
         </div>
+        <div data-patch-lane style="position:relative;height:14px"></div>
       </div>
 
       <div data-foot style="display:flex;gap:12px;padding-top:30px"></div>
@@ -1353,6 +1354,7 @@ export function mount(el, payload) {
   const gridCanvas = root.querySelector('[data-grid-canvas]');
   const playheadEl = root.querySelector('[data-playhead]');
   const playheadCapEl = root.querySelector('[data-playhead-cap]');
+  const patchLaneEl = root.querySelector('[data-patch-lane]');
   const footEl = root.querySelector('[data-foot]');
   const midiStatusEl = root.querySelector('[data-midi-status]');
   const statusBarEl = root.querySelector('[data-status-bar]');
@@ -1498,6 +1500,23 @@ export function mount(el, payload) {
     // Cosmetic only -- see wave.js's own `loudnessGainDb` doc. peaks.json
     // itself stays the real, unaltered amplitude on disk.
     drawWave(waveSvg, windowed, v, currentP(), { ...PRACTICE_WAVE_OPTS, loudnessGainDb: payload.loudness_gain_db });
+    renderPatchLane(v);
+  }
+
+  // Read-only mirror of song.js's own patch-change dots (renderPatchLane
+  // there) -- editing a patch stays a song.js job (CLAUDE.md's "one action
+  // table" is about controls, not about every screen owning every edit),
+  // this screen only needs to show which memory the section is currently
+  // scheduled to cross, and where.
+  function renderPatchLane(v) {
+    if (!patchLaneEl) return;
+    const dots = (payload.patch_changes || []).map((c) => {
+      const x = viewX(c.at_s, v);
+      if (x < -6 || x > v.widthPx + 6) return '';
+      return `<div title="${escapeHtml(c.patch)} at ${c.at_s.toFixed(2)}s" style="position:absolute;left:${x}px;top:2px;
+        width:10px;height:10px;border-radius:50%;background:var(--accent,#E0913F);transform:translateX(-50%)"></div>`;
+    }).join('');
+    patchLaneEl.innerHTML = dots;
   }
 
   /** Cheap, every-frame updates: ring, playhead. No DOM rebuild — direct
@@ -1894,9 +1913,16 @@ export function mount(el, payload) {
       // Two clocks (CLAUDE.md): `elapsed` is playback time, source seconds
       // is what `patch_changes` is keyed on -- converted right here, at
       // the boundary, same as everywhere else that crosses between them.
-      // Clamped at 0 so the pre-roll (elapsed < 0) still resolves to the
-      // section's own start rather than to whatever sits before it.
-      applyPatchAt(section.start_s + Math.max(0, elapsed));
+      // FOUND LIVE 2026-09-26, for-my-grana/46b90340: this used to add
+      // `elapsed` straight onto `section.start_s` with no ratio, which is
+      // only correct at 100% -- below that, playback time runs slower
+      // than source time (loopDurationPlayback's own source_dur/ratio
+      // shape, inverted here: source_covered = elapsed * ratio), so the
+      // patch fired early relative to where the loop actually was, worse
+      // the slower the section played. Clamped at 0 so the pre-roll
+      // (elapsed < 0) still resolves to the section's own start rather
+      // than to whatever sits before it.
+      applyPatchAt(section.start_s + Math.max(0, elapsed) * (audibleSpeedPct() / 100));
     } else {
       lastTs = null;
     }

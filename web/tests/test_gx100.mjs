@@ -203,12 +203,22 @@ test('practice.js\'s section load resolves and sends the applicable patch', () =
 // start_s. A `full_song` section covers the entire song and can legitimately
 // cross several entries as it loops; song.js's own playheadTick already had
 // to solve this (test above), practice.js's tick() did not.
-test('practice.js\'s tick() re-resolves the patch every frame while playing, same as song.js\'s playheadTick', () => {
+//
+// Found live AGAIN the same day, for-my-grana/46b90340: the fix above added
+// the call but not the conversion -- `elapsed` is playback time (CLAUDE.md's
+// two clocks), `patch_changes` is keyed in source time, and tick() was
+// adding them directly. Correct at 100% (the two clocks coincide there),
+// wrong below it -- a patch near a section's end fired partway through
+// instead, worse the slower the section played. `loopDurationPlayback()`
+// already divides a source duration by the speed ratio to get a playback
+// duration; going the other way (playback elapsed -> source elapsed) means
+// multiplying by that same ratio.
+test('practice.js\'s tick() re-resolves the patch every frame while playing, same as song.js\'s playheadTick, converting playback time to source time', () => {
   const match = practiceSrc.match(/function tick\(ts\) \{[\s\S]*?\n  \}/);
   assert.ok(match, 'tick not found in practice.js -- has it been renamed?');
   assert.ok(
-    /applyPatchAt\(section\.start_s \+ Math\.max\(0, elapsed\)\)/.test(match[0]),
-    'tick() must call applyPatchAt with the current SOURCE position (section.start_s + elapsed) so a patch change crossed mid-loop actually sends',
+    /applyPatchAt\(section\.start_s \+ Math\.max\(0, elapsed\) \* \(audibleSpeedPct\(\) \/ 100\)\)/.test(match[0]),
+    'tick() must call applyPatchAt with the current SOURCE position, converting playback-time `elapsed` to source seconds via audibleSpeedPct() (section.start_s + elapsed * ratio), not add the two clocks directly',
   );
 });
 
