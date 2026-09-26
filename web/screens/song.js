@@ -119,7 +119,7 @@ import { drawWave, SONG_WAVE_OPTS } from '../wave.js';
 import { renderSections, attachCreateHandler, attachDragHandlers } from '../sections.js';
 import {
   computeGrid, drawGrid, sizeCanvas, viewX, computeSeekPosition, slicePeaksToWindow,
-  FIT_ZOOM_PAN, zoomBy, panBy, followTo, zoomPanView, ZOOM_STEP, PAN_STEP,
+  FIT_ZOOM_PAN, zoomBy, panBy, followTo, zoomPanView, ZOOM_STEP, PAN_STEP, snapToGrid,
 } from '../timeline.js';
 import { on } from '../actions.js';
 import { createEngine } from '../player.js';
@@ -1290,7 +1290,19 @@ export function mount(el, payload) {
     }
     const rect = patchLaneEl.getBoundingClientRect();
     const { sourceS } = computeSeekPosition(e.clientX, rect, view());
-    openPatchPopup(sourceS, null);
+    // Snap a NEW patch change onto the song start/end or any section
+    // boundary it lands near -- practice.js's own resolvePatchAt is a
+    // strict "at_s <= section.start_s" lookup (docs/02-data-model.md's
+    // own worked example), so a click meant to land "right at the start"
+    // that misses by a few milliseconds (a pixel is worth more than that
+    // at any real zoom level) silently produces a patch that never
+    // applies to the section it was clearly meant for -- found live
+    // 2026-09-26, Paolo: a patch added at the very start of "whole song"
+    // (start_s 0.0) landed at 0.0065s and the practice screen kept
+    // reverting to U01-1. Same tolerance sections.js already uses for
+    // dragging a boundary onto the grid.
+    const marks = [0, durationS, ...sections.flatMap((s) => [s.start_s, s.end_s])];
+    openPatchPopup(snapToGrid(sourceS, marks, 'bar'), null);
   });
   // A click anywhere else on the page closes an open popup -- the same
   // "click elsewhere dismisses it" convention a native <select> itself

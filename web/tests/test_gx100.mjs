@@ -191,7 +191,25 @@ test('activePatchMemory is reset on a real stop (onPreviewEnded) and on pause, s
 
 test('practice.js\'s section load resolves and sends the applicable patch', () => {
   assert.ok(/import\s*\{[^}]*\bsendProgramChange\b[^}]*\}\s*from\s*['"]\.\.\/gx100\.js['"]/.test(practiceSrc));
-  assert.ok(practiceSrc.includes('sendProgramChange(resolvePatchAt('), 'ensureEngine must resolve then send the patch for the section being practised');
+  const match = practiceSrc.match(/function applyPatchAt\(atS\) \{[\s\S]*?\n  \}/);
+  assert.ok(match, 'applyPatchAt not found in practice.js -- has it been renamed?');
+  assert.ok(match[0].includes('resolvePatchAt(payload.patch_changes, atS)'), 'applyPatchAt must resolve the memory for atS against the song\'s own patch_changes timeline');
+  assert.ok(match[0].includes('sendProgramChange('), 'applyPatchAt must actually send once the memory has changed');
+});
+
+// Found live 2026-09-26, for-my-grana/whole-song: five patch_changes across
+// the whole recording, and only the first ever reached the pedal --
+// practice.js used to resolve/send ONCE, at mount, at the section's own
+// start_s. A `full_song` section covers the entire song and can legitimately
+// cross several entries as it loops; song.js's own playheadTick already had
+// to solve this (test above), practice.js's tick() did not.
+test('practice.js\'s tick() re-resolves the patch every frame while playing, same as song.js\'s playheadTick', () => {
+  const match = practiceSrc.match(/function tick\(ts\) \{[\s\S]*?\n  \}/);
+  assert.ok(match, 'tick not found in practice.js -- has it been renamed?');
+  assert.ok(
+    /applyPatchAt\(section\.start_s \+ Math\.max\(0, elapsed\)\)/.test(match[0]),
+    'tick() must call applyPatchAt with the current SOURCE position (section.start_s + elapsed) so a patch change crossed mid-loop actually sends',
+  );
 });
 
 test('the patch-change lane commits through POST /api/patch-change, not a second write path', () => {

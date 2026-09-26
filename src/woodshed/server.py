@@ -463,7 +463,10 @@ class WoodshedHandler(BaseHTTPRequestHandler):
         `full_song` (manifest.Section.full_song's own docstring: a rep
         counter, not a ladder target) resumes at whatever speed the most
         recent pass actually used (`ledger.last_speed`, clean or not) --
-        there is no rung to have earned. Every other section resumes at
+        there is no rung to have earned. Before ever being practiced, it
+        falls back to its own `start_speed` override if set (a "whole song"
+        entry meant to always play at 100%, say), and only then to the
+        song's flat `practice.start_speed`. Every other section resumes at
         the highest rung with `reps_to_advance` clean reps already banked
         (`ladder.starting_speed`, unchanged, just wired in here for the
         first time) -- exploring a speed without banking the clean reps to
@@ -471,7 +474,12 @@ class WoodshedHandler(BaseHTTPRequestHandler):
         """
         if section.full_song:
             last = ledger.last_speed(reps, song.slug, section.id)
-            return song.practice.start_speed if last is None else last
+            if last is not None:
+                return last
+            return (
+                section.start_speed if section.start_speed is not None
+                else song.practice.start_speed
+            )
         cfg = LadderConfig(
             start_speed=(
                 section.start_speed if section.start_speed is not None
@@ -880,7 +888,8 @@ class WoodshedHandler(BaseHTTPRequestHandler):
         """The dashboard's whole payload for one setlist: one row per song,
         the next-up pick, and the three headline numbers docs/00-spec.md's
         Dashboard section names (weeks to the gig, songs at target, needs
-        audio)."""
+        audio). `total_duration_s` sums only bound songs' recordings --
+        a needs-audio song has no duration on disk to add."""
         slug = raw_slug
         if slug not in self.repo.list_setlists():
             self._error(404, f"no such setlist: {raw_slug!r}")
@@ -892,6 +901,7 @@ class WoodshedHandler(BaseHTTPRequestHandler):
         rows = []
         songs_at_target = 0
         needs_audio_count = 0
+        total_duration_s = 0.0
         for entry in setlist.songs:
             song_path = self.repo.song_dir(entry.slug) / "song.yaml"
             if not song_path.is_file():
@@ -908,6 +918,8 @@ class WoodshedHandler(BaseHTTPRequestHandler):
             needs_audio = not (self.repo.song_dir(song.slug) / song.recording.file).is_file()
             if needs_audio:
                 needs_audio_count += 1
+            else:
+                total_duration_s += song.recording.duration_s
 
             readiness = practice.song_readiness(song, reps, song.practice)
             # Same filter practice.song_readiness applies internally (a
@@ -1001,6 +1013,7 @@ class WoodshedHandler(BaseHTTPRequestHandler):
             "song_count": len(setlist.songs),
             "songs_at_target": songs_at_target,
             "needs_audio_count": needs_audio_count,
+            "total_duration_s": total_duration_s,
             "next_up": next_up_payload,
             "rows": rows,
         })

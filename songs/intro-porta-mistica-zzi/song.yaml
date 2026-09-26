@@ -27,9 +27,12 @@ sections:
 - id: whole-song
   name: Whole song
   start_s: 0.0
-  end_s: 130.4635
+  end_s: 65.32247566063978
   snapped: free
   target_speed: 100.0
+  start_speed: 100.0
   counts_toward_readiness: true
   full_song: true
-patch_changes: []
+patch_changes:
+- at_s: 0.0
+  patch: U01-2

@@ -52,7 +52,7 @@ sections:
   counts_toward_readiness: true
   full_song: false
 patch_changes:
-- at_s: 0.03491639618297216
+- at_s: 0.0
   patch: U01-2
 - at_s: 123.8942960885514
   patch: U01-1

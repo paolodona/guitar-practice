@@ -27,24 +27,34 @@ sections:
 - id: whole-song
   name: Whole song
   start_s: 0.0
-  end_s: 267.984
+  end_s: 245.43458136300416
   snapped: free
   target_speed: 100.0
+  start_speed: 100.0
   counts_toward_readiness: true
   full_song: true
+- id: 46b90340
+  name: Theme
+  start_s: 0.0
+  end_s: 19.459948632997612
+  snapped: free
+  target_speed: 100.0
+  start_speed: 60.0
+  counts_toward_readiness: true
+  full_song: false
 patch_changes:
-- at_s: 0.008551225323349216
-  patch: U02-4
+- at_s: 0.0
+  patch: U02-3
 - at_s: 17.675823030532275
   patch: U02-1
 - at_s: 34.24565112732738
-  patch: U02-4
+  patch: U02-3
 - at_s: 43.58934855514781
   patch: U02-1
 - at_s: 68.64814284196035
   patch: U02-2
 - at_s: 87.90968378813703
-  patch: U02-4
+  patch: U02-3
 - at_s: 97.50792547046018
   patch: U02-1
 - at_s: 113.53918900661145

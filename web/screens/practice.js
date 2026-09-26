@@ -119,7 +119,7 @@ import { drawWave, PRACTICE_WAVE_OPTS } from '../wave.js';
 import { computeGrid, drawGrid, sizeCanvas, computeSeekPosition, slicePeaksToWindow } from '../timeline.js';
 import { createEngine, renderClock } from '../player.js';
 import { Metronome } from '../metronome.js';
-import { Ladder, nextRung } from '../ladder.js';
+import { Ladder, nextRung, rungs } from '../ladder.js';
 import { ACTIONS, on, dispatch } from '../actions.js';
 import { KEY_MAP } from '../keys.js';
 import { onConnectionChange } from '../midi.js';
@@ -301,6 +301,27 @@ export { computeSeekPosition };
 // at whatever speedPct actually was.
 function clampSpeed(v) { return Math.min(110, Math.max(40, v)); }
 function clampShift(v) { return Math.min(6, Math.max(-6, Math.round(v))); }
+
+/**
+ * The rung the current speed should advance toward, or null when there is
+ * none to show -- either because `speedPct` has already reached
+ * `cfg.targetSpeed`, or because the section has no rung ladder at all
+ * (`cfg.startSpeed >= cfg.targetSpeed`, `rungs()` collapsing to the single
+ * element `[targetSpeed]`). That second case is deliberate and separate
+ * from ladder.js's own `nextRung`: a section configured to start AND end
+ * at the same speed (e.g. a `full_song` "whole song" entry practiced flat
+ * at 100%) was still showing "Next rung 100% after 3 more clean reps" the
+ * moment the dial was nudged below target -- technically the only rung
+ * `nextRung` could find, but a nonsensical thing to call a rung when the
+ * section was never laddered in the first place (Paolo, 2026-09-26).
+ * @param {number} speedPct
+ * @param {import('../ladder.js').LadderConfig} cfg
+ * @returns {number | null}
+ */
+export function rungHint(speedPct, cfg) {
+  if (rungs(cfg).length <= 1) return null;
+  return nextRung(speedPct, cfg);
+}
 
 /**
  * Turn one engine 'error' event into the one line the status bar shows for
@@ -512,7 +533,14 @@ export function mount(el, payload) {
   }
 
   const cfg = {
-    startSpeed: payload.practice.start_speed,
+    // Mirrors server.py's own `_section_starting_speed`/LadderConfig
+    // construction exactly -- a per-section override, falling back to the
+    // song's flat default. Used to stay `payload.practice.start_speed`
+    // unconditionally, which disagreed with the server the moment a
+    // section set its own `start_speed` (found live 2026-09-26 alongside
+    // the "whole song" full_song fix: same override, same miss, just the
+    // ladder-config copy of it rather than the full_song fallback).
+    startSpeed: section.start_speed ?? payload.practice.start_speed,
     ladderStep: section.ladder_step ?? payload.practice.ladder_step,
     repsToAdvance: section.reps_to_advance ?? payload.practice.reps_to_advance,
     targetSpeed: section.target_speed,
@@ -1174,6 +1202,26 @@ export function mount(el, payload) {
 
   let elapsed = -cosmeticPreRoll;
 
+  // ---- #3: the GX-100 patch-change timeline, resolved against wherever
+  // the loop actually is right now ----
+  // Used to be sent ONCE, at mount, resolved at the section's own
+  // start_s -- fine for a short drilled section (one patch, start to
+  // end, by construction), wrong for `full_song` ("whole song"), which
+  // covers the entire recording and can legitimately cross several
+  // `patch_changes` entries as it loops (found live 2026-09-26,
+  // for-my-grana/whole-song: five entries across the song, and only the
+  // first one ever reached the pedal). `activePatchMemory` mirrors
+  // song.js's own applyPatchAt -- resolved every tick, sent only on an
+  // actual change, so a section that never crosses a boundary still
+  // sends exactly once, at mount, same as before.
+  let activePatchMemory = null;
+  function applyPatchAt(atS) {
+    const memory = resolvePatchAt(payload.patch_changes, atS);
+    if (memory === activePatchMemory) return;
+    activePatchMemory = memory;
+    sendProgramChange(memory);
+  }
+
   root.innerHTML = `
     <div data-main style="width:100%;height:100%;display:flex;flex-direction:column;padding:68px 80px 60px;box-sizing:border-box">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:48px">
@@ -1517,12 +1565,12 @@ export function mount(el, payload) {
       repsValEl.textContent = String(repCount);
       repsValEl.style.color = 'var(--ink,#E8EEEB)';
       const remaining = ladder.remaining;
-      repsSubEl.textContent = speedPct >= cfg.targetSpeed
+      repsSubEl.textContent = rungHint(speedPct, cfg) == null
         ? 'at target speed'
         : `${ladder.cleanAtSpeed} of ${cfg.repsToAdvance} clean to advance`;
     }
 
-    const nxt = nextRung(speedPct, cfg);
+    const nxt = rungHint(speedPct, cfg);
     if (advancing && advanceInfo) {
       const t = advanceInfo.earnedAt;
       const hh = String(t.getHours()).padStart(2, '0');
@@ -1710,12 +1758,12 @@ export function mount(el, payload) {
         // schedule against. No-op when it was never switched on.
         applyMetronome();
         // #3: auto-apply the patch that applies at THIS section's own
-        // start -- resolved once, here, since a section never changes
-        // mid-mount (a different one is a fresh navigation, gotoSibling's
-        // own hash change, which remounts this screen entirely).
+        // start. tick() below takes over from here for anything crossed
+        // while playing -- this call is what covers the section before
+        // the first play() (there is no 'playing' tick yet to do it).
         // sendProgramChange's own doc covers the toggle/degrade --
         // fire-and-forget, never blocks audio on a MIDI round trip.
-        sendProgramChange(resolvePatchAt(payload.patch_changes, section.start_s));
+        applyPatchAt(section.start_s);
       })().catch((err) => {
         // Neither engine could load -- the browser may refuse AudioWorklet
         // outright, or the audio may not be bound. Degrade to local-only
@@ -1843,6 +1891,12 @@ export function mount(el, payload) {
         elapsed += (ts - lastTs) / 1000;
       }
       lastTs = ts;
+      // Two clocks (CLAUDE.md): `elapsed` is playback time, source seconds
+      // is what `patch_changes` is keyed on -- converted right here, at
+      // the boundary, same as everywhere else that crosses between them.
+      // Clamped at 0 so the pre-roll (elapsed < 0) still resolves to the
+      // section's own start rather than to whatever sits before it.
+      applyPatchAt(section.start_s + Math.max(0, elapsed));
     } else {
       lastTs = null;
     }

@@ -469,6 +469,28 @@ def test_api_song_starting_speed_pct_is_last_practiced_for_full_song(served):
     assert by_id["whole-song"]["starting_speed_pct"] == 92.0
 
 
+def test_api_song_starting_speed_pct_honours_a_full_song_start_speed_override(served):
+    """A `full_song` section with its own `start_speed` (e.g. a "whole song"
+    entry meant to always be played at 100%) must fall back to THAT, not
+    the song's flat `practice.start_speed`, when it has never been
+    practiced yet -- `_section_starting_speed`'s full_song branch was
+    missing the same per-section override its ladder branch already has."""
+    base, repo, slug = served
+    song_path = repo.song_dir(slug) / "song.yaml"
+    song = load_song(song_path)
+    song.sections.append(
+        Section(
+            id="whole-song", name="Whole song", start_s=0.0, end_s=200.0,
+            snapped="free", target_speed=100.0, start_speed=100.0, full_song=True,
+        )
+    )
+    save_song(song, song_path)
+
+    _, data = _get_json(base, f"/api/song/{slug}")
+    by_id = {s["id"]: s for s in data["sections"]}
+    assert by_id["whole-song"]["starting_speed_pct"] == 100.0
+
+
 def test_api_song_setlist_query_param_derives_the_shift(served):
     base, repo, slug = served
     save_setlist(
@@ -966,6 +988,7 @@ def test_api_setlist_payload_has_a_row_per_song_and_a_next_up(served):
     assert data["name"] == "Gig"
     assert data["song_count"] == 1
     assert data["needs_audio_count"] == 0
+    assert data["total_duration_s"] == 200.0
     assert len(data["rows"]) == 1
     row = data["rows"][0]
     assert row["slug"] == slug
@@ -1038,6 +1061,7 @@ def test_api_setlist_row_flags_needs_audio_for_an_unbound_song(served):
     status, data = _get_json(base, "/api/setlist/gig")
     assert status == 200
     assert data["needs_audio_count"] == 1
+    assert data["total_duration_s"] == 0.0
     assert data["rows"][0] == {
         "slug": "ghost", "title": "ghost", "artist": None, "needs_audio": True,
         "readiness": None, "section_count": 0, "sections_under_target": 0,
